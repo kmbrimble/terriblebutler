@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Household Inventory</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        /* Hide scrollbar for tabs */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .touch-target {
+            min-height: 44px;
+            min-width: 44px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans antialiased pb-20">
+
+    <!-- Header -->
+    <header class="bg-blue-600 text-white p-4 sticky top-0 z-10 shadow-md flex justify-between items-center">
+        <h1 class="text-xl font-bold">Inventory</h1>
+        <div class="flex gap-2">
+            <button onclick="openScanner()" class="touch-target bg-blue-700 hover:bg-blue-800 rounded px-3 py-2 text-sm font-semibold">Scan</button>
+            <button onclick="openAddModal()" class="touch-target bg-blue-500 hover:bg-blue-400 rounded px-3 py-2 text-sm font-semibold">Add</button>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-white shadow-sm sticky top-[68px] z-10">
+        <ul id="tabs" class="flex overflow-x-auto no-scrollbar p-2 gap-2 whitespace-nowrap">
+            <!-- Tabs injected by JS -->
+        </ul>
+    </nav>
+
+    <!-- Filters -->
+    <div class="p-4 bg-white shadow-sm flex flex-col sm:flex-row gap-2">
+        <input type="text" id="searchInput" placeholder="Search items..." class="w-full sm:flex-1 border rounded p-3 touch-target text-base" oninput="renderItems()">
+        <select id="categoryFilter" class="w-full sm:w-auto border rounded p-3 touch-target text-base bg-white" onchange="renderItems()">
+            <option value="">All Categories</option>
+            <!-- Options injected by JS -->
+        </select>
+    </div>
+
+    <!-- Main Content List -->
+    <main id="itemList" class="p-4 space-y-4">
+        <!-- Item Cards injected by JS -->
+    </main>
+
+    <!-- Add/Edit Item Modal -->
+    <div id="addModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg w-full max-w-md max-h-full overflow-y-auto p-6 relative">
+            <h2 class="text-xl font-bold mb-4">Add / Edit Item</h2>
+            
+            <div class="mb-4 flex gap-2">
+                <button onclick="document.getElementById('llmFileInput').click()" class="touch-target flex-1 bg-purple-600 text-white rounded font-bold">Snap Label with LLM</button>
+                <input type="file" id="llmFileInput" accept="image/*" capture="environment" class="hidden" onchange="processLLMImage(event)">
+            </div>
+
+            <form id="itemForm" onsubmit="handleItemSubmit(event)" class="space-y-4">
+                <input type="hidden" id="itemId">
+                
+                <div>
+                    <label class="block text-sm font-bold mb-1">Barcode</label>
+                    <input type="text" id="itemBarcode" class="w-full border rounded p-3 touch-target">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold mb-1">Name *</label>
+                    <input type="text" id="itemName" required class="w-full border rounded p-3 touch-target">
+                </div>
+                <div class="flex gap-2">
+                    <div class="flex-1">
+                        <label class="block text-sm font-bold mb-1">Location</label>
+                        <select id="itemLocation" class="w-full border rounded p-3 touch-target">
+                            <option value="1">Freezer</option>
+                            <option value="2">Fridge</option>
+                            <option value="3">Pantry</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-bold mb-1">Category (ID or Name)</label>
+                        <input type="text" id="itemCategory" class="w-full border rounded p-3 touch-target">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold mb-1">Container Details</label>
+                    <input type="text" id="itemDetails" placeholder="Size, weight, type" class="w-full border rounded p-3 touch-target">
+                </div>
+                <div class="flex gap-2">
+                    <div class="flex-1">
+                        <label class="block text-sm font-bold mb-1">Quantity</label>
+                        <input type="number" step="0.1" id="itemQuantity" value="1" class="w-full border rounded p-3 touch-target">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-sm font-bold mb-1">Reorder Threshold</label>
+                        <input type="number" step="0.1" id="itemThreshold" value="0" class="w-full border rounded p-3 touch-target">
+                    </div>
+                </div>
+                <div class="flex gap-4 pt-4">
+                    <button type="button" onclick="closeAddModal()" class="touch-target flex-1 bg-gray-300 rounded font-bold">Cancel</button>
+                    <button type="submit" class="touch-target flex-1 bg-blue-600 text-white rounded font-bold">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scanner Modal -->
+    <div id="scannerModal" class="hidden fixed inset-0 bg-black z-50 flex flex-col">
+        <div class="p-4 bg-gray-900 text-white flex justify-between items-center">
+            <h2 class="text-xl font-bold">Scan Barcode</h2>
+            <button onclick="closeScanner()" class="touch-target bg-red-600 px-4 py-2 rounded font-bold">Close</button>
+        </div>
+        <div id="reader" class="flex-1 w-full bg-black"></div>
+    </div>
+
+    <!-- Quantity Modal -->
+    <div id="qtyModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg w-full max-w-xs p-6 text-center">
+            <h3 class="text-lg font-bold mb-4">Set Quantity</h3>
+            <input type="number" id="manualQtyInput" step="0.1" class="w-full border rounded p-3 touch-target text-center text-xl mb-4">
+            <div class="flex gap-2">
+                <button onclick="closeQtyModal()" class="touch-target flex-1 bg-gray-300 rounded font-bold">Cancel</button>
+                <button onclick="submitManualQty()" class="touch-target flex-1 bg-blue-600 text-white rounded font-bold">Set</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-70 z-[60] flex flex-col items-center justify-center text-white">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500 mb-4"></div>
+        <p class="text-xl font-bold" id="loadingText">Processing LLM Vision...</p>
+    </div>
+
+    <script>
+        // State
+        let items = [];
+        let currentTab = 'All Inventory';
+        const tabs = ['All Inventory', 'Freezer', 'Fridge', 'Pantry', 'Grocery List', 'Ignored Out-of-Stock'];
+        let html5QrcodeScanner = null;
+        let currentQtyItemId = null;
+
+        // Init
+        const socket = io();
+        socket.on('inventory_updated', (data) => {
+            fetchItems();
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderTabs();
+            fetchItems();
+        });
+
+        // Data Fetching
+        async function fetchItems() {
+            try {
+                const res = await fetch('/api/items');
+                items = await res.json();
+                populateCategoryFilter();
+                renderItems();
+            } catch (err) {
+                console.error('Failed to fetch items:', err);
+            }
+        }
+
+        // Rendering
+        function renderTabs() {
+            const container = document.getElementById('tabs');
+            container.innerHTML = tabs.map(tab => `
+                <button onclick="setTab('${tab}')" class="shrink-0 touch-target px-4 py-2 rounded-full font-bold ${currentTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}">
+                    ${tab}
+                </button>
+            `).join('');
+        }
+
+        function setTab(tab) {
+            currentTab = tab;
+            renderTabs();
+            renderItems();
+        }
+
+        function populateCategoryFilter() {
+            const select = document.getElementById('categoryFilter');
+            const categories = [...new Set(items.map(i => i.category_name || i.category_id).filter(Boolean))];
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">All Categories</option>' + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            select.value = currentVal;
+        }
+
+        function renderItems() {
+            const container = document.getElementById('itemList');
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const catFilter = document.getElementById('categoryFilter').value;
+
+            let filtered = items.filter(item => {
+                if (search && !item.name.toLowerCase().includes(search) && !(item.barcode && item.barcode.includes(search))) return false;
+                const catMatch = item.category_name || item.category_id || '';
+                if (catFilter && catMatch.toString() !== catFilter) return false;
+
+                switch (currentTab) {
+                    case 'All Inventory': return true;
+                    case 'Freezer': return item.location_name === 'Freezer';
+                    case 'Fridge': return item.location_name === 'Fridge';
+                    case 'Pantry': return item.location_name === 'Pantry';
+                    case 'Grocery List': return item.quantity <= item.reorder_threshold && item.is_ignored_grocery === 0;
+                    case 'Ignored Out-of-Stock': return item.is_ignored_grocery === 1;
+                    default: return true;
+                }
+            });
+
+            container.innerHTML = filtered.map(item => {
+                const isGrocery = currentTab === 'Grocery List';
+                const isIgnored = currentTab === 'Ignored Out-of-Stock';
+                
+return `
+                <div class="bg-white rounded-lg shadow p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                    <div class="flex gap-4 items-center w-full sm:w-auto flex-1 min-w-0">
+                        ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded shrink-0">` : `<div class="w-16 h-16 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs text-center p-1 border shrink-0">No Img</div>`}
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-bold text-lg truncate">${item.name}</h3>
+                            <p class="text-sm text-gray-500 truncate">${item.location_name || 'No Location'} | ${item.category_name || item.category_id || 'No Category'}</p>
+                            <p class="text-sm text-gray-500 truncate">${item.container_details || ''}</p>
+                            
+                            ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1)" class="mt-2 touch-target px-4 py-1 bg-red-100 text-red-700 font-bold rounded text-sm">Ignore Item</button>` : ''}
+                            ${isIgnored ? `<button onclick="toggleIgnore(${item.id}, 0)" class="mt-2 touch-target px-4 py-1 bg-green-100 text-green-700 font-bold rounded text-sm">Restore to List</button>` : ''}
+                        </div>
+                    </div>
+                    
+                    <div class="flex w-full sm:w-auto justify-end mt-2 sm:mt-0">
+                        <div class="flex items-center bg-gray-100 rounded-full border border-gray-200">
+                            <button onclick="updateQty(${item.id}, 1, 'subtract')" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold text-gray-700 active:bg-gray-200 rounded-l-full">-</button>
+                            <button onclick="openQtyModal(${item.id}, ${item.quantity})" class="touch-target px-2 min-w-[3rem] font-bold text-lg text-center active:bg-gray-200">${item.quantity}</button>
+                            <button onclick="updateQty(${item.id}, 1, 'add')" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold text-gray-700 active:bg-gray-200 rounded-r-full">+</button>
+                        </div>
+                    </div>
+                </div>
+            `}).join('');
+            
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 mt-8">No items found.</p>';
+            }
+        }
+
+        // API Interactions
+        async function updateQty(id, amount, action) {
+            await fetch(`/api/items/${id}/quantity`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount, action })
+            });
+        }
+
+        async function toggleIgnore(id, status) {
+            await fetch(`/api/items/${id}/ignore-grocery`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_ignored_grocery: status })
+            });
+        }
+
+        // Qty Modal Logic
+        function openQtyModal(id, currentQty) {
+            currentQtyItemId = id;
+            document.getElementById('manualQtyInput').value = currentQty;
+            document.getElementById('qtyModal').classList.remove('hidden');
+            document.getElementById('manualQtyInput').focus();
+        }
+
+        function closeQtyModal() {
+            document.getElementById('qtyModal').classList.add('hidden');
+            currentQtyItemId = null;
+        }
+
+        async function submitManualQty() {
+            const val = parseFloat(document.getElementById('manualQtyInput').value);
+            if (!isNaN(val) && currentQtyItemId) {
+                await updateQty(currentQtyItemId, val, 'set');
+                closeQtyModal();
+            }
+        }
+
+        // Add Modal Logic
+        function openAddModal() {
+            document.getElementById('itemForm').reset();
+            document.getElementById('itemId').value = '';
+            document.getElementById('addModal').classList.remove('hidden');
+        }
+
+        function closeAddModal() {
+            document.getElementById('addModal').classList.add('hidden');
+        }
+
+        async function handleItemSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('itemId').value;
+            
+            const payload = {
+                barcode: document.getElementById('itemBarcode').value,
+                name: document.getElementById('itemName').value,
+                location_id: parseInt(document.getElementById('itemLocation').value),
+                container_details: document.getElementById('itemDetails').value,
+                quantity: parseFloat(document.getElementById('itemQuantity').value),
+                reorder_threshold: parseFloat(document.getElementById('itemThreshold').value)
+            };
+
+            const catVal = document.getElementById('itemCategory').value;
+            if (catVal) {
+                const parsed = parseInt(catVal);
+                if (!isNaN(parsed)) payload.category_id = parsed;
+                // If it's a string, SQLite might accept it depending on strictness, but we send it via category_id key if needed, or append to container details.
+                // Keeping it simple: send as is. The backend schema uses INTEGER but SQLite doesn't enforce without STRICT.
+                else payload.category_id = catVal; 
+            }
+
+            const url = id ? `/api/items/${id}` : '/api/items';
+            const method = id ? 'PUT' : 'POST';
+
+            await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            closeAddModal();
+        }
+
+        // Barcode Scanner Logic
+        function openScanner() {
+            document.getElementById('scannerModal').classList.remove('hidden');
+            html5QrcodeScanner = new Html5Qrcode("reader");
+            html5QrcodeScanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                async (decodedText) => {
+                    closeScanner();
+                    await handleScannedBarcode(decodedText);
+                },
+                (err) => { /* ignore constant stream of scan failures */ }
+            ).catch(err => {
+                alert("Camera error: " + err);
+                closeScanner();
+            });
+        }
+
+        function closeScanner() {
+            if (html5QrcodeScanner) {
+                try {
+                    html5QrcodeScanner.stop().catch(e => console.error(e));
+                } catch (e) {
+                    console.warn("Scanner stop bypassed: not running.", e);
+                }
+                html5QrcodeScanner = null;
+            }
+            document.getElementById('scannerModal').classList.add('hidden');
+        }
+
+        async function handleScannedBarcode(barcode) {
+            try {
+                const res = await fetch(`/api/items/barcode/${barcode}`);
+                if (res.ok) {
+                    const item = await res.json();
+                    if (confirm(`Found: ${item.name}\nIncrement quantity?`)) {
+                        await updateQty(item.id, 1, 'add');
+                    }
+                } else {
+                    openAddModal();
+                    document.getElementById('itemBarcode').value = barcode;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // LLM Vision Logic
+        async function processLLMImage(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                const res = await fetch('/api/parse-label-llm', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!res.ok) throw new Error('LLM Parsing failed');
+                const data = await res.json();
+
+                if (data.name) document.getElementById('itemName').value = data.name;
+                if (data.category) document.getElementById('itemCategory').value = data.category;
+                if (data.container_details) document.getElementById('itemDetails').value = data.container_details;
+
+            } catch (err) {
+                alert('Error parsing label: ' + err.message);
+            } finally {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+                e.target.value = ''; // Reset input
+            }
+        }
+    </script>
+</body>
+</html>
