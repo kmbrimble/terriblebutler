@@ -288,7 +288,7 @@ app.post('/api/parse-label-llm', upload.single('image'), async (req, res) => {
 });
 
 // Start Server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 2626;
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Terrible Butler server listening on port ${PORT}`);
 });
