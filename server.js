@@ -36,6 +36,7 @@ const upload = multer({ storage: storage });
 // Initialise Database
 const db = new Database(path.join(__dirname, 'data', 'inventory.db'));
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = FULL');
 
 // Initialise Schema
 db.exec(`
