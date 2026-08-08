@@ -3,12 +3,76 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Terrible Butler</title>
+    <title>Terrible Butler - Inventory</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lobster+Two:wght@700&display=swap" rel="stylesheet">
+    
+    <!-- Cropper.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    
+    <script>
+        const savedTheme = localStorage.getItem('tb_theme') || 'dark';
+        if (savedTheme === 'dark') {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+    
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        rimmy: {
+                            black: 'var(--color-bg)',
+                            charcoal: 'var(--color-card)',
+                            purple: 'var(--color-header)',
+                            purpleHover: 'var(--color-header-hover)',
+                            orange: 'var(--color-accent)',
+                            orangeHover: 'var(--color-accent-hover)',
+                            text: 'var(--color-text)',
+                            textMuted: 'var(--color-text-muted)',
+                            border: 'var(--color-border)'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
-        /* Hide scrollbar for tabs */
+        :root {
+            --color-bg: #F4F4F9;
+            --color-card: #FFFFFF;
+            --color-header: #5B0998;
+            --color-header-hover: #4a077a;
+            --color-accent: #E65100;
+            --color-accent-hover: #b33e00;
+            --color-text: #1A1A1A;
+            --color-text-muted: #666666;
+            --color-border: #cccccc;
+        }
+
+        .dark {
+            --color-bg: #0D0D0D;
+            --color-card: #1A1A1A;
+            --color-header: #6A0DAD;
+            --color-header-hover: #7B1FA2;
+            --color-accent: #FF6F00;
+            --color-accent-hover: #FF8C00;
+            --color-text: #E0E0E0;
+            --color-text-muted: #9ca3af;
+            --color-border: #374151;
+        }
+
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
@@ -20,160 +84,722 @@
             min-height: 44px;
             min-width: 44px;
         }
+        .item-card {
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+        .cropper-modal {
+            background-color: rgba(0, 0, 0, 0.85);
+        }
+        .cropper-point {
+            width: 20px !important;
+            height: 20px !important;
+            opacity: 0.8 !important;
+            background-color: #007bff !important;
+        }
+        .cropper-point.point-se {
+            width: 28px !important;
+            height: 28px !important;
+        }
+        /* Custom styling to ensure the html5-qrcode reader renders cleanly */
+        #reader video {
+            object-fit: cover;
+            border-radius: 0.5rem;
+        }
+        #reader {
+            border: none !important;
+        }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-900 font-sans antialiased pb-20">
+<body class="bg-rimmy-black text-rimmy-text font-sans antialiased pb-20 transition-colors duration-300">
 
-    <!-- Header -->
-    <header class="bg-blue-600 text-white p-4 sticky top-0 z-10 shadow-md flex justify-between items-center">
-        <h1 class="text-xl font-bold">Inventory</h1>
+    <header class="bg-rimmy-purple text-white p-4 sticky top-0 z-10 shadow-[0_4px_15px_rgba(0,0,0,0.3)] flex flex-wrap justify-between items-center gap-2 border-b border-rimmy-purpleHover transition-colors duration-300">
+        <div class="leading-[1] text-rimmy-orange drop-shadow-md" style="font-family: 'Lobster Two', cursive;">
+            <div class="text-[1.2rem]">Terrible</div>
+            <div class="text-[1.3rem] -mt-1">Butler</div>
+        </div>
         <div class="flex gap-2">
-            <button onclick="openScanner()" class="touch-target bg-blue-700 hover:bg-blue-800 rounded px-3 py-2 text-sm font-semibold">Scan</button>
-            <button onclick="openAddModal()" class="touch-target bg-blue-500 hover:bg-blue-400 rounded px-3 py-2 text-sm font-semibold">Add</button>
+            <button onclick="openDeductModal()" class="touch-target w-11 h-11 flex items-center justify-center bg-gray-600 hover:bg-gray-500 text-white rounded font-bold text-2xl transition-all shadow-[0_0_10px_rgba(0,0,0,0.4)]">-</button>
+            <button onclick="openAddModal()" class="touch-target w-11 h-11 flex items-center justify-center bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold text-2xl transition-all shadow-[0_0_10px_rgba(255,111,0,0.4)]">+</button>
+            <button onclick="toggleDrawer()" class="touch-target w-11 h-11 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-rimmy-text rounded transition-all shadow-sm">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
         </div>
     </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="bg-white shadow-sm sticky top-[68px] z-10">
+    <div id="drawerOverlay" class="hidden fixed inset-0 bg-black bg-opacity-60 z-40 transition-opacity" onclick="toggleDrawer()"></div>
+
+    <div id="sideDrawer" class="fixed top-0 right-0 h-full w-64 bg-rimmy-charcoal border-l border-rimmy-border transform translate-x-full transition-transform duration-300 z-50 p-6 flex flex-col gap-6 shadow-2xl overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-rimmy-border pb-3 shrink-0">
+            <h2 class="text-xl font-bold text-rimmy-orange">Settings</h2>
+            <button onclick="toggleDrawer()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+        </div>
+        
+        <div class="flex flex-col gap-3 shrink-0">
+            <button onclick="toggleDrawer(); openInvoiceModal()" class="w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white font-bold py-3 rounded shadow transition-all">Upload Invoice</button>
+            <button onclick="toggleDrawer(); toggleFullScreen()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-3 rounded shadow transition-all">Toggle Full Screen</button>
+        </div>
+
+        <div class="flex flex-col gap-5 mt-2 border-t border-rimmy-border pt-4 shrink-0">
+            <h3 class="text-rimmy-orange font-bold uppercase text-xs tracking-wider">Manage Options</h3>
+            <button onclick="toggleDrawer(); openManageCategories()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm transition-all text-sm">Manage Categories</button>
+            <button onclick="toggleDrawer(); openManageLocations()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm transition-all text-sm">Manage Locations</button>
+        </div>
+
+        <div class="flex flex-col gap-5 mt-2 border-t border-rimmy-border pt-4 shrink-0">
+            <label class="flex items-center justify-between cursor-pointer">
+                <span class="text-rimmy-text font-bold text-sm">Dark Mode</span>
+                <div class="relative">
+                    <input type="checkbox" id="themeToggle" class="sr-only peer" onchange="applyTheme(this.checked ? 'dark' : 'light')">
+                    <div class="w-11 h-6 bg-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rimmy-purple"></div>
+                </div>
+            </label>
+
+            <label class="flex items-center justify-between cursor-pointer">
+                <span class="text-rimmy-text font-bold text-sm">Expanded View</span>
+                <div class="relative">
+                    <input type="checkbox" id="viewModeToggle" class="sr-only peer" onchange="applyViewMode(this.checked ? 'expanded' : 'compact')">
+                    <div class="w-11 h-6 bg-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rimmy-purple"></div>
+                </div>
+            </label>
+        </div>
+
+        <div class="flex flex-col gap-3 mt-2 border-t border-rimmy-border pt-4 shrink-0">
+            <label class="text-rimmy-text font-bold text-sm">Sort By:</label>
+            <div class="flex gap-2">
+                <select id="sortBySelect" class="flex-1 bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 text-rimmy-text transition-colors touch-target text-sm" onchange="applySortBy(this.value)">
+                    <option value="name">Alphabetical</option>
+                    <option value="created_at">Date Added</option>
+                    <option value="updated_at">Date Updated</option>
+                    <option value="quantity">Quantity</option>
+                    <option value="category">Category</option>
+                    <option value="location">Location</option>
+                </select>
+                <button id="sortDirBtn" onclick="toggleSortDir()" class="w-16 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-orange font-bold rounded transition-colors touch-target text-sm">ASC</button>
+            </div>
+        </div>
+    </div>
+
+    <nav class="bg-rimmy-charcoal shadow-md sticky top-[76px] z-10 border-b border-rimmy-border transition-colors duration-300">
         <ul id="tabs" class="flex overflow-x-auto no-scrollbar p-2 gap-2 whitespace-nowrap">
-            <!-- Tabs injected by JS -->
         </ul>
     </nav>
 
-    <!-- Filters -->
-    <div class="p-4 bg-white shadow-sm flex flex-col sm:flex-row gap-2">
-        <input type="text" id="searchInput" placeholder="Search items..." class="w-full sm:flex-1 border rounded p-3 touch-target text-base" oninput="renderItems()">
-        <select id="categoryFilter" class="w-full sm:w-auto border rounded p-3 touch-target text-base bg-white" onchange="renderItems()">
-            <option value="">All Categories</option>
-            <!-- Options injected by JS -->
-        </select>
+    <div class="p-4 bg-rimmy-black flex flex-col transition-colors duration-300">
+        <input type="text" id="searchInput" placeholder="Search items..." class="w-full bg-rimmy-charcoal border border-rimmy-border focus:border-rimmy-orange focus:ring-1 focus:ring-rimmy-orange rounded p-3 touch-target text-base outline-none transition-colors text-rimmy-text" oninput="renderItems()">
     </div>
 
-    <!-- Main Content List -->
     <main id="itemList" class="p-4 space-y-4">
-        <!-- Item Cards injected by JS -->
     </main>
 
+    <!-- Crop Image Modal -->
+    <div id="cropModal" class="hidden fixed inset-0 bg-black bg-opacity-95 z-[70] items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-orange shadow-[0_0_20px_rgba(255,111,0,0.3)] rounded-lg w-full max-w-2xl flex flex-col relative overflow-hidden h-[80vh]">
+            <div class="p-4 border-b border-rimmy-border flex justify-between items-center bg-rimmy-black shrink-0">
+                <h2 class="text-xl font-bold text-rimmy-orange">Crop Label Area</h2>
+                <button onclick="cancelCrop()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+            <div class="flex-1 p-2 bg-black overflow-hidden flex items-center justify-center relative min-h-0">
+                <img id="cropImage" src="" alt="Image to crop" style="display: block; max-width: 100%; max-height: 100%;">
+            </div>
+            <div class="p-4 border-t border-rimmy-border bg-rimmy-black flex gap-4 shrink-0">
+                <button onclick="cancelCrop()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
+                <button onclick="confirmCrop()" class="touch-target flex-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold shadow-[0_0_10px_rgba(106,13,173,0.4)] transition-all">Scan Label</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deduct Item Modal -->
+    <div id="deductModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-rimmy-orange">Deduct Item</h2>
+                <button onclick="closeDeductModal()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+            
+            <div id="deductScannerContainer" class="hidden mb-4 border border-rimmy-border rounded overflow-hidden">
+                <div id="deductReader" class="w-full bg-black"></div>
+            </div>
+            
+            <div id="deductSearchContainer" class="flex flex-col gap-3">
+                <button type="button" onclick="openBarcodeScanner('deduct')" class="touch-target bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold transition-all shadow-sm flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zm14-1a1 1 0 011 1v3a1 1 0 01-2 0V5h-3a1 1 0 010-2h4zM3 20a1 1 0 001 1h4a1 1 0 000-2H5v-3a1 1 0 00-2 0v3zm18-4a1 1 0 00-1-1h-3a1 1 0 000 2h3v3a1 1 0 002 0v-4zM7 8h2v8H7V8zm4 0h2v8h-2V8zm4 0h2v8h-2V8z"></path></svg>
+                    Scan Barcode
+                </button>
+                <button type="button" onclick="document.getElementById('llmFileInput').click()" class="touch-target bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold transition-all shadow-sm flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    Scan Label
+                </button>
+                
+                <div class="relative mt-1">
+                    <input type="text" id="deductSearchInput" oninput="filterDeductItems()" placeholder="Manual Search..." class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                </div>
+                <div id="deductList" class="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1"></div>
+            </div>
+
+            <div id="deductActionContainer" class="hidden flex-col gap-4 mt-4 border-t border-rimmy-border pt-4">
+                <h3 id="deductItemName" class="font-bold text-rimmy-text break-words"></h3>
+                <input type="hidden" id="deductItemId">
+                <div class="flex gap-2">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Quantity taken</label>
+                        <input type="number" step="0.1" id="deductQuantity" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Location</label>
+                        <select id="deductLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        </select>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="resetDeductModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold transition-colors">Back</button>
+                    <button onclick="submitDeduct()" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Deduct</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Barcode Scanner Modal -->
+    <div id="barcode-scanner-modal" class="hidden fixed inset-0 bg-black bg-opacity-95 z-[90] flex flex-col items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-orange shadow-[0_0_20px_rgba(255,111,0,0.3)] rounded-lg w-full max-w-md flex flex-col relative overflow-hidden">
+            <div class="p-4 border-b border-rimmy-border flex justify-between items-center bg-rimmy-black shrink-0">
+                <h2 class="text-xl font-bold text-rimmy-orange">Scan Barcode</h2>
+                <button type="button" onclick="closeBarcodeScanner()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+            <div class="flex-1 p-2 bg-black overflow-hidden flex items-center justify-center relative min-h-[300px]">
+                <div id="reader" class="w-full h-full bg-black"></div>
+            </div>
+            <div class="p-4 border-t border-rimmy-border bg-rimmy-black flex gap-4 shrink-0">
+                <button type="button" onclick="closeBarcodeScanner()" class="touch-target w-full bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details & Price History Modal -->
+    <div id="detailsModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 relative">
+            <div class="flex justify-between items-start mb-4">
+                <h2 id="detailsTitle" class="text-2xl font-bold text-rimmy-orange break-words pr-6"></h2>
+                <button onclick="closeDetailsModal()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors absolute top-6 right-6">&times;</button>
+            </div>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 border-b border-rimmy-border pb-4">
+                <div>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Category</p>
+                    <p id="detailsCategory" class="text-rimmy-text"></p>
+                </div>
+                <div>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Location</p>
+                    <p id="detailsLocation" class="text-rimmy-text"></p>
+                </div>
+                <div>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Details</p>
+                    <p id="detailsContainer" class="text-rimmy-text"></p>
+                </div>
+                <div>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Barcode</p>
+                    <p id="detailsBarcode" class="text-rimmy-text"></p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 bg-rimmy-black p-4 rounded border border-rimmy-border">
+                <div>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Last Purchase</p>
+                    <p id="detailsLastPurchase" class="text-rimmy-text"></p>
+                </div>
+                <div>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Lowest Purchase</p>
+                    <p id="detailsLowestPurchase" class="text-rimmy-text"></p>
+                </div>
+            </div>
+
+            <h3 class="font-bold text-lg text-rimmy-orange mb-2">Price Trends (Last 12 Months)</h3>
+            <div class="w-full overflow-x-auto mb-6 border border-rimmy-border rounded bg-rimmy-black">
+                <div style="min-width: 600px; height: 250px; padding: 10px;">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <h3 class="font-bold text-lg text-rimmy-orange mb-2">History</h3>
+            <div class="overflow-x-auto border border-rimmy-border rounded bg-rimmy-black">
+                <table class="w-full text-left text-sm text-rimmy-text">
+                    <thead class="bg-rimmy-charcoal text-xs uppercase text-rimmy-textMuted">
+                        <tr>
+                            <th class="px-4 py-2 border-b border-rimmy-border">Date</th>
+                            <th class="px-4 py-2 border-b border-rimmy-border">Price</th>
+                            <th class="px-4 py-2 border-b border-rimmy-border">Vendor</th>
+                            <th class="px-4 py-2 border-b border-rimmy-border w-10"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="priceHistoryTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoice Upload Modal -->
+    <div id="invoiceModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-2xl max-h-full flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-rimmy-orange">Upload Invoice</h2>
+                <button onclick="closeInvoiceModal()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+            
+            <input type="file" id="invoiceFileInput" accept="application/pdf" class="mb-4 w-full bg-rimmy-black border border-rimmy-border rounded p-2 touch-target text-rimmy-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-rimmy-purple file:text-white hover:file:bg-rimmy-purpleHover" onchange="processInvoice(event)">
+            
+            <div id="invoiceLoading" class="hidden flex-col items-center justify-center py-8 text-center text-rimmy-purpleHover">
+                <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-rimmy-orange mb-4"></div>
+                <p class="font-bold text-lg text-rimmy-text">Parsing invoice with local LLM...</p>
+            </div>
+
+            <div id="invoiceStagingContainer" class="hidden flex-col gap-4 flex-1 overflow-hidden">
+                <div class="flex gap-2 items-center bg-rimmy-black border border-rimmy-border p-3 rounded shadow-sm shrink-0">
+                    <label class="font-bold text-sm text-rimmy-textMuted whitespace-nowrap">Default Location:</label>
+                    <select id="globalLocationSelect" class="bg-rimmy-charcoal border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 flex-1 touch-target text-rimmy-text transition-colors" onchange="applyGlobalLocation()">
+                        <option value="">Select Location...</option>
+                    </select>
+                </div>
+                
+                <div id="invoiceStagingList" class="flex flex-col gap-3 overflow-y-auto pr-2 pb-2">
+                </div>
+                
+                <button onclick="commitInvoice()" class="touch-target shrink-0 w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold py-3 mt-2 shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Confirm & Import Selected</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manage Categories Modal -->
+    <div id="manageCategoriesModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-rimmy-orange">Manage Categories</h2>
+                <button onclick="closeManageCategories()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+            
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="newCategoryInput" placeholder="New category name..." class="flex-1 bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                <button onclick="addCategory()" class="touch-target px-4 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white font-bold rounded transition-colors shadow-sm">Add</button>
+            </div>
+
+            <ul id="manageCategoryList" class="flex flex-col gap-2 flex-1 overflow-y-auto pr-1"></ul>
+        </div>
+    </div>
+
+    <!-- Manage Locations Modal -->
+    <div id="manageLocationsModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-rimmy-orange">Manage Locations</h2>
+                <button onclick="closeManageLocations()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+            
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="newLocationInput" placeholder="New location name..." class="flex-1 bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                <button onclick="addLocation()" class="touch-target px-4 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white font-bold rounded transition-colors shadow-sm">Add</button>
+            </div>
+
+            <ul id="manageLocationList" class="flex flex-col gap-2 flex-1 overflow-y-auto pr-1"></ul>
+        </div>
+    </div>
+
     <!-- Add/Edit Item Modal -->
-    <div id="addModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-lg w-full max-w-md max-h-full overflow-y-auto p-6 relative">
-            <h2 class="text-xl font-bold mb-4">Add / Edit Item</h2>
+    <div id="addModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-6 relative">
+            <h2 id="addModalTitle" class="text-xl font-bold mb-4 text-rimmy-orange">Add / Edit Item</h2>
             
             <div class="mb-4 flex gap-2">
-                <button onclick="document.getElementById('llmFileInput').click()" class="touch-target flex-1 bg-purple-600 text-white rounded font-bold">Snap Label with LLM</button>
-                <input type="file" id="llmFileInput" accept="image/*" capture="environment" class="hidden" onchange="processLLMImage(event)">
+                <button type="button" onclick="document.getElementById('llmFileInput').click()" class="touch-target flex-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold shadow-[0_0_10px_rgba(106,13,173,0.4)] transition-all">Snap Label with LLM</button>
+                <input type="file" id="llmFileInput" accept="image/*" capture="environment" class="hidden" onchange="handleImageSelection(event)">
             </div>
 
             <form id="itemForm" onsubmit="handleItemSubmit(event)" class="space-y-4">
                 <input type="hidden" id="itemId">
                 
                 <div>
-                    <label class="block text-sm font-bold mb-1">Barcode</label>
-                    <input type="text" id="itemBarcode" class="w-full border rounded p-3 touch-target">
+                    <label class="block text-sm font-bold mb-1 text-rimmy-text">Barcode</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="itemBarcode" class="flex-1 bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                        <button type="button" onclick="openBarcodeScanner('add')" class="touch-target w-12 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-rimmy-text rounded transition-all shadow-sm">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zm14-1a1 1 0 011 1v3a1 1 0 01-2 0V5h-3a1 1 0 010-2h4zM3 20a1 1 0 001 1h4a1 1 0 000-2H5v-3a1 1 0 00-2 0v3zm18-4a1 1 0 00-1-1h-3a1 1 0 000 2h3v3a1 1 0 002 0v-4zM7 8h2v8H7V8zm4 0h2v8h-2V8zm4 0h2v8h-2V8z"></path></svg>
+                        </button>
+                    </div>
                 </div>
                 <div>
-                    <label class="block text-sm font-bold mb-1">Name *</label>
-                    <input type="text" id="itemName" required class="w-full border rounded p-3 touch-target">
+                    <label class="block text-sm font-bold mb-1 text-rimmy-text">Name *</label>
+                    <input type="text" id="itemName" required class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-col sm:flex-row gap-2">
                     <div class="flex-1">
-                        <label class="block text-sm font-bold mb-1">Location</label>
-                        <select id="itemLocation" class="w-full border rounded p-3 touch-target">
-                            <option value="1">Freezer</option>
-                            <option value="2">Fridge</option>
-                            <option value="3">Pantry</option>
+                        <label class="block text-sm font-bold mb-1 text-rimmy-text">Location</label>
+                        <select id="itemLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                         </select>
                     </div>
                     <div class="flex-1">
-                        <label class="block text-sm font-bold mb-1">Category (ID or Name)</label>
-                        <input type="text" id="itemCategory" class="w-full border rounded p-3 touch-target">
+                        <label class="block text-sm font-bold mb-1 text-rimmy-text">Category</label>
+                        <select id="itemCategory" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                        </select>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm font-bold mb-1">Container Details</label>
-                    <input type="text" id="itemDetails" placeholder="Size, weight, type" class="w-full border rounded p-3 touch-target">
+                    <label class="block text-sm font-bold mb-1 text-rimmy-text">Container Details</label>
+                    <input type="text" id="itemDetails" placeholder="Size, weight, type" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-col sm:flex-row gap-2">
                     <div class="flex-1">
-                        <label class="block text-sm font-bold mb-1">Quantity</label>
-                        <input type="number" step="0.1" id="itemQuantity" value="1" class="w-full border rounded p-3 touch-target">
+                        <label class="block text-sm font-bold mb-1 text-rimmy-text">Quantity</label>
+                        <input type="number" step="0.1" id="itemQuantity" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                     </div>
                     <div class="flex-1">
-                        <label class="block text-sm font-bold mb-1">Reorder Threshold</label>
-                        <input type="number" step="0.1" id="itemThreshold" value="0" class="w-full border rounded p-3 touch-target">
+                        <label class="block text-sm font-bold mb-1 text-rimmy-text">Reorder Threshold</label>
+                        <input type="number" step="0.1" id="itemThreshold" value="0" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                     </div>
                 </div>
+                
+                <div class="border-t border-rimmy-border pt-4 mt-2">
+                    <h3 class="text-sm font-bold text-rimmy-orange mb-2">Optional Purchase Record</h3>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Price ($)</label>
+                            <input type="number" step="0.01" id="itemPrice" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Vendor</label>
+                            <input type="text" id="itemVendor" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Date</label>
+                            <input type="date" id="itemDate" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex gap-4 pt-4">
-                    <button type="button" onclick="closeAddModal()" class="touch-target flex-1 bg-gray-300 rounded font-bold">Cancel</button>
-                    <button type="submit" class="touch-target flex-1 bg-blue-600 text-white rounded font-bold">Save</button>
+                    <button type="button" onclick="closeAddModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
+                    <button type="submit" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Save</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Scanner Modal -->
-    <div id="scannerModal" class="hidden fixed inset-0 bg-black z-50 flex flex-col">
-        <div class="p-4 bg-gray-900 text-white flex justify-between items-center">
-            <h2 class="text-xl font-bold">Scan Barcode</h2>
-            <button onclick="closeScanner()" class="touch-target bg-red-600 px-4 py-2 rounded font-bold">Close</button>
-        </div>
-        <div id="reader" class="flex-1 w-full bg-black"></div>
-    </div>
-
     <!-- Quantity Modal -->
-    <div id="qtyModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-lg w-full max-w-xs p-6 text-center">
-            <h3 class="text-lg font-bold mb-4">Set Quantity</h3>
-            <input type="number" id="manualQtyInput" step="0.1" class="w-full border rounded p-3 touch-target text-center text-xl mb-4">
+    <div id="qtyModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-orange shadow-[0_0_20px_rgba(255,111,0,0.2)] rounded-lg w-full max-w-xs p-6 text-center">
+            <h3 class="text-lg font-bold mb-4 text-rimmy-orange">Set Quantity</h3>
+            <input type="number" id="manualQtyInput" step="0.1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-center text-xl mb-4 text-rimmy-text transition-colors">
             <div class="flex gap-2">
-                <button onclick="closeQtyModal()" class="touch-target flex-1 bg-gray-300 rounded font-bold">Cancel</button>
-                <button onclick="submitManualQty()" class="touch-target flex-1 bg-blue-600 text-white rounded font-bold">Set</button>
+                <button onclick="closeQtyModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
+                <button onclick="submitManualQty()" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Set</button>
             </div>
         </div>
     </div>
 
     <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-70 z-[60] flex flex-col items-center justify-center text-white">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500 mb-4"></div>
-        <p class="text-xl font-bold" id="loadingText">Processing LLM Vision...</p>
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-80 z-[80] flex flex-col items-center justify-center text-white">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-rimmy-purpleHover mb-4"></div>
+        <p class="text-xl font-bold text-rimmy-orange drop-shadow-md" id="loadingText">Processing LLM Vision...</p>
     </div>
 
-    <script>
-        // State
-        let items = [];
-        let currentTab = 'All Inventory';
-        const tabs = ['All Inventory', 'Freezer', 'Fridge', 'Pantry', 'Grocery List', 'Ignored Out-of-Stock'];
-        let html5QrcodeScanner = null;
-        let currentQtyItemId = null;
+    <!-- Cropper.js JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 
-        // Init
+    <script>
+        let items = [];
+        let locations = [];
+        let categories = [];
+        let stagingItems = [];
+        let currentTab = 'All Inventory';
+        const tabs = ['All Inventory', 'Chest Freezer', 'Fridge Freezer', 'Fridge', 'Pantry', 'HP Cupboard', 'Grocery List', 'Ignored Out-of-Stock'];
+        let currentQtyItemId = null;
+        
+        let currentTheme = localStorage.getItem('tb_theme') || 'dark';
+        let currentViewMode = localStorage.getItem('tb_view_mode') || 'compact';
+        let currentSortBy = localStorage.getItem('tb_sort_by') || 'name';
+        let currentSortDir = localStorage.getItem('tb_sort_dir') || 'asc';
+        
+        let pressTimer;
+        let priceChartInstance = null;
+        let activeDetailsItemId = null;
+        let cropper = null;
+        
+        let html5QrCode = null;
+        let scannerContext = null;
+
         const socket = io();
-        socket.on('inventory_updated', (data) => {
+        socket.on('inventory_updated', () => {
+            fetchItems();
+            if (activeDetailsItemId) {
+                loadDetailsAndHistory(activeDetailsItemId);
+            }
+        });
+        socket.on('locations_updated', () => {
+            fetchLocations();
+            fetchItems();
+        });
+        socket.on('categories_updated', () => {
+            fetchCategories();
             fetchItems();
         });
 
         document.addEventListener('DOMContentLoaded', () => {
+            const themeToggle = document.getElementById('themeToggle');
+            const viewToggle = document.getElementById('viewModeToggle');
+            const sortSelect = document.getElementById('sortBySelect');
+            const sortDirBtn = document.getElementById('sortDirBtn');
+            
+            if(themeToggle) themeToggle.checked = (currentTheme === 'dark');
+            if(viewToggle) viewToggle.checked = (currentViewMode === 'expanded');
+            if(sortSelect) sortSelect.value = currentSortBy;
+            if(sortDirBtn) sortDirBtn.innerText = currentSortDir.toUpperCase();
+
+            document.addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                }
+            }, { once: true });
+
             renderTabs();
+            fetchLocations();
+            fetchCategories();
             fetchItems();
         });
 
-        // Data Fetching
+        function toggleDrawer() {
+            const drawer = document.getElementById('sideDrawer');
+            const overlay = document.getElementById('drawerOverlay');
+            if (drawer.classList.contains('translate-x-full')) {
+                drawer.classList.remove('translate-x-full');
+                overlay.classList.remove('hidden');
+            } else {
+                drawer.classList.add('translate-x-full');
+                overlay.classList.add('hidden');
+            }
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function applyTheme(theme) {
+            currentTheme = theme;
+            localStorage.setItem('tb_theme', theme);
+            if (theme === 'dark') {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+
+        function applyViewMode(mode) {
+            currentViewMode = mode;
+            localStorage.setItem('tb_view_mode', mode);
+            renderItems();
+        }
+
+        function applySortBy(val) {
+            currentSortBy = val;
+            localStorage.setItem('tb_sort_by', val);
+            renderItems();
+        }
+
+        function toggleSortDir() {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+            localStorage.setItem('tb_sort_dir', currentSortDir);
+            document.getElementById('sortDirBtn').innerText = currentSortDir.toUpperCase();
+            renderItems();
+        }
+
+        async function fetchLocations() {
+            try {
+                const res = await fetch('/api/locations');
+                locations = await res.json();
+                populateLocationSelects();
+                renderManageLocations();
+            } catch (err) {
+                console.error('Failed to fetch locations:', err);
+            }
+        }
+
+        async function fetchCategories() {
+            try {
+                const res = await fetch('/api/categories');
+                categories = await res.json();
+                populateCategorySelects();
+                renderManageCategories();
+            } catch (err) {
+                console.error('Failed to fetch categories:', err);
+            }
+        }
+
         async function fetchItems() {
             try {
                 const res = await fetch('/api/items');
                 items = await res.json();
-                populateCategoryFilter();
                 renderItems();
             } catch (err) {
                 console.error('Failed to fetch items:', err);
             }
         }
 
-        // Rendering
+        function populateLocationSelects() {
+            const locOptions = '<option value="">Select...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+            
+            const addLocSelect = document.getElementById('itemLocation');
+            if (addLocSelect) {
+                const currentVal = addLocSelect.value;
+                addLocSelect.innerHTML = locOptions;
+                if (currentVal) addLocSelect.value = currentVal;
+            }
+            
+            const deductLocSelect = document.getElementById('deductLocation');
+            if (deductLocSelect) {
+                const currentVal = deductLocSelect.value;
+                deductLocSelect.innerHTML = locOptions;
+                if (currentVal) deductLocSelect.value = currentVal;
+            }
+
+            const globalLocSelect = document.getElementById('globalLocationSelect');
+            if (globalLocSelect) {
+                const currentVal = globalLocSelect.value;
+                globalLocSelect.innerHTML = '<option value="">Select Location...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+                if (currentVal) globalLocSelect.value = currentVal;
+            }
+
+            document.querySelectorAll('.staging-loc-select').forEach(select => {
+                const currentVal = select.value;
+                select.innerHTML = '<option value="">Select...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+                if (currentVal) select.value = currentVal;
+            });
+        }
+
+        function populateCategorySelects() {
+            const catOptions = '<option value="">Select...</option>' + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            
+            const addCatSelect = document.getElementById('itemCategory');
+            if (addCatSelect) {
+                const currentVal = addCatSelect.value;
+                addCatSelect.innerHTML = catOptions;
+                if (currentVal) addCatSelect.value = currentVal;
+            }
+        }
+
+        // --- MANAGE CATEGORIES LOGIC ---
+        function openManageCategories() {
+            document.getElementById('manageCategoriesModal').classList.remove('hidden');
+            renderManageCategories();
+        }
+        function closeManageCategories() {
+            document.getElementById('manageCategoriesModal').classList.add('hidden');
+        }
+        function renderManageCategories() {
+            const list = document.getElementById('manageCategoryList');
+            if (!list) return;
+            list.innerHTML = categories.map(c => `
+                <li class="flex justify-between items-center bg-rimmy-black border border-rimmy-border rounded p-2">
+                    <span class="text-rimmy-text font-bold truncate pr-2">${c.name}</span>
+                    <div class="flex gap-2 shrink-0">
+                        <button onclick="editCategory(${c.id}, '${c.name.replace(/'/g, "\\'")}')" class="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-2 border border-rimmy-border rounded">Edit</button>
+                        <button onclick="deleteCategory(${c.id})" class="text-red-500 hover:text-red-700 font-bold touch-target px-2 border border-rimmy-border rounded">X</button>
+                    </div>
+                </li>
+            `).join('');
+        }
+        async function addCategory() {
+            const input = document.getElementById('newCategoryInput');
+            const name = input.value.trim();
+            if (!name) return;
+            try {
+                await fetch('/api/categories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                input.value = '';
+            } catch (err) { alert(err.message); }
+        }
+        async function editCategory(id, currentName) {
+            const newName = prompt('Enter new category name:', currentName);
+            if (!newName || newName === currentName) return;
+            try {
+                await fetch(`/api/categories/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+            } catch (err) { alert(err.message); }
+        }
+        async function deleteCategory(id) {
+            if (!confirm('Delete this category? Items in this category will not be deleted.')) return;
+            try {
+                await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+            } catch (err) { alert(err.message); }
+        }
+
+        // --- MANAGE LOCATIONS LOGIC ---
+        function openManageLocations() {
+            document.getElementById('manageLocationsModal').classList.remove('hidden');
+            renderManageLocations();
+        }
+        function closeManageLocations() {
+            document.getElementById('manageLocationsModal').classList.add('hidden');
+        }
+        function renderManageLocations() {
+            const list = document.getElementById('manageLocationList');
+            if (!list) return;
+            list.innerHTML = locations.map(l => `
+                <li class="flex justify-between items-center bg-rimmy-black border border-rimmy-border rounded p-2">
+                    <span class="text-rimmy-text font-bold truncate pr-2">${l.name}</span>
+                    <div class="flex gap-2 shrink-0">
+                        <button onclick="editLocation(${l.id}, '${l.name.replace(/'/g, "\\'")}')" class="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-2 border border-rimmy-border rounded">Edit</button>
+                        <button onclick="deleteLocation(${l.id})" class="text-red-500 hover:text-red-700 font-bold touch-target px-2 border border-rimmy-border rounded">X</button>
+                    </div>
+                </li>
+            `).join('');
+        }
+        async function addLocation() {
+            const input = document.getElementById('newLocationInput');
+            const name = input.value.trim();
+            if (!name) return;
+            try {
+                await fetch('/api/locations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                input.value = '';
+            } catch (err) { alert(err.message); }
+        }
+        async function editLocation(id, currentName) {
+            const newName = prompt('Enter new location name:', currentName);
+            if (!newName || newName === currentName) return;
+            try {
+                await fetch(`/api/locations/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+            } catch (err) { alert(err.message); }
+        }
+        async function deleteLocation(id) {
+            if (!confirm('Delete this location? Items in this location will not be deleted.')) return;
+            try {
+                await fetch(`/api/locations/${id}`, { method: 'DELETE' });
+            } catch (err) { alert(err.message); }
+        }
+
+        // --- TAB RENDERING ---
         function renderTabs() {
             const container = document.getElementById('tabs');
             container.innerHTML = tabs.map(tab => `
-                <button onclick="setTab('${tab}')" class="shrink-0 touch-target px-4 py-2 rounded-full font-bold ${currentTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}">
+                <button onclick="setTab('${tab}')" class="shrink-0 touch-target px-4 py-2 rounded-full font-bold transition-all duration-300 ${currentTab === tab ? 'bg-rimmy-purple text-white shadow-[0_0_10px_rgba(106,13,173,0.5)]' : 'bg-rimmy-black text-rimmy-textMuted border border-rimmy-border hover:border-rimmy-orange/50 hover:text-rimmy-text'}">
                     ${tab}
                 </button>
             `).join('');
@@ -185,69 +811,269 @@
             renderItems();
         }
 
-        function populateCategoryFilter() {
-            const select = document.getElementById('categoryFilter');
-            const categories = [...new Set(items.map(i => i.category_name || i.category_id).filter(Boolean))];
-            const currentVal = select.value;
-            select.innerHTML = '<option value="">All Categories</option>' + categories.map(c => `<option value="${c}">${c}</option>`).join('');
-            select.value = currentVal;
+        function startPress(e, id) {
+            if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+            pressTimer = setTimeout(() => {
+                openDetailsModal(id);
+            }, 500);
+        }
+
+        function cancelPress() {
+            clearTimeout(pressTimer);
         }
 
         function renderItems() {
             const container = document.getElementById('itemList');
             const search = document.getElementById('searchInput').value.toLowerCase();
-            const catFilter = document.getElementById('categoryFilter').value;
 
             let filtered = items.filter(item => {
                 if (search && !item.name.toLowerCase().includes(search) && !(item.barcode && item.barcode.includes(search))) return false;
-                const catMatch = item.category_name || item.category_id || '';
-                if (catFilter && catMatch.toString() !== catFilter) return false;
 
                 switch (currentTab) {
                     case 'All Inventory': return true;
-                    case 'Freezer': return item.location_name === 'Freezer';
+                    case 'Chest Freezer': return item.location_name === 'Chest Freezer';
+                    case 'Fridge Freezer': return item.location_name === 'Fridge Freezer';
                     case 'Fridge': return item.location_name === 'Fridge';
                     case 'Pantry': return item.location_name === 'Pantry';
+                    case 'HP Cupboard': return item.location_name === 'HP Cupboard';
                     case 'Grocery List': return item.quantity <= item.reorder_threshold && item.is_ignored_grocery === 0;
                     case 'Ignored Out-of-Stock': return item.is_ignored_grocery === 1;
                     default: return true;
                 }
             });
 
+            filtered.sort((a, b) => {
+                let valA, valB;
+                switch (currentSortBy) {
+                    case 'name':
+                        valA = (a.name || '').toLowerCase();
+                        valB = (b.name || '').toLowerCase();
+                        break;
+                    case 'created_at':
+                        valA = new Date(a.created_at).getTime();
+                        valB = new Date(b.created_at).getTime();
+                        break;
+                    case 'updated_at':
+                        valA = new Date(a.updated_at).getTime();
+                        valB = new Date(b.updated_at).getTime();
+                        break;
+                    case 'quantity':
+                        valA = a.quantity || 0;
+                        valB = b.quantity || 0;
+                        break;
+                    case 'category':
+                        valA = (a.category_name || '').toLowerCase();
+                        valB = (b.category_name || '').toLowerCase();
+                        break;
+                    case 'location':
+                        valA = (a.location_name || '').toLowerCase();
+                        valB = (b.location_name || '').toLowerCase();
+                        break;
+                    default:
+                        valA = (a.name || '').toLowerCase();
+                        valB = (b.name || '').toLowerCase();
+                }
+
+                if (valA < valB) return currentSortDir === 'asc' ? -1 : 1;
+                if (valA > valB) return currentSortDir === 'asc' ? 1 : -1;
+                return 0;
+            });
+
             container.innerHTML = filtered.map(item => {
                 const isGrocery = currentTab === 'Grocery List';
                 const isIgnored = currentTab === 'Ignored Out-of-Stock';
+                const lastPriceFormatted = (item.last_price || 0).toFixed(2);
+                const lowestPriceFormatted = (item.lowest_price || 0).toFixed(2);
                 
-return `
-                <div class="bg-white rounded-lg shadow p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                    <div class="flex gap-4 items-center w-full sm:w-auto flex-1 min-w-0">
-                        ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded shrink-0">` : `<div class="w-16 h-16 bg-gray-200 rounded flex items-center justify-center text-gray-400 text-xs text-center p-1 border shrink-0">No Img</div>`}
-                        <div class="flex-1 min-w-0">
-                            <h3 class="font-bold text-lg truncate">${item.name}</h3>
-                            <p class="text-sm text-gray-500 truncate">${item.location_name || 'No Location'} | ${item.category_name || item.category_id || 'No Category'}</p>
-                            <p class="text-sm text-gray-500 truncate">${item.container_details || ''}</p>
-                            
-                            ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1)" class="mt-2 touch-target px-4 py-1 bg-red-100 text-red-700 font-bold rounded text-sm">Ignore Item</button>` : ''}
-                            ${isIgnored ? `<button onclick="toggleIgnore(${item.id}, 0)" class="mt-2 touch-target px-4 py-1 bg-green-100 text-green-700 font-bold rounded text-sm">Restore to List</button>` : ''}
+                const editIcon = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>`;
+
+                if (currentViewMode === 'compact') {
+                    return `
+                    <div class="item-card bg-rimmy-charcoal rounded border border-rimmy-border flex justify-between items-center px-3 py-1 h-[44px] shadow-sm hover:border-rimmy-purple transition-colors cursor-pointer"
+                         onmousedown="startPress(event, ${item.id})" onmouseup="cancelPress()" onmouseleave="cancelPress()" ontouchstart="startPress(event, ${item.id})" ontouchend="cancelPress()" ontouchcancel="cancelPress()">
+                        <div class="flex-1 min-w-0 pr-2 flex flex-col justify-center">
+                            <h3 class="font-bold text-sm text-rimmy-orange truncate leading-none">${item.name}</h3>
+                            <p class="text-[11px] text-rimmy-textMuted truncate leading-tight mt-1">
+                                ${item.location_name || 'No Loc'} | ${item.container_details || ''}
+                                ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1); event.stopPropagation();" class="ml-2 px-1 text-red-500 border border-red-500 rounded text-[9px]">Ignore</button>` : ''}
+                                ${isIgnored ? `<button onclick="toggleIgnore(${item.id}, 0); event.stopPropagation();" class="ml-2 px-1 text-green-500 border border-green-500 rounded text-[9px]">Restore</button>` : ''}
+                            </p>
+                        </div>
+                        <div class="flex items-center shrink-0 h-[30px] gap-1">
+                            <button onclick="openEditModal(${item.id}); event.stopPropagation();" class="w-8 h-full flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange transition-colors touch-target rounded border border-rimmy-border bg-rimmy-black">${editIcon}</button>
+                            <div class="flex items-center bg-rimmy-black rounded border border-rimmy-border overflow-hidden h-full">
+                                <button onclick="updateQty(${item.id}, 1, 'subtract'); event.stopPropagation();" class="w-8 h-full flex items-center justify-center bg-red-600 hover:bg-red-500 text-white text-[14px] font-bold transition-colors">-</button>
+                                <button onclick="openQtyModal(${item.id}, ${item.quantity}); event.stopPropagation();" class="w-10 h-full flex items-center justify-center bg-transparent text-rimmy-text font-bold text-[12px] leading-none">${item.quantity}</button>
+                                <button onclick="updateQty(${item.id}, 1, 'add'); event.stopPropagation();" class="w-8 h-full flex items-center justify-center bg-green-600 hover:bg-green-500 text-white text-[14px] font-bold transition-colors">+</button>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="flex w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                        <div class="flex items-center bg-gray-100 rounded-full border border-gray-200">
-                            <button onclick="updateQty(${item.id}, 1, 'subtract')" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold text-gray-700 active:bg-gray-200 rounded-l-full">-</button>
-                            <button onclick="openQtyModal(${item.id}, ${item.quantity})" class="touch-target px-2 min-w-[3rem] font-bold text-lg text-center active:bg-gray-200">${item.quantity}</button>
-                            <button onclick="updateQty(${item.id}, 1, 'add')" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold text-gray-700 active:bg-gray-200 rounded-r-full">+</button>
+                    `;
+                } else {
+                    return `
+                    <div class="item-card bg-rimmy-charcoal rounded-lg shadow-lg border border-rimmy-border hover:border-rimmy-purple/50 transition-all duration-300 p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center cursor-pointer"
+                         onmousedown="startPress(event, ${item.id})" onmouseup="cancelPress()" onmouseleave="cancelPress()" ontouchstart="startPress(event, ${item.id})" ontouchend="cancelPress()" ontouchcancel="cancelPress()">
+                        <div class="flex gap-4 items-center w-full sm:w-auto flex-1 min-w-0">
+                            ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded border border-rimmy-border shrink-0">` : `<div class="w-16 h-16 bg-rimmy-black rounded flex items-center justify-center text-rimmy-textMuted text-xs text-center p-1 border border-rimmy-border shrink-0">No Img</div>`}
+                            <div class="flex-1 min-w-0">
+                                <h3 class="font-bold text-lg text-rimmy-orange truncate">${item.name}</h3>
+                                <p class="text-sm text-rimmy-textMuted truncate">${item.location_name || 'No Location'} | ${item.category_name || item.category_id || 'No Category'}</p>
+                                <p class="text-sm text-rimmy-textMuted truncate">${item.container_details || ''}</p>
+                                <p class="text-sm text-rimmy-text font-semibold mt-1">Last Price: $${lastPriceFormatted} | Lowest: $${lowestPriceFormatted}</p>
+                                
+                                ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1); event.stopPropagation();" class="mt-2 touch-target px-4 py-1 bg-red-900/40 text-red-500 border border-red-800 font-bold rounded text-sm hover:bg-red-900/60 transition-colors">Ignore Item</button>` : ''}
+                                ${isIgnored ? `<button onclick="toggleIgnore(${item.id}, 0); event.stopPropagation();" class="mt-2 touch-target px-4 py-1 bg-green-900/40 text-green-500 border border-green-800 font-bold rounded text-sm hover:bg-green-900/60 transition-colors">Restore to List</button>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="flex w-full sm:w-auto justify-end mt-2 sm:mt-0 gap-2">
+                            <button onclick="openEditModal(${item.id}); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange transition-colors rounded-full border border-rimmy-border bg-rimmy-black shadow-inner">${editIcon}</button>
+                            <div class="flex items-center bg-rimmy-black rounded-full border border-rimmy-border shadow-inner">
+                                <button onclick="updateQty(${item.id}, 1, 'subtract'); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold bg-red-600 hover:bg-red-500 text-white transition-colors rounded-l-full">-</button>
+                                <button onclick="openQtyModal(${item.id}, ${item.quantity}); event.stopPropagation();" class="touch-target px-2 min-w-[3rem] font-bold text-lg text-center text-rimmy-text hover:bg-gray-800 transition-colors">${item.quantity}</button>
+                                <button onclick="updateQty(${item.id}, 1, 'add'); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold bg-green-600 hover:bg-green-500 text-white transition-colors rounded-r-full">+</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            `}).join('');
+                    `;
+                }
+            }).join('');
             
             if (filtered.length === 0) {
-                container.innerHTML = '<p class="text-center text-gray-500 mt-8">No items found.</p>';
+                container.innerHTML = '<p class="text-center text-rimmy-textMuted mt-8 font-bold">No items found.</p>';
             }
         }
 
-        // API Interactions
+        // --- INVOICE IMPORT ---
+        function openInvoiceModal() {
+            document.getElementById('invoiceFileInput').value = '';
+            document.getElementById('invoiceStagingContainer').classList.add('hidden');
+            document.getElementById('invoiceLoading').classList.add('hidden');
+            document.getElementById('invoiceModal').classList.remove('hidden');
+            if (locations.length === 0) fetchLocations();
+        }
+
+        function closeInvoiceModal() {
+            document.getElementById('invoiceModal').classList.add('hidden');
+        }
+
+        async function processInvoice(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('invoiceLoading').classList.remove('hidden');
+            document.getElementById('invoiceStagingContainer').classList.add('hidden');
+
+            const formData = new FormData();
+            formData.append('invoice', file);
+
+            try {
+                const res = await fetch('/api/invoices/parse', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+                
+                stagingItems = await res.json();
+                
+                if (locations.length === 0) await fetchLocations();
+                
+                renderStagingItems();
+                document.getElementById('invoiceStagingContainer').classList.remove('hidden');
+            } catch (err) {
+                alert('Error parsing invoice: ' + err.message);
+            } finally {
+                document.getElementById('invoiceLoading').classList.add('hidden');
+                e.target.value = '';
+            }
+        }
+
+        function renderStagingItems() {
+            const container = document.getElementById('invoiceStagingList');
+            const locOptions = '<option value="">Select Location...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+            
+            document.getElementById('globalLocationSelect').innerHTML = locOptions;
+
+            container.innerHTML = stagingItems.map((item, idx) => `
+                <div class="border border-rimmy-border rounded-lg p-3 bg-rimmy-black flex flex-col gap-3 shadow-sm relative hover:border-rimmy-orange/50 transition-colors">
+                    <div class="flex items-start gap-3">
+                        <input type="checkbox" id="stage_check_${idx}" class="w-6 h-6 mt-1 rounded text-rimmy-orange bg-rimmy-charcoal border-gray-600 focus:ring-rimmy-orange focus:ring-offset-rimmy-black touch-target" checked>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-bold text-[15px] leading-tight break-words text-rimmy-text">${item.name}</p>
+                            <p class="text-xs text-rimmy-textMuted mt-1">${item.container_details || ''} | <span class="text-rimmy-orange">${item.vendor}</span></p>
+                            <p class="text-[15px] font-bold text-green-500 mt-1">$${Number(item.price).toFixed(2)}</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-3 bg-rimmy-charcoal p-2 rounded border border-rimmy-border">
+                        <div class="flex items-center gap-2 flex-1">
+                            <label class="text-xs font-bold text-rimmy-textMuted w-8">Qty:</label>
+                            <input type="number" id="stage_qty_${idx}" value="${item.quantity}" step="0.1" class="border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 flex-1 min-w-0 touch-target bg-rimmy-black text-rimmy-text transition-colors">
+                        </div>
+                        <div class="flex items-center gap-2 flex-1">
+                            <label class="text-xs font-bold text-rimmy-textMuted w-8">Loc:</label>
+                            <select id="stage_loc_${idx}" class="staging-loc-select border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 flex-1 min-w-0 touch-target bg-rimmy-black text-rimmy-text transition-colors">
+                                ${locOptions}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            if (stagingItems.length === 0) {
+                container.innerHTML = '<p class="text-center text-rimmy-textMuted py-4 font-bold">No items found in invoice.</p>';
+            }
+        }
+
+        function applyGlobalLocation() {
+            const globalVal = document.getElementById('globalLocationSelect').value;
+            document.querySelectorAll('.staging-loc-select').forEach(select => {
+                select.value = globalVal;
+            });
+        }
+
+        async function commitInvoice() {
+            const payloadItems = [];
+            
+            stagingItems.forEach((item, idx) => {
+                const isChecked = document.getElementById(`stage_check_${idx}`).checked;
+                if (isChecked) {
+                    const qty = parseFloat(document.getElementById(`stage_qty_${idx}`).value);
+                    const locId = document.getElementById(`stage_loc_${idx}`).value;
+                    
+                    payloadItems.push({
+                        name: item.name,
+                        container_details: item.container_details,
+                        quantity: isNaN(qty) ? item.quantity : qty,
+                        price: item.price,
+                        vendor: item.vendor,
+                        location_id: locId ? parseInt(locId) : null
+                    });
+                }
+            });
+
+            if (payloadItems.length === 0) {
+                alert('No items selected for import.');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/invoices/commit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ items: payloadItems })
+                });
+
+                if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+                
+                closeInvoiceModal();
+                fetchItems();
+            } catch (err) {
+                alert('Error committing invoice: ' + err.message);
+            }
+        }
+
+        // --- QUANTITY API ---
         async function updateQty(id, amount, action) {
             await fetch(`/api/items/${id}/quantity`, {
                 method: 'PATCH',
@@ -264,7 +1090,6 @@ return `
             });
         }
 
-        // Qty Modal Logic
         function openQtyModal(id, currentQty) {
             currentQtyItemId = id;
             document.getElementById('manualQtyInput').value = currentQty;
@@ -285,10 +1110,39 @@ return `
             }
         }
 
-        // Add Modal Logic
+        // --- ADD/EDIT ITEM LOGIC ---
         function openAddModal() {
             document.getElementById('itemForm').reset();
             document.getElementById('itemId').value = '';
+            document.getElementById('addModalTitle').innerText = 'Add Item';
+            populateLocationSelects();
+            populateCategorySelects();
+            document.getElementById('addModal').classList.remove('hidden');
+        }
+        
+        function openEditModal(id) {
+            const item = items.find(i => i.id === id);
+            if (!item) return;
+            
+            document.getElementById('itemForm').reset();
+            document.getElementById('itemId').value = item.id;
+            document.getElementById('addModalTitle').innerText = 'Edit Item';
+            
+            document.getElementById('itemBarcode').value = item.barcode || '';
+            document.getElementById('itemName').value = item.name || '';
+            document.getElementById('itemLocation').value = item.location_id || '';
+            
+            let catMatch = item.category_id || '';
+            if(!catMatch && item.category_name) {
+                const foundCat = categories.find(c => c.name === item.category_name);
+                if (foundCat) catMatch = foundCat.id;
+            }
+            document.getElementById('itemCategory').value = catMatch;
+            
+            document.getElementById('itemDetails').value = item.container_details || '';
+            document.getElementById('itemQuantity').value = item.quantity || 0;
+            document.getElementById('itemThreshold').value = item.reorder_threshold || 0;
+            
             document.getElementById('addModal').classList.remove('hidden');
         }
 
@@ -303,108 +1157,442 @@ return `
             const payload = {
                 barcode: document.getElementById('itemBarcode').value,
                 name: document.getElementById('itemName').value,
-                location_id: parseInt(document.getElementById('itemLocation').value),
+                location_id: document.getElementById('itemLocation').value,
+                category_id: document.getElementById('itemCategory').value,
                 container_details: document.getElementById('itemDetails').value,
                 quantity: parseFloat(document.getElementById('itemQuantity').value),
                 reorder_threshold: parseFloat(document.getElementById('itemThreshold').value)
             };
-
-            const catVal = document.getElementById('itemCategory').value;
-            if (catVal) {
-                const parsed = parseInt(catVal);
-                if (!isNaN(parsed)) payload.category_id = parsed;
-                // If it's a string, SQLite might accept it depending on strictness, but we send it via category_id key if needed, or append to container details.
-                // Keeping it simple: send as is. The backend schema uses INTEGER but SQLite doesn't enforce without STRICT.
-                else payload.category_id = catVal; 
+            
+            const price = parseFloat(document.getElementById('itemPrice').value);
+            if (!isNaN(price) && price > 0) {
+                payload.price = price;
+                payload.vendor = document.getElementById('itemVendor').value || '';
+                const d = document.getElementById('itemDate').value;
+                if (d) payload.purchase_date = d;
             }
 
             const url = id ? `/api/items/${id}` : '/api/items';
             const method = id ? 'PUT' : 'POST';
 
-            await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            closeAddModal();
-        }
-
-        // Barcode Scanner Logic
-        function openScanner() {
-            document.getElementById('scannerModal').classList.remove('hidden');
-            html5QrcodeScanner = new Html5Qrcode("reader");
-            html5QrcodeScanner.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 250, height: 250 } },
-                async (decodedText) => {
-                    closeScanner();
-                    await handleScannedBarcode(decodedText);
-                },
-                (err) => { /* ignore constant stream of scan failures */ }
-            ).catch(err => {
-                alert("Camera error: " + err);
-                closeScanner();
-            });
-        }
-
-        function closeScanner() {
-            if (html5QrcodeScanner) {
-                try {
-                    html5QrcodeScanner.stop().catch(e => console.error(e));
-                } catch (e) {
-                    console.warn("Scanner stop bypassed: not running.", e);
-                }
-                html5QrcodeScanner = null;
+            try {
+                await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                closeAddModal();
+            } catch (err) {
+                alert('Error saving item: ' + err.message);
             }
-            document.getElementById('scannerModal').classList.add('hidden');
         }
 
-        async function handleScannedBarcode(barcode) {
+        // --- CROPPER & LLM PARSE ---
+        function handleImageSelection(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const cropImage = document.getElementById('cropImage');
+                cropImage.src = event.target.result;
+                
+                const cropModal = document.getElementById('cropModal');
+                cropModal.classList.remove('hidden');
+                cropModal.classList.add('flex');
+                
+                if (cropper) {
+                    cropper.destroy();
+                    cropper = null;
+                }
+                
+                setTimeout(() => {
+                    cropper = new Cropper(cropImage, {
+                        viewMode: 1,
+                        autoCropArea: 1,
+                        background: false,
+                        responsive: true,
+                        touchDragZoom: true,
+                        mouseWheelZoom: true,
+                        minCropBoxWidth: 50,
+                        minCropBoxHeight: 50
+                    });
+                }, 50);
+            };
+            reader.readAsDataURL(file);
+            
+            e.target.value = '';
+        }
+
+        function cancelCrop() {
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+            const cropModal = document.getElementById('cropModal');
+            cropModal.classList.add('hidden');
+            cropModal.classList.remove('flex');
+            document.getElementById('cropImage').src = '';
+        }
+
+        async function confirmCrop() {
+            if (!cropper) return;
+
+            const canvas = cropper.getCroppedCanvas({
+                maxWidth: 800,
+                maxHeight: 800,
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high',
+            });
+
+            if (!canvas) {
+                alert("Could not generate cropped image.");
+                return;
+            }
+
+            const cropModal = document.getElementById('cropModal');
+            cropModal.classList.add('hidden');
+            cropModal.classList.remove('flex');
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+
+            canvas.toBlob(async (blob) => {
+                if (cropper) {
+                    cropper.destroy();
+                    cropper = null;
+                }
+
+                const formData = new FormData();
+                formData.append('image', blob, 'cropped_label.jpg');
+
+                try {
+                    const res = await fetch('/api/parse-label-llm', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!res.ok) throw new Error('LLM Parsing failed');
+                    const data = await res.json();
+
+                    if (data.name) document.getElementById('itemName').value = data.name;
+                    if (data.container_details) document.getElementById('itemDetails').value = data.container_details;
+                    
+                    if (data.category_id !== undefined && data.category_id !== null) {
+                        document.getElementById('itemCategory').value = data.category_id;
+                    }
+                    
+                    if (data.location_id !== undefined && data.location_id !== null) {
+                        document.getElementById('itemLocation').value = data.location_id;
+                    }
+
+                } catch (err) {
+                    alert('Error parsing label: ' + err.message);
+                } finally {
+                    document.getElementById('loadingOverlay').classList.add('hidden');
+                }
+            }, 'image/jpeg', 0.8);
+        }
+        
+        // --- BARCODE SCANNER LOGIC ---
+        function openBarcodeScanner(context) {
+            scannerContext = context;
+            document.getElementById('barcode-scanner-modal').classList.remove('hidden');
+            
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+
+            html5QrCode.start(
+                { facingMode: "environment" },
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 }
+                },
+                async (decodedText) => {
+                    if (navigator.vibrate) navigator.vibrate([100]);
+                    
+                    await closeBarcodeScanner();
+
+                    if (scannerContext === 'add') {
+                        document.getElementById('itemBarcode').value = decodedText;
+                    } else if (scannerContext === 'deduct') {
+                        handleDeductScan(decodedText);
+                    }
+                },
+                (errorMessage) => {
+                }
+            ).catch((err) => {
+                alert("Camera error: " + err);
+                closeBarcodeScanner();
+            });
+        }
+        
+        async function closeBarcodeScanner() {
+            document.getElementById('barcode-scanner-modal').classList.add('hidden');
+            if (html5QrCode) {
+                try {
+                    await html5QrCode.stop();
+                } catch (err) {
+                    console.error("Failed to stop scanner", err);
+                }
+            }
+            scannerContext = null;
+        }
+
+        async function handleDeductScan(barcode) {
             try {
                 const res = await fetch(`/api/items/barcode/${barcode}`);
+                if (res.status === 404) {
+                    alert('Barcode not found in database.');
+                    openDeductModal();
+                    return;
+                }
+                
                 if (res.ok) {
                     const item = await res.json();
-                    if (confirm(`Found: ${item.name}\nIncrement quantity?`)) {
-                        await updateQty(item.id, 1, 'add');
+                    
+                    const deductRes = await fetch(`/api/items/${item.id}/deduct`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ amount: 1 })
+                    });
+
+                    if (deductRes.ok) {
+                        showToast(`${item.name} quantity reduced by 1`);
+                        openDeductModal(); 
+                    } else {
+                        alert('Error deducting item.');
                     }
+
                 } else {
-                    openAddModal();
-                    document.getElementById('itemBarcode').value = barcode;
+                    alert('Error finding barcode.');
+                    openDeductModal();
                 }
+            } catch (err) {
+                console.error(err);
+                alert("Error communicating with server.");
+            }
+        }
+
+        function showToast(message) {
+            let toast = document.getElementById('toastNotification');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'toastNotification';
+                toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-green-600 text-white font-bold px-6 py-3 rounded shadow-xl z-[100] transition-opacity duration-300';
+                document.body.appendChild(toast);
+            }
+            toast.innerText = message;
+            toast.classList.remove('hidden', 'opacity-0');
+            toast.classList.add('opacity-100');
+            
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0');
+                setTimeout(() => toast.classList.add('hidden'), 300);
+            }, 2000);
+        }
+        
+        // --- DEDUCT MODAL ---
+        function openDeductModal() {
+            document.getElementById('deductModal').classList.remove('hidden');
+            resetDeductModal();
+        }
+        
+        function closeDeductModal() {
+            document.getElementById('deductModal').classList.add('hidden');
+        }
+        
+        function resetDeductModal() {
+            document.getElementById('deductSearchInput').value = '';
+            document.getElementById('deductList').innerHTML = '';
+            document.getElementById('deductSearchContainer').classList.remove('hidden');
+            document.getElementById('deductActionContainer').classList.add('hidden');
+        }
+        
+        function filterDeductItems() {
+            const query = document.getElementById('deductSearchInput').value.toLowerCase();
+            const list = document.getElementById('deductList');
+            if (!query) {
+                list.innerHTML = '';
+                return;
+            }
+            
+            const results = items.filter(i => 
+                (i.name && i.name.toLowerCase().includes(query)) || 
+                (i.barcode && i.barcode.toLowerCase().includes(query))
+            ).slice(0, 10);
+            
+            list.innerHTML = results.map(i => `
+                <div onclick="selectDeductItem(${i.id}, '${i.name.replace(/'/g, "\\'")}', ${i.location_id})" class="p-3 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange rounded cursor-pointer transition-colors text-sm">
+                    <p class="font-bold text-rimmy-orange truncate">${i.name}</p>
+                    <p class="text-xs text-rimmy-textMuted">${i.location_name || 'No Loc'} | Qty: ${i.quantity}</p>
+                </div>
+            `).join('');
+        }
+        
+        function selectDeductItem(id, name, locId) {
+            document.getElementById('deductSearchContainer').classList.add('hidden');
+            document.getElementById('deductActionContainer').classList.remove('hidden');
+            document.getElementById('deductActionContainer').classList.add('flex');
+            
+            document.getElementById('deductItemId').value = id;
+            document.getElementById('deductItemName').innerText = name;
+            document.getElementById('deductQuantity').value = 1;
+            document.getElementById('deductLocation').value = locId || '';
+        }
+        
+        async function submitDeduct() {
+            const id = document.getElementById('deductItemId').value;
+            const amount = parseFloat(document.getElementById('deductQuantity').value);
+            const locId = document.getElementById('deductLocation').value;
+            
+            if (isNaN(amount) || amount <= 0) return alert('Invalid amount');
+            
+            try {
+                await fetch(`/api/items/${id}/deduct`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, location_id: locId ? parseInt(locId) : null })
+                });
+                closeDeductModal();
+            } catch (err) {
+                alert('Error deducting item: ' + err.message);
+            }
+        }
+
+        // --- DETAILS MODAL & CHART LOGIC ---
+        function closeDetailsModal() {
+            document.getElementById('detailsModal').classList.add('hidden');
+            activeDetailsItemId = null;
+        }
+
+        async function openDetailsModal(id) {
+            activeDetailsItemId = id;
+            document.getElementById('detailsModal').classList.remove('hidden');
+            await loadDetailsAndHistory(id);
+        }
+
+        async function loadDetailsAndHistory(id) {
+            try {
+                const [detailsRes, historyRes] = await Promise.all([
+                    fetch(`/api/items/${id}/details`),
+                    fetch(`/api/items/${id}/price-history`)
+                ]);
+                
+                const details = await detailsRes.json();
+                const history = await historyRes.json();
+
+                document.getElementById('detailsTitle').innerText = details.name;
+                document.getElementById('detailsCategory').innerText = details.category_name || '-';
+                document.getElementById('detailsLocation').innerText = details.location_name || '-';
+                document.getElementById('detailsContainer').innerText = details.container_details || '-';
+                document.getElementById('detailsBarcode').innerText = details.barcode || '-';
+
+                const formatPurchase = (p) => p && p.price > 0 ? `$${p.price.toFixed(2)} at ${p.vendor} on ${new Date(p.recorded_at).toLocaleDateString()}` : 'N/A';
+                document.getElementById('detailsLastPurchase').innerText = formatPurchase(details.last_purchase);
+                document.getElementById('detailsLowestPurchase').innerText = formatPurchase(details.lowest_purchase);
+
+                renderChart(history);
+                renderHistoryTable(history);
+
             } catch (err) {
                 console.error(err);
             }
         }
 
-        // LLM Vision Logic
-        async function processLLMImage(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+        function renderChart(history) {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            if (priceChartInstance) {
+                priceChartInstance.destroy();
+            }
 
-            document.getElementById('loadingOverlay').classList.remove('hidden');
+            const sortedHistory = [...history].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
             
-            const formData = new FormData();
-            formData.append('image', file);
+            const validDataPoints = sortedHistory.filter(h => h.price > 0);
+            
+            const labels = validDataPoints.map(h => new Date(h.recorded_at).toLocaleDateString());
+            const data = validDataPoints.map(h => h.price);
 
-            try {
-                const res = await fetch('/api/parse-label-llm', {
-                    method: 'POST',
-                    body: formData
-                });
+            priceChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Price ($)',
+                        data: data,
+                        borderColor: '#FF6F00',
+                        backgroundColor: 'rgba(255, 111, 0, 0.1)',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#6A0DAD',
+                        pointBorderColor: '#fff',
+                        pointRadius: 4,
+                        spanGaps: false,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#E0E0E0' }
+                        },
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            ticks: { color: '#E0E0E0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderHistoryTable(history) {
+            const tbody = document.getElementById('priceHistoryTableBody');
+            if (history.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-rimmy-textMuted">No history available</td></tr>';
+                return;
+            }
+
+            const validPrices = history.filter(h => h.price > 0).map(h => h.price);
+            const maxPrice = validPrices.length ? Math.max(...validPrices) : -1;
+            const minPrice = validPrices.length ? Math.min(...validPrices) : -1;
+
+            tbody.innerHTML = history.map(h => {
+                let colorClass = 'text-rimmy-text';
+                if (h.price > 0) {
+                    if (h.price === maxPrice) colorClass = 'text-red-500 font-bold';
+                    if (h.price === minPrice && minPrice !== maxPrice) colorClass = 'text-green-500 font-bold';
+                }
                 
-                if (!res.ok) throw new Error('LLM Parsing failed');
-                const data = await res.json();
+                return `
+                <tr class="border-b border-rimmy-border hover:bg-rimmy-black transition-colors">
+                    <td class="px-4 py-3">${new Date(h.recorded_at).toLocaleDateString()}</td>
+                    <td class="px-4 py-3 ${colorClass}">${h.price > 0 ? '$' + h.price.toFixed(2) : '-'}</td>
+                    <td class="px-4 py-3 truncate max-w-[120px]">${h.vendor || ''}</td>
+                    <td class="px-4 py-3 text-right">
+                        <button onclick="deletePriceHistory(${h.id})" class="text-red-500 hover:text-red-700 font-bold text-lg leading-none touch-target">&times;</button>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
 
-                if (data.name) document.getElementById('itemName').value = data.name;
-                if (data.category) document.getElementById('itemCategory').value = data.category;
-                if (data.container_details) document.getElementById('itemDetails').value = data.container_details;
-
+        async function deletePriceHistory(id) {
+            if (!confirm('Delete this price history record?')) return;
+            try {
+                await fetch(`/api/price-history/${id}`, { method: 'DELETE' });
+                if (activeDetailsItemId) {
+                    loadDetailsAndHistory(activeDetailsItemId);
+                    fetchItems();
+                }
             } catch (err) {
-                alert('Error parsing label: ' + err.message);
-            } finally {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-                e.target.value = ''; // Reset input
+                alert('Error deleting record: ' + err.message);
             }
         }
     </script>

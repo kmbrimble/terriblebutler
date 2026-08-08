@@ -1,0 +1,12 @@
+.git
+node_modules
+/inventory.db
+/inventory.db-shm
+/inventory.db-wal
+data/
+public/uploads/
+.mcp.json
+docker-compose.yml
+Download *
+index (1).html
+*.save

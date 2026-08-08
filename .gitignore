@@ -6,3 +6,9 @@ uploads/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+.db-wal
+.db-shm
+*.save
+.mcp.json
+*.db-wal
+*.db-shm
