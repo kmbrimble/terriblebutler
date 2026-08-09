@@ -4,7 +4,8 @@
   "description": "Household inventory tracking system backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "better-sqlite3": "^11.1.2",
@@ -15,5 +16,9 @@
     "pdf-parse": "^2.4.5",
     "socket.io": "^4.7.5",
     "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0",
+    "vitest": "^2.1.9"
   }
 }

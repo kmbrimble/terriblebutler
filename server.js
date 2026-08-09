@@ -34,7 +34,8 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Initialise Database
-const db = new Database(path.join(__dirname, 'data', 'inventory.db'));
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db');
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = FULL');
 
@@ -722,6 +723,10 @@ app.post('/api/invoices/commit', (req, res) => {
 
 // Start Server
 const PORT = process.env.PORT || 2626;
-server.listen(PORT, () => {
- console.log(`Terrible Butler server listening on port ${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Terrible Butler server listening on port ${PORT}`);
+  });
+}
+
+module.exports = { app, server, db };

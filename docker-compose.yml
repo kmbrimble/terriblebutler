@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  terrible-butler:
+    container_name: terrible-butler
+    build: .
+    restart: unless-stopped
+    ports:
+      - "2626:2626"
+    environment:
+      - PORT=2626
+      - LLM_API_URL=http://192.168.0.10:11434/v1/chat/completions
+      - NODE_ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/public/uploads
