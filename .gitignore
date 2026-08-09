@@ -12,3 +12,5 @@ uploads/
 .mcp.json
 *.db-wal
 *.db-shm
+test-results/
+playwright-report/

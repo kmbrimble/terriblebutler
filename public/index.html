@@ -228,10 +228,6 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zm14-1a1 1 0 011 1v3a1 1 0 01-2 0V5h-3a1 1 0 010-2h4zM3 20a1 1 0 001 1h4a1 1 0 000-2H5v-3a1 1 0 00-2 0v3zm18-4a1 1 0 00-1-1h-3a1 1 0 000 2h3v3a1 1 0 002 0v-4zM7 8h2v8H7V8zm4 0h2v8h-2V8zm4 0h2v8h-2V8z"></path></svg>
                     Scan Barcode
                 </button>
-                <button type="button" onclick="document.getElementById('llmFileInput').click()" class="touch-target bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold transition-all shadow-sm flex items-center justify-center gap-2">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    Scan Label
-                </button>
                 
                 <div class="relative mt-1">
                     <input type="text" id="deductSearchInput" oninput="filterDeductItems()" placeholder="Manual Search..." class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
@@ -249,7 +245,7 @@
                     </div>
                     <div class="flex-1">
                         <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Location</label>
-                        <select id="deductLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        <select id="deductLocation" disabled class="w-full bg-rimmy-black border border-rimmy-border outline-none rounded p-2 touch-target text-rimmy-textMuted transition-colors disabled:cursor-not-allowed disabled:opacity-75">
                         </select>
                     </div>
                 </div>
@@ -526,6 +522,7 @@
         
         let html5QrCode = null;
         let scannerContext = null;
+        let barcodeScanHandled = false;
 
         const socket = io();
         socket.on('inventory_updated', () => {
@@ -553,12 +550,6 @@
             if(viewToggle) viewToggle.checked = (currentViewMode === 'expanded');
             if(sortSelect) sortSelect.value = currentSortBy;
             if(sortDirBtn) sortDirBtn.innerText = currentSortDir.toUpperCase();
-
-            document.addEventListener('click', () => {
-                if (!document.fullscreenElement) {
-                    document.documentElement.requestFullscreen().catch(() => {});
-                }
-            }, { once: true });
 
             renderTabs();
             fetchLocations();
@@ -617,6 +608,24 @@
             renderItems();
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        async function apiFetch(url, options = {}) {
+            const response = await fetch(url, options);
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(data?.error || `Request failed with status ${response.status}`);
+            }
+            return data;
+        }
+
         async function fetchLocations() {
             try {
                 const res = await fetch('/api/locations');
@@ -650,7 +659,7 @@
         }
 
         function populateLocationSelects() {
-            const locOptions = '<option value="">Select...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+            const locOptions = '<option value="">Select...</option>' + locations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
             
             const addLocSelect = document.getElementById('itemLocation');
             if (addLocSelect) {
@@ -669,19 +678,19 @@
             const globalLocSelect = document.getElementById('globalLocationSelect');
             if (globalLocSelect) {
                 const currentVal = globalLocSelect.value;
-                globalLocSelect.innerHTML = '<option value="">Select Location...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+                globalLocSelect.innerHTML = '<option value="">Select Location...</option>' + locations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
                 if (currentVal) globalLocSelect.value = currentVal;
             }
 
             document.querySelectorAll('.staging-loc-select').forEach(select => {
                 const currentVal = select.value;
-                select.innerHTML = '<option value="">Select...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+                select.innerHTML = '<option value="">Select...</option>' + locations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
                 if (currentVal) select.value = currentVal;
             });
         }
 
         function populateCategorySelects() {
-            const catOptions = '<option value="">Select...</option>' + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            const catOptions = '<option value="">Select...</option>' + categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
             
             const addCatSelect = document.getElementById('itemCategory');
             if (addCatSelect) {
@@ -704,9 +713,9 @@
             if (!list) return;
             list.innerHTML = categories.map(c => `
                 <li class="flex justify-between items-center bg-rimmy-black border border-rimmy-border rounded p-2">
-                    <span class="text-rimmy-text font-bold truncate pr-2">${c.name}</span>
+                    <span class="text-rimmy-text font-bold truncate pr-2">${escapeHtml(c.name)}</span>
                     <div class="flex gap-2 shrink-0">
-                        <button onclick="editCategory(${c.id}, '${c.name.replace(/'/g, "\\'")}')" class="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-2 border border-rimmy-border rounded">Edit</button>
+                        <button onclick="editCategory(${c.id})" class="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-2 border border-rimmy-border rounded">Edit</button>
                         <button onclick="deleteCategory(${c.id})" class="text-red-500 hover:text-red-700 font-bold touch-target px-2 border border-rimmy-border rounded">X</button>
                     </div>
                 </li>
@@ -725,7 +734,8 @@
                 input.value = '';
             } catch (err) { alert(err.message); }
         }
-        async function editCategory(id, currentName) {
+        async function editCategory(id) {
+            const currentName = categories.find(c => c.id === id)?.name || '';
             const newName = prompt('Enter new category name:', currentName);
             if (!newName || newName === currentName) return;
             try {
@@ -756,9 +766,9 @@
             if (!list) return;
             list.innerHTML = locations.map(l => `
                 <li class="flex justify-between items-center bg-rimmy-black border border-rimmy-border rounded p-2">
-                    <span class="text-rimmy-text font-bold truncate pr-2">${l.name}</span>
+                    <span class="text-rimmy-text font-bold truncate pr-2">${escapeHtml(l.name)}</span>
                     <div class="flex gap-2 shrink-0">
-                        <button onclick="editLocation(${l.id}, '${l.name.replace(/'/g, "\\'")}')" class="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-2 border border-rimmy-border rounded">Edit</button>
+                        <button onclick="editLocation(${l.id})" class="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-2 border border-rimmy-border rounded">Edit</button>
                         <button onclick="deleteLocation(${l.id})" class="text-red-500 hover:text-red-700 font-bold touch-target px-2 border border-rimmy-border rounded">X</button>
                     </div>
                 </li>
@@ -777,7 +787,8 @@
                 input.value = '';
             } catch (err) { alert(err.message); }
         }
-        async function editLocation(id, currentName) {
+        async function editLocation(id) {
+            const currentName = locations.find(l => l.id === id)?.name || '';
             const newName = prompt('Enter new location name:', currentName);
             if (!newName || newName === currentName) return;
             try {
@@ -892,9 +903,9 @@
                     <div class="item-card bg-rimmy-charcoal rounded border border-rimmy-border flex justify-between items-center px-3 py-1 h-[44px] shadow-sm hover:border-rimmy-purple transition-colors cursor-pointer"
                          onmousedown="startPress(event, ${item.id})" onmouseup="cancelPress()" onmouseleave="cancelPress()" ontouchstart="startPress(event, ${item.id})" ontouchend="cancelPress()" ontouchcancel="cancelPress()">
                         <div class="flex-1 min-w-0 pr-2 flex flex-col justify-center">
-                            <h3 class="font-bold text-sm text-rimmy-orange truncate leading-none">${item.name}</h3>
+                            <h3 class="font-bold text-sm text-rimmy-orange truncate leading-none">${escapeHtml(item.name)}</h3>
                             <p class="text-[11px] text-rimmy-textMuted truncate leading-tight mt-1">
-                                ${item.location_name || 'No Loc'} | ${item.container_details || ''}
+                                ${escapeHtml(item.location_name || 'No Loc')} | ${escapeHtml(item.container_details || '')}
                                 ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1); event.stopPropagation();" class="ml-2 px-1 text-red-500 border border-red-500 rounded text-[9px]">Ignore</button>` : ''}
                                 ${isIgnored ? `<button onclick="toggleIgnore(${item.id}, 0); event.stopPropagation();" class="ml-2 px-1 text-green-500 border border-green-500 rounded text-[9px]">Restore</button>` : ''}
                             </p>
@@ -916,9 +927,9 @@
                         <div class="flex gap-4 items-center w-full sm:w-auto flex-1 min-w-0">
                             ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded border border-rimmy-border shrink-0">` : `<div class="w-16 h-16 bg-rimmy-black rounded flex items-center justify-center text-rimmy-textMuted text-xs text-center p-1 border border-rimmy-border shrink-0">No Img</div>`}
                             <div class="flex-1 min-w-0">
-                                <h3 class="font-bold text-lg text-rimmy-orange truncate">${item.name}</h3>
-                                <p class="text-sm text-rimmy-textMuted truncate">${item.location_name || 'No Location'} | ${item.category_name || item.category_id || 'No Category'}</p>
-                                <p class="text-sm text-rimmy-textMuted truncate">${item.container_details || ''}</p>
+                                <h3 class="font-bold text-lg text-rimmy-orange truncate">${escapeHtml(item.name)}</h3>
+                                <p class="text-sm text-rimmy-textMuted truncate">${escapeHtml(item.location_name || 'No Location')} | ${escapeHtml(item.category_name || item.category_id || 'No Category')}</p>
+                                <p class="text-sm text-rimmy-textMuted truncate">${escapeHtml(item.container_details || '')}</p>
                                 <p class="text-sm text-rimmy-text font-semibold mt-1">Last Price: $${lastPriceFormatted} | Lowest: $${lowestPriceFormatted}</p>
                                 
                                 ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1); event.stopPropagation();" class="mt-2 touch-target px-4 py-1 bg-red-900/40 text-red-500 border border-red-800 font-bold rounded text-sm hover:bg-red-900/60 transition-colors">Ignore Item</button>` : ''}
@@ -991,7 +1002,7 @@
 
         function renderStagingItems() {
             const container = document.getElementById('invoiceStagingList');
-            const locOptions = '<option value="">Select Location...</option>' + locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+            const locOptions = '<option value="">Select Location...</option>' + locations.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
             
             document.getElementById('globalLocationSelect').innerHTML = locOptions;
 
@@ -1000,8 +1011,8 @@
                     <div class="flex items-start gap-3">
                         <input type="checkbox" id="stage_check_${idx}" class="w-6 h-6 mt-1 rounded text-rimmy-orange bg-rimmy-charcoal border-gray-600 focus:ring-rimmy-orange focus:ring-offset-rimmy-black touch-target" checked>
                         <div class="flex-1 min-w-0">
-                            <p class="font-bold text-[15px] leading-tight break-words text-rimmy-text">${item.name}</p>
-                            <p class="text-xs text-rimmy-textMuted mt-1">${item.container_details || ''} | <span class="text-rimmy-orange">${item.vendor}</span></p>
+                            <p class="font-bold text-[15px] leading-tight break-words text-rimmy-text">${escapeHtml(item.name)}</p>
+                            <p class="text-xs text-rimmy-textMuted mt-1">${escapeHtml(item.container_details || '')} | <span class="text-rimmy-orange">${escapeHtml(item.vendor)}</span></p>
                             <p class="text-[15px] font-bold text-green-500 mt-1">$${Number(item.price).toFixed(2)}</p>
                         </div>
                     </div>
@@ -1075,19 +1086,27 @@
 
         // --- QUANTITY API ---
         async function updateQty(id, amount, action) {
-            await fetch(`/api/items/${id}/quantity`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount, action })
-            });
+            try {
+                await apiFetch(`/api/items/${id}/quantity`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount, action })
+                });
+            } catch (err) {
+                alert('Error updating quantity: ' + err.message);
+            }
         }
 
         async function toggleIgnore(id, status) {
-            await fetch(`/api/items/${id}/ignore-grocery`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_ignored_grocery: status })
-            });
+            try {
+                await apiFetch(`/api/items/${id}/ignore-grocery`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_ignored_grocery: status })
+                });
+            } catch (err) {
+                alert('Error updating grocery status: ' + err.message);
+            }
         }
 
         function openQtyModal(id, currentQty) {
@@ -1176,11 +1195,17 @@
             const method = id ? 'PUT' : 'POST';
 
             try {
-                await fetch(url, {
+                const response = await fetch(url, {
                     method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.error || `Request failed with status ${response.status}`);
+                }
+
                 closeAddModal();
             } catch (err) {
                 alert('Error saving item: ' + err.message);
@@ -1295,8 +1320,9 @@
         // --- BARCODE SCANNER LOGIC ---
         function openBarcodeScanner(context) {
             scannerContext = context;
+            barcodeScanHandled = false;
             document.getElementById('barcode-scanner-modal').classList.remove('hidden');
-            
+
             if (!html5QrCode) {
                 html5QrCode = new Html5Qrcode("reader");
             }
@@ -1308,24 +1334,33 @@
                     qrbox: { width: 250, height: 250 }
                 },
                 async (decodedText) => {
+                    if (barcodeScanHandled) return;
+                    barcodeScanHandled = true;
+
+                    const contextAtScan = scannerContext;
+                    const barcode = String(decodedText).trim();
+
                     if (navigator.vibrate) navigator.vibrate([100]);
-                    
                     await closeBarcodeScanner();
 
-                    if (scannerContext === 'add') {
-                        document.getElementById('itemBarcode').value = decodedText;
-                    } else if (scannerContext === 'deduct') {
-                        handleDeductScan(decodedText);
+                    if (contextAtScan === 'add') {
+                        const barcodeInput = document.getElementById('itemBarcode');
+                        barcodeInput.value = barcode;
+                        barcodeInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        barcodeInput.focus();
+                    } else if (contextAtScan === 'deduct') {
+                        await handleDeductScan(barcode);
                     }
                 },
-                (errorMessage) => {
+                () => {
+                    // Decode failures are expected while the camera is searching.
                 }
             ).catch((err) => {
                 alert("Camera error: " + err);
                 closeBarcodeScanner();
             });
         }
-        
+
         async function closeBarcodeScanner() {
             document.getElementById('barcode-scanner-modal').classList.add('hidden');
             if (html5QrCode) {
@@ -1340,36 +1375,23 @@
 
         async function handleDeductScan(barcode) {
             try {
-                const res = await fetch(`/api/items/barcode/${barcode}`);
+                const res = await fetch(`/api/items/barcode/${encodeURIComponent(barcode)}`);
+
                 if (res.status === 404) {
                     alert('Barcode not found in database.');
-                    openDeductModal();
                     return;
                 }
-                
-                if (res.ok) {
-                    const item = await res.json();
-                    
-                    const deductRes = await fetch(`/api/items/${item.id}/deduct`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ amount: 1 })
-                    });
 
-                    if (deductRes.ok) {
-                        showToast(`${item.name} quantity reduced by 1`);
-                        openDeductModal(); 
-                    } else {
-                        alert('Error deducting item.');
-                    }
-
-                } else {
-                    alert('Error finding barcode.');
-                    openDeductModal();
+                if (!res.ok) {
+                    const error = await res.json().catch(() => ({}));
+                    throw new Error(error.error || `Barcode lookup failed with status ${res.status}`);
                 }
+
+                const item = await res.json();
+                selectDeductItem(item.id, item.name, item.location_id);
             } catch (err) {
                 console.error(err);
-                alert("Error communicating with server.");
+                alert('Error finding barcode: ' + err.message);
             }
         }
 
@@ -1423,13 +1445,19 @@
             ).slice(0, 10);
             
             list.innerHTML = results.map(i => `
-                <div onclick="selectDeductItem(${i.id}, '${i.name.replace(/'/g, "\\'")}', ${i.location_id})" class="p-3 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange rounded cursor-pointer transition-colors text-sm">
-                    <p class="font-bold text-rimmy-orange truncate">${i.name}</p>
-                    <p class="text-xs text-rimmy-textMuted">${i.location_name || 'No Loc'} | Qty: ${i.quantity}</p>
+                <div onclick="selectDeductItemById(${i.id})" class="p-3 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange rounded cursor-pointer transition-colors text-sm">
+                    <p class="font-bold text-rimmy-orange truncate">${escapeHtml(i.name)}</p>
+                    <p class="text-xs text-rimmy-textMuted">${escapeHtml(i.location_name || 'No Loc')} | Qty: ${i.quantity}</p>
                 </div>
             `).join('');
         }
         
+        function selectDeductItemById(id) {
+            const item = items.find(i => i.id === id);
+            if (!item) return;
+            selectDeductItem(item.id, item.name, item.location_id);
+        }
+
         function selectDeductItem(id, name, locId) {
             document.getElementById('deductSearchContainer').classList.add('hidden');
             document.getElementById('deductActionContainer').classList.remove('hidden');
@@ -1444,16 +1472,23 @@
         async function submitDeduct() {
             const id = document.getElementById('deductItemId').value;
             const amount = parseFloat(document.getElementById('deductQuantity').value);
-            const locId = document.getElementById('deductLocation').value;
-            
+
             if (isNaN(amount) || amount <= 0) return alert('Invalid amount');
-            
+
             try {
-                await fetch(`/api/items/${id}/deduct`, {
+                const response = await fetch(`/api/items/${id}/deduct`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ amount, location_id: locId ? parseInt(locId) : null })
+                    body: JSON.stringify({ amount })
                 });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.error || `Request failed with status ${response.status}`);
+                }
+
+                const updatedItem = await response.json();
+                showToast(`${updatedItem.name} quantity reduced by ${amount}`);
                 closeDeductModal();
             } catch (err) {
                 alert('Error deducting item: ' + err.message);
@@ -1574,7 +1609,7 @@
                 <tr class="border-b border-rimmy-border hover:bg-rimmy-black transition-colors">
                     <td class="px-4 py-3">${new Date(h.recorded_at).toLocaleDateString()}</td>
                     <td class="px-4 py-3 ${colorClass}">${h.price > 0 ? '$' + h.price.toFixed(2) : '-'}</td>
-                    <td class="px-4 py-3 truncate max-w-[120px]">${h.vendor || ''}</td>
+                    <td class="px-4 py-3 truncate max-w-[120px]">${escapeHtml(h.vendor || '')}</td>
                     <td class="px-4 py-3 text-right">
                         <button onclick="deletePriceHistory(${h.id})" class="text-red-500 hover:text-red-700 font-bold text-lg leading-none touch-target">&times;</button>
                     </td>

@@ -10,3 +10,14 @@ docker-compose.yml
 Download *
 index (1).html
 *.save
+test/
+vitest.config.js
+*.md
+test-e2e/
+test-results/
+playwright-report/
+playwright.config.js
+test-e2e/
+test-results/
+playwright-report/
+playwright.config.js
