@@ -8,18 +8,116 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const Fuse = require('fuse.js');
 const sharp = require('sharp');
-
 // Initialise App and Server
 const app = express();
+
+app.disable('x-powered-by');
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(self), fullscreen=(self)');
+  next();
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: process.env.APP_ORIGIN || true }
 });
-
 // Middleware setup
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+app.get('/healthz', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+const rateLimitBuckets = new Map();
+
+function createRateLimiter({ windowMs, maxRequests, bucketName }) {
+  return (req, res, next) => {
+    const now = Date.now();
+    const clientAddress = req.ip || req.socket.remoteAddress || 'unknown';
+    const key = `${bucketName}:${clientAddress}`;
+
+    let bucket = rateLimitBuckets.get(key);
+
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = {
+        count: 0,
+        resetAt: now + windowMs
+      };
+    }
+
+    bucket.count += 1;
+    rateLimitBuckets.set(key, bucket);
+
+    res.setHeader('RateLimit-Limit', String(maxRequests));
+    res.setHeader(
+      'RateLimit-Remaining',
+      String(Math.max(0, maxRequests - bucket.count))
+    );
+    res.setHeader(
+      'RateLimit-Reset',
+      String(Math.ceil(bucket.resetAt / 1000))
+    );
+
+    if (bucket.count > maxRequests) {
+      return res.status(429).json({
+        error: 'Too many requests. Please try again shortly.'
+      });
+    }
+
+    next();
+  };
+}
+
+const generalApiRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 240,
+  bucketName: 'api'
+});
+
+const mutationRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 90,
+  bucketName: 'mutation'
+});
+
+const llmRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+  bucketName: 'llm'
+});
+
+app.use('/api', generalApiRateLimiter);
+
+app.use(
+  ['/api/parse-label-llm', '/api/invoices/parse'],
+  llmRateLimiter
+);
+
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    return mutationRateLimiter(req, res, next);
+  }
+
+  next();
+});
+
+const rateLimitCleanupTimer = setInterval(() => {
+  const now = Date.now();
+
+  for (const [key, bucket] of rateLimitBuckets.entries()) {
+    if (bucket.resetAt <= now) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+rateLimitCleanupTimer.unref();
 
 // Configure Multer for image and invoice uploads
 const storage = multer.diskStorage({
@@ -51,11 +149,9 @@ const invoiceUpload = multer({
   limits: { fileSize: MAX_INVOICE_BYTES, files: 1 },
   fileFilter: fileFilterFor(['application/pdf'])
 });
-
 // Ensure runtime directories exist before uploads or database access.
 fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
 fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-
 // Initialise Database
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db');
 const db = new Database(dbPath);
@@ -63,7 +159,6 @@ db.pragma('journal_mode = WAL');
 db.pragma('synchronous = FULL');
 db.pragma('foreign_keys = ON');
 db.pragma('busy_timeout = 5000');
-
 // Initialise Schema
 db.exec(`
   CREATE TABLE IF NOT EXISTS locations (
@@ -101,14 +196,12 @@ db.exec(`
     FOREIGN KEY(item_id) REFERENCES items(id)
   );
 `);
-
 // Seed default locations
 const insertLocation = db.prepare('INSERT OR IGNORE INTO locations (name) VALUES (?)');
 const defaultLocations = ['Chest Freezer', 'Fridge Freezer', 'Fridge', 'Pantry', 'HP Cupboard'];
 defaultLocations.forEach(loc => {
   insertLocation.run(loc);
 });
-
 // Helper to broadcast inventory updates via Socket.io
 function broadcastUpdate(action, itemData) {
   io.emit('inventory_updated', { action, item: itemData });
@@ -116,14 +209,12 @@ function broadcastUpdate(action, itemData) {
     io.emit(action, itemData);
   }
 }
-
 io.on('connection', (socket) => {
   console.log('A client connected');
   socket.on('disconnect', () => {
     console.log('A client disconnected');
   });
 });
-
 // Helper query to retrieve full item details
 const getItem = db.prepare(`
   SELECT items.*, locations.name as location_name, categories.name as category_name
@@ -132,7 +223,6 @@ const getItem = db.prepare(`
   LEFT JOIN categories ON items.category_id = categories.id
   WHERE items.id = ?
 `);
-
 // Helper for strict ID parsing
 function parseIntOrNull(val) {
   if (val === "" || val === undefined || val === null) return null;
@@ -177,7 +267,6 @@ function sendMutationError(res, err) {
   const status = /already assigned/i.test(err.message) ? 409 : 400;
   return res.status(status).json({ error: err.message });
 }
-
 // Helper for safe JSON extraction from LLM output
 function extractJsonFromText(text) {
   const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
@@ -227,7 +316,6 @@ async function fetchWithOllamaFallback(llmApiUrl, payload) {
   }
   return response;
 }
-
 // --- LOCATION ENDPOINTS ---
 app.get('/api/locations', (req, res) => {
   res.json(db.prepare('SELECT * FROM locations').all());
@@ -269,7 +357,6 @@ app.delete('/api/locations/:id', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // --- CATEGORY ENDPOINTS ---
 app.get('/api/categories', (req, res) => {
   res.json(db.prepare('SELECT * FROM categories').all());
@@ -311,7 +398,6 @@ app.delete('/api/categories/:id', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // --- ITEM ENDPOINTS ---
 app.get('/api/items', (req, res) => {
   const stmt = db.prepare(`
@@ -518,7 +604,6 @@ app.delete('/api/price-history/:id', (req, res) => {
   broadcastUpdate('price_history_updated', getItem.get(row.item_id));
   res.json({ message: 'Price history entry deleted' });
 });
-
 // --- IMAGE AND LLM ENDPOINTS ---
 app.post('/api/upload-image', imageUpload.single('image'), (req, res) => {
   if (!req.file) {
@@ -729,7 +814,6 @@ app.post('/api/invoices/commit', (req, res) => {
     res.status(500).json({ error: 'Failed to commit invoice: ' + err.message });
   }
 });
-
 // Return controlled errors for uploads and malformed JSON.
 app.use((err, req, res, next) => {
   console.error(err);
@@ -737,7 +821,6 @@ app.use((err, req, res, next) => {
   if (err) return res.status(400).json({ error: err.message || 'Request failed' });
   next();
 });
-
 const duplicateBarcodes = db.prepare(`
   SELECT barcode, COUNT(*) AS count FROM items
   WHERE barcode IS NOT NULL AND barcode <> ''
@@ -747,6 +830,74 @@ if (duplicateBarcodes.length) {
   console.warn(`[Startup] ${duplicateBarcodes.length} duplicate barcode value(s) already exist. Resolve these before enforcing a database-level unique index.`);
 }
 
+let shutdownInProgress = false;
+
+function closeDatabaseAndExit(exitCode) {
+  try {
+    if (db.open) {
+      db.close();
+      console.log('[Shutdown] SQLite database closed.');
+    }
+  } catch (err) {
+    console.error('[Shutdown] Failed to close SQLite database:', err);
+    exitCode = 1;
+  }
+
+  process.exit(exitCode);
+}
+
+function gracefulShutdown(signal) {
+  if (shutdownInProgress) {
+    console.log(`[Shutdown] ${signal} received while shutdown is already in progress.`);
+    return;
+  }
+
+  shutdownInProgress = true;
+  console.log(`[Shutdown] Received ${signal}. Closing Terrible Butler.`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[Shutdown] Graceful shutdown exceeded 5 seconds. Forcing exit.');
+    process.exit(1);
+  }, 5000);
+
+  forceExitTimer.unref();
+
+  const finishShutdown = (exitCode = 0) => {
+    clearTimeout(forceExitTimer);
+    closeDatabaseAndExit(exitCode);
+  };
+
+  try {
+    io.close(() => {
+      console.log('[Shutdown] Socket.io closed.');
+
+      server.close((err) => {
+        if (err && err.code !== 'ERR_SERVER_NOT_RUNNING') {
+          console.error('[Shutdown] Failed to close HTTP server:', err);
+          finishShutdown(1);
+          return;
+        }
+
+        console.log('[Shutdown] HTTP server closed.');
+        finishShutdown(0);
+      });
+    });
+  } catch (err) {
+    console.error('[Shutdown] Failed while closing Socket.io:', err);
+
+    server.close((serverErr) => {
+      if (serverErr && serverErr.code !== 'ERR_SERVER_NOT_RUNNING') {
+        console.error('[Shutdown] Failed to close HTTP server:', serverErr);
+      }
+
+      finishShutdown(1);
+    });
+  }
+}
+
+process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+
 // Start Server
 const PORT = process.env.PORT || 2626;
 if (require.main === module) {
@@ -754,5 +905,4 @@ if (require.main === module) {
     console.log(`Terrible Butler server listening on port ${PORT}`);
   });
 }
-
 module.exports = { app, server, db };
