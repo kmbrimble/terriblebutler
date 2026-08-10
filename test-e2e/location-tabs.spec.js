@@ -53,22 +53,23 @@ test('renaming a location updates its tab label and deleting it falls back to Al
 
   await page.goto('/');
 
-  const originalTab = page.locator('#tabs button', { hasText: originalName });
+  const originalTab = page.getByRole('button', { name: originalName, exact: true });
   await expect(originalTab).toHaveCount(1);
   await originalTab.click();
-  await expect(page.locator('#tabs button', { hasText: originalName })).toHaveClass(/bg-rimmy-purple/);
+  await expect(originalTab).toHaveClass(/bg-rimmy-purple/);
 
   const renamedName = `${originalName} Renamed`;
   const renameRes = await request.put(`/api/locations/${location.id}`, { data: { name: renamedName } });
   expect(renameRes.ok()).toBeTruthy();
 
-  await expect(page.locator('#tabs button', { hasText: renamedName })).toHaveCount(1);
-  await expect(page.locator('#tabs button', { hasText: originalName })).toHaveCount(0);
-  await expect(page.locator('#tabs button', { hasText: renamedName })).toHaveClass(/bg-rimmy-purple/);
+  const renamedTab = page.getByRole('button', { name: renamedName, exact: true });
+  await expect(renamedTab).toHaveCount(1);
+  await expect(page.getByRole('button', { name: originalName, exact: true })).toHaveCount(0);
+  await expect(renamedTab).toHaveClass(/bg-rimmy-purple/);
 
   const deleteRes = await request.delete(`/api/locations/${location.id}`);
   expect(deleteRes.ok()).toBeTruthy();
 
-  await expect(page.locator('#tabs button', { hasText: renamedName })).toHaveCount(0);
-  await expect(page.locator('#tabs button', { hasText: 'All Inventory' })).toHaveClass(/bg-rimmy-purple/);
+  await expect(page.getByRole('button', { name: renamedName, exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'All Inventory', exact: true })).toHaveClass(/bg-rimmy-purple/);
 });
