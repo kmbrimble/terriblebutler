@@ -6,11 +6,13 @@ import pkg from '../server.js';
 const { app } = pkg;
 
 describe('Stage 3-lite features', () => {
-  it('healthz returns ok', async () => {
+  it('healthz returns ok and a version', async () => {
     const res = await request(app).get('/healthz');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body.status).toBe('ok');
+    expect(typeof res.body.version).toBe('string');
+    expect(res.body.version.length).toBeGreaterThan(0);
   });
 
   it('healthz is not under /api and not rate limited', async () => {
