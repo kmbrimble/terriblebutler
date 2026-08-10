@@ -9,6 +9,7 @@ const pdfParse = require('pdf-parse');
 const Fuse = require('fuse.js');
 const sharp = require('sharp');
 // Initialise App and Server
+const APP_VERSION = '0.13';
 const app = express();
 
 app.disable('x-powered-by');
@@ -31,7 +32,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.get('/healthz', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', version: APP_VERSION });
 });
 
 const rateLimitBuckets = new Map();

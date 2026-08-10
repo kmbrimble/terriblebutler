@@ -2,12 +2,8 @@
 
 The minor version (after the dot) is an integer counter that increments by 1 each change: 0.1, 0.2 ... 0.9, 0.10, 0.11, and so on. The major version (before the dot) is NOT auto-incremented — it only advances when the user manually declares a milestone.
 
-## [Unreleased] - 2026-08-10
-### Add version field to /healthz
-- Plan: expose the current CHANGELOG version in the health check response so a running deployment can be verified against CHANGELOG.md.
-  - Add an `APP_VERSION` constant in `server.js` set to `'0.13'`.
-  - Update the `GET /healthz` handler to return `{ status: 'ok', version: APP_VERSION }` instead of `{ status: 'ok' }`.
-  - Update the existing `test/stage3.test.js` healthz test (which asserts an exact body match) and add an assertion that the response includes `status: 'ok'` and a string `version`.
+## 0.13 - 2026-08-10
+- Added a `version` field to the `GET /healthz` response (now `{ status: 'ok', version: '0.13' }`), so a running deployment's version can be verified against this changelog. Updated the backend healthz test to assert on `status` and `version` individually rather than an exact body match.
 
 ## 0.12 - 2026-08-10
 - Stage 3-lite: graceful shutdown (fixes slow stop), /healthz endpoint, rate limiting, and security headers with camera allowed.
