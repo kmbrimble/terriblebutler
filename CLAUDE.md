@@ -7,6 +7,12 @@ vision LLM.
 
 Use British/Australian English in all writing, comments, and UI text.
 
+Long-term goal: full React Native rewrite of the front end, using this API. Issuing the
+apps is the trigger for the first MAJOR version bump to 1.0 in `CHANGELOG.md` (per the
+versioning rules — MAJOR is never auto-incremented, only advanced on an explicit
+user-declared milestone). The auth/API conversion below is a preparatory step, not that
+milestone itself.
+
 ## Layout
 
 - Repo (in container): `/projects/butler`
@@ -34,9 +40,12 @@ apply patterns from outside this project without checking against this list.
 1. **Listen on all interfaces, port 2626.** `const PORT = process.env.PORT || 2626;` and
    `server.listen(PORT, ...)` with NO host argument. NEVER bind to `127.0.0.1` or any loopback
    address — it makes the app unreachable by Nginx Proxy Manager and by the LAN.
-2. **No app-level auth or origin gating.** Authentik handles authentication externally. Do not
-   add `APP_ORIGIN` origin-checking middleware, trusted-proxy auth-header enforcement, CORS
-   lockdowns, or similar.
+2. **App-level auth via JWT.** `POST /api/auth/login` checks `AUTH_USERNAME` /
+   `AUTH_PASSWORD_HASH` (bcrypt) and returns a 30-day JWT. All `/api/*` routes require
+   `Authorization: Bearer <token>` except `/api/auth/login` and `/api/health`.
+   Rate-limited to 5 attempts/15min on login. Socket.IO validates the token on
+   handshake. Do not remove this auth layer or make routes public without checking
+   with the user first.
 3. **Preserve the SQLite pragmas:** `journal_mode = WAL`, `synchronous = FULL`,
    `foreign_keys = ON`.
 4. **Preserve `DB_PATH`:**
@@ -49,8 +58,10 @@ apply patterns from outside this project without checking against this list.
    `llama3.2-vision`.
 7. **Camera must stay allowed.** The `Permissions-Policy` header must include `camera=(self)`.
    Removing it breaks the barcode scanner. There is a test guarding this; do not weaken it.
-8. **Never expose the Node port raw to the internet.** External access is Cloudflare Tunnel →
-   Nginx Proxy Manager → Authentik only.
+8. **Never expose the Node port raw to the internet.** Current access path (may change
+   again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
+   header/auth settings were removed, so NPM now passes straight through) →
+   `terrible-butler` on its unique port → app's own JWT auth.
 
 ## Database notes (read before any schema change)
 

@@ -2,6 +2,16 @@
 
 The minor version (after the dot) is an integer counter that increments by 1 each change: 0.1, 0.2 ... 0.9, 0.10, 0.11, and so on. The major version (before the dot) is NOT auto-incremented — it only advances when the user manually declares a milestone.
 
+## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
+
+Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the
+now-deployed JWT auth (previously written as "future state" alongside the 0.15 work)
+as current fact: NPM was kept in place but its Authentik header/auth settings were
+removed, so it's now a plain pass-through in front of the app's own JWT auth. Added a
+note that the long-term goal is a React Native rewrite of the front end using this API,
+and that issuing the apps — not this auth conversion — is the trigger for the 1.0 MAJOR
+bump.
+
 ## 0.15 - 2026-08-15 - API + in-app auth conversion
 
 **Context:** step one of the eventual React Native rewrite. Removes Authentik/NPM from
