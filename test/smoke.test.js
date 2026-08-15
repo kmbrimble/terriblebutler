@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import request from 'supertest';
 import './setup.js';
+import { api } from './setup.js';
 import pkg from '../server.js';
 
 const { app } = pkg;
 
 describe('GET /api/locations', () => {
   it('returns the seeded default locations', async () => {
-    const res = await request(app).get('/api/locations');
+    const res = await api(app).get('/api/locations');
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);

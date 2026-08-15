@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import './setup.js';
+import { api } from './setup.js';
 import pkg from '../server.js';
 
 const { app } = pkg;
@@ -22,7 +23,7 @@ describe('Stage 3-lite features', () => {
   });
 
   it('security headers are present', async () => {
-    const res = await request(app).get('/api/locations');
+    const res = await api(app).get('/api/locations');
 
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['x-frame-options']).toBe('DENY');
@@ -30,20 +31,20 @@ describe('Stage 3-lite features', () => {
   });
 
   it('camera is allowed in Permissions-Policy', async () => {
-    const res = await request(app).get('/api/locations');
+    const res = await api(app).get('/api/locations');
 
     expect(res.headers['permissions-policy']).toBeDefined();
     expect(res.headers['permissions-policy']).toContain('camera=(self)');
   });
 
   it('x-powered-by header is disabled', async () => {
-    const res = await request(app).get('/api/locations');
+    const res = await api(app).get('/api/locations');
 
     expect(res.headers['x-powered-by']).toBeUndefined();
   });
 
   it('api responses include rate limit headers', async () => {
-    const res = await request(app).get('/api/locations');
+    const res = await api(app).get('/api/locations');
 
     expect(res.headers['ratelimit-limit']).toBe('240');
   });

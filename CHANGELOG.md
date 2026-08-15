@@ -2,6 +2,46 @@
 
 The minor version (after the dot) is an integer counter that increments by 1 each change: 0.1, 0.2 ... 0.9, 0.10, 0.11, and so on. The major version (before the dot) is NOT auto-incremented — it only advances when the user manually declares a milestone.
 
+## [Unreleased] - API + in-app auth conversion (plan)
+
+**Context:** step one of the eventual React Native rewrite. Removes Authentik/NPM from
+the app's auth path; the app becomes the only gate. Supersedes constraints #2 and #8
+from `CLAUDE.md` for this task only; everything else in it (SQLite pragmas, `DB_PATH`,
+test seam, LLM model default, camera Permissions-Policy, port binding) is unchanged.
+
+**Route audit:** the app is already almost entirely a JSON `/api/...` backend (28
+routes, all JSON — no server-rendered HTML routes exist). "API extraction" therefore
+needs no route restructuring, just an auth gate in front of the existing routes, plus
+the existing static file serving of `public/` and `/uploads`.
+
+**Design:**
+- New env vars: `AUTH_USERNAME`, `AUTH_PASSWORD_HASH` (bcrypt), `JWT_SECRET`.
+- `POST /api/auth/login`: checks credentials, returns a JWT (30 day expiry) on success.
+  Rate-limited to 5 attempts/15 min per IP using the existing in-memory
+  `createRateLimiter` helper already in `server.js` (no new rate-limit dependency).
+- `GET /api/health`: new public alias, same body as the existing `/healthz` (which is
+  kept as-is, outside `/api`, unauthenticated, for existing monitoring).
+- `requireAuth` middleware verifies `Authorization: Bearer <token>` and is mounted on
+  `/api` AFTER the login/health routes are registered, so those two stay reachable
+  without a token while everything else under `/api` requires one.
+- Socket.IO: `io.use(...)` handshake middleware verifies a JWT passed as
+  `socket.handshake.auth.token`; unauthenticated sockets are rejected at connect time.
+- New deps: `jsonwebtoken` (JWT sign/verify) and `bcryptjs` (pure-JS bcrypt, avoids
+  adding another native-compiled dependency alongside better-sqlite3/sharp).
+- Frontend: existing (unused) `apiFetch()` helper in `public/index.html` is repurposed
+  to attach the `Authorization` header from `localStorage` and to clear the token +
+  show a login screen on a 401; the ~19 raw `fetch('/api/...')` call sites are switched
+  to call it. A login form overlay is added; the socket client passes the stored token
+  via `io({ auth: { token } })` and reconnects with it after login.
+- Test-only credentials (vitest `test/setup.js`, Playwright `test-e2e/global-setup.mjs`)
+  are fixed, hardcoded, throwaway values distinct from production secrets. Existing
+  vitest files call a small `api(app)` wrapper (in `setup.js`) instead of raw
+  `request(app)` so every existing test keeps working with a valid token attached.
+  Playwright tests get a pre-signed token via `storageState` (page-side) and
+  `extraHTTPHeaders` (the `request` fixture) so existing specs don't need per-test
+  login flows; one new `test-e2e/auth.spec.js` exercises the real login form logged-out.
+- No database schema change.
+
 ## 0.14 - 2026-08-11
 - Made the location tab bar dynamic instead of hardcoded, in `public/index.html`. Previously the tab bar and its filtering logic were built from a fixed array of location names, so a newly added location never got a tab and renaming/deleting a default location broke its filter.
   - The tab bar now always shows three fixed special tabs (All Inventory, Grocery List, Ignored Out-of-Stock) plus one tab per entry in the `locations` array (from `GET /api/locations`), inserted between All Inventory and Grocery List, in API order.
