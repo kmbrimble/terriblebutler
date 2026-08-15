@@ -113,6 +113,20 @@
 </head>
 <body class="bg-rimmy-black text-rimmy-text font-sans antialiased pb-20 transition-colors duration-300">
 
+    <div id="loginScreen" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-rimmy-black px-4">
+        <form id="loginForm" class="bg-rimmy-charcoal border border-rimmy-border rounded-lg p-6 w-full max-w-xs space-y-4 shadow-lg">
+            <h1 class="text-2xl text-rimmy-orange leading-[1]" style="font-family: 'Lobster Two', cursive;">Terrible Butler</h1>
+            <input id="loginUsername" name="username" type="text" placeholder="Username" autocomplete="username" required
+                class="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
+            <input id="loginPassword" name="password" type="password" placeholder="Password" autocomplete="current-password" required
+                class="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
+            <p id="loginError" class="hidden text-sm text-red-500"></p>
+            <button type="submit" class="w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white font-semibold p-2 rounded">Log in</button>
+        </form>
+    </div>
+
+    <div id="appRoot" class="hidden">
+
     <header class="bg-rimmy-purple text-white p-4 sticky top-0 z-10 shadow-[0_4px_15px_rgba(0,0,0,0.3)] flex flex-wrap justify-between items-center gap-2 border-b border-rimmy-purpleHover transition-colors duration-300">
         <div class="leading-[1] text-rimmy-orange drop-shadow-md" style="font-family: 'Lobster Two', cursive;">
             <div class="text-[1.2rem]">Terrible</div>
@@ -523,7 +537,7 @@
         let scannerContext = null;
         let barcodeScanHandled = false;
 
-        const socket = io();
+        const socket = io({ auth: { token: localStorage.getItem('tb_token') || '' }, autoConnect: false });
         socket.on('inventory_updated', () => {
             fetchItems();
             if (activeDetailsItemId) {
@@ -539,12 +553,30 @@
             fetchItems();
         });
 
-        document.addEventListener('DOMContentLoaded', () => {
+        function showLogin(message) {
+            document.getElementById('appRoot').classList.add('hidden');
+            document.getElementById('loginScreen').classList.remove('hidden');
+            const errorEl = document.getElementById('loginError');
+            if (message) {
+                errorEl.textContent = message;
+                errorEl.classList.remove('hidden');
+            } else {
+                errorEl.classList.add('hidden');
+            }
+        }
+
+        function initApp() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('appRoot').classList.remove('hidden');
+
+            socket.auth.token = localStorage.getItem('tb_token') || '';
+            socket.connect();
+
             const themeToggle = document.getElementById('themeToggle');
             const viewToggle = document.getElementById('viewModeToggle');
             const sortSelect = document.getElementById('sortBySelect');
             const sortDirBtn = document.getElementById('sortDirBtn');
-            
+
             if(themeToggle) themeToggle.checked = (currentTheme === 'dark');
             if(viewToggle) viewToggle.checked = (currentViewMode === 'expanded');
             if(sortSelect) sortSelect.value = currentSortBy;
@@ -554,6 +586,36 @@
             fetchLocations();
             fetchCategories();
             fetchItems();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const username = document.getElementById('loginUsername').value;
+                const password = document.getElementById('loginPassword').value;
+                try {
+                    const res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        showLogin(data.error || 'Login failed.');
+                        return;
+                    }
+                    localStorage.setItem('tb_token', data.token);
+                    initApp();
+                } catch (err) {
+                    showLogin('Could not reach the server.');
+                }
+            });
+
+            if (localStorage.getItem('tb_token')) {
+                initApp();
+            } else {
+                showLogin();
+            }
         });
 
         function toggleDrawer() {
@@ -617,17 +679,21 @@
         }
 
         async function apiFetch(url, options = {}) {
-            const response = await fetch(url, options);
-            const data = await response.json().catch(() => null);
-            if (!response.ok) {
-                throw new Error(data?.error || `Request failed with status ${response.status}`);
+            const token = localStorage.getItem('tb_token');
+            const headers = { ...(options.headers || {}) };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const response = await fetch(url, { ...options, headers });
+            if (response.status === 401) {
+                localStorage.removeItem('tb_token');
+                socket.disconnect();
+                showLogin('Session expired. Please log in again.');
             }
-            return data;
+            return response;
         }
 
         async function fetchLocations() {
             try {
-                const res = await fetch('/api/locations');
+                const res = await apiFetch('/api/locations');
                 locations = await res.json();
                 populateLocationSelects();
                 renderManageLocations();
@@ -639,7 +705,7 @@
 
         async function fetchCategories() {
             try {
-                const res = await fetch('/api/categories');
+                const res = await apiFetch('/api/categories');
                 categories = await res.json();
                 populateCategorySelects();
                 renderManageCategories();
@@ -650,7 +716,7 @@
 
         async function fetchItems() {
             try {
-                const res = await fetch('/api/items');
+                const res = await apiFetch('/api/items');
                 items = await res.json();
                 renderItems();
             } catch (err) {
@@ -726,7 +792,7 @@
             const name = input.value.trim();
             if (!name) return;
             try {
-                await fetch('/api/categories', {
+                await apiFetch('/api/categories', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
@@ -739,7 +805,7 @@
             const newName = prompt('Enter new category name:', currentName);
             if (!newName || newName === currentName) return;
             try {
-                await fetch(`/api/categories/${id}`, {
+                await apiFetch(`/api/categories/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: newName })
@@ -749,7 +815,7 @@
         async function deleteCategory(id) {
             if (!confirm('Delete this category? Items in this category will not be deleted.')) return;
             try {
-                await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+                await apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
             } catch (err) { alert(err.message); }
         }
 
@@ -779,7 +845,7 @@
             const name = input.value.trim();
             if (!name) return;
             try {
-                await fetch('/api/locations', {
+                await apiFetch('/api/locations', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
@@ -792,7 +858,7 @@
             const newName = prompt('Enter new location name:', currentName);
             if (!newName || newName === currentName) return;
             try {
-                await fetch(`/api/locations/${id}`, {
+                await apiFetch(`/api/locations/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: newName })
@@ -802,7 +868,7 @@
         async function deleteLocation(id) {
             if (!confirm('Delete this location? Items in this location will not be deleted.')) return;
             try {
-                await fetch(`/api/locations/${id}`, { method: 'DELETE' });
+                await apiFetch(`/api/locations/${id}`, { method: 'DELETE' });
             } catch (err) { alert(err.message); }
         }
 
@@ -990,7 +1056,7 @@
             formData.append('invoice', file);
 
             try {
-                const res = await fetch('/api/invoices/parse', {
+                const res = await apiFetch('/api/invoices/parse', {
                     method: 'POST',
                     body: formData
                 });
@@ -1080,7 +1146,7 @@
             }
 
             try {
-                const res = await fetch('/api/invoices/commit', {
+                const res = await apiFetch('/api/invoices/commit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ items: payloadItems })
@@ -1206,7 +1272,7 @@
             const method = id ? 'PUT' : 'POST';
 
             try {
-                const response = await fetch(url, {
+                const response = await apiFetch(url, {
                     method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -1301,7 +1367,7 @@
                 formData.append('image', blob, 'cropped_label.jpg');
 
                 try {
-                    const res = await fetch('/api/parse-label-llm', {
+                    const res = await apiFetch('/api/parse-label-llm', {
                         method: 'POST',
                         body: formData
                     });
@@ -1386,7 +1452,7 @@
 
         async function handleDeductScan(barcode) {
             try {
-                const res = await fetch(`/api/items/barcode/${encodeURIComponent(barcode)}`);
+                const res = await apiFetch(`/api/items/barcode/${encodeURIComponent(barcode)}`);
 
                 if (res.status === 404) {
                     alert('Barcode not found in database.');
@@ -1487,7 +1553,7 @@
             if (isNaN(amount) || amount <= 0) return alert('Invalid amount');
 
             try {
-                const response = await fetch(`/api/items/${id}/deduct`, {
+                const response = await apiFetch(`/api/items/${id}/deduct`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ amount })
@@ -1521,8 +1587,8 @@
         async function loadDetailsAndHistory(id) {
             try {
                 const [detailsRes, historyRes] = await Promise.all([
-                    fetch(`/api/items/${id}/details`),
-                    fetch(`/api/items/${id}/price-history`)
+                    apiFetch(`/api/items/${id}/details`),
+                    apiFetch(`/api/items/${id}/price-history`)
                 ]);
                 
                 const details = await detailsRes.json();
@@ -1632,7 +1698,7 @@
         async function deletePriceHistory(id) {
             if (!confirm('Delete this price history record?')) return;
             try {
-                await fetch(`/api/price-history/${id}`, { method: 'DELETE' });
+                await apiFetch(`/api/price-history/${id}`, { method: 'DELETE' });
                 if (activeDetailsItemId) {
                     loadDetailsAndHistory(activeDetailsItemId);
                     fetchItems();
@@ -1642,5 +1708,7 @@
             }
         }
     </script>
+
+    </div>
 </body>
 </html>

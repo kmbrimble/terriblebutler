@@ -3,11 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_SECRET } from './auth-fixtures.cjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const PORT = 2699;
-const HEALTH_URL = `http://127.0.0.1:${PORT}/api/locations`;
+const HEALTH_URL = `http://127.0.0.1:${PORT}/api/health`;
 
 async function waitForServer(url, timeoutMs = 30000, intervalMs = 200) {
   const deadline = Date.now() + timeoutMs;
@@ -33,6 +34,9 @@ export default async function globalSetup() {
       ...process.env,
       DB_PATH: dbPath,
       PORT: String(PORT),
+      AUTH_USERNAME,
+      AUTH_PASSWORD_HASH,
+      JWT_SECRET,
     },
     stdio: 'inherit',
   });

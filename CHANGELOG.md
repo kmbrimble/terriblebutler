@@ -2,7 +2,7 @@
 
 The minor version (after the dot) is an integer counter that increments by 1 each change: 0.1, 0.2 ... 0.9, 0.10, 0.11, and so on. The major version (before the dot) is NOT auto-incremented — it only advances when the user manually declares a milestone.
 
-## [Unreleased] - API + in-app auth conversion (plan)
+## 0.15 - 2026-08-15 - API + in-app auth conversion
 
 **Context:** step one of the eventual React Native rewrite. Removes Authentik/NPM from
 the app's auth path; the app becomes the only gate. Supersedes constraints #2 and #8
@@ -41,6 +41,30 @@ the existing static file serving of `public/` and `/uploads`.
   `extraHTTPHeaders` (the `request` fixture) so existing specs don't need per-test
   login flows; one new `test-e2e/auth.spec.js` exercises the real login form logged-out.
 - No database schema change.
+
+**Implemented as planned**, plus two fixes discovered along the way:
+- `test-e2e/auth-fixtures.mjs` was renamed to `.cjs`: Playwright bundles `.mjs`
+  config/setup files through esbuild for static export detection, which proved
+  unreliable for a file whose exports are computed at module load (`bcrypt.hashSync`,
+  originally `crypto.randomBytes` for `JWT_SECRET`). A plain CommonJS file plus Node's
+  native ESM-imports-CJS interop resolved it cleanly.
+- That same fixture's `JWT_SECRET` is a fixed string, not randomly generated per run:
+  `playwright.config.js` and `test-e2e/global-setup.mjs` load it through separate
+  transform contexts, so a value computed with fresh randomness at module-load time
+  isn't guaranteed to come out identical in both, and the token minted in config must
+  match the secret given to the spawned test server. `AUTH_PASSWORD_HASH` didn't need
+  the same fix (bcrypt hashes their own random salt, but only the server's copy is ever
+  checked against anything).
+- `jsonwebtoken` is used for signing/verifying on the server; the e2e fixture mints its
+  token with a small hand-rolled HS256 signer (`node:crypto`) instead of importing
+  `jsonwebtoken` directly, for the same esbuild/bundling reason above (`jsonwebtoken`
+  pulls in `jws` → `safe-buffer`, which does a conditional `require('buffer')` that
+  esbuild's CJS-in-ESM shim can't satisfy). Cross-checked against `jsonwebtoken`'s own
+  `verify()` before use.
+
+Full suite green: 39 backend (vitest, incl. 10 new auth tests) + 9 e2e (Playwright,
+incl. 2 new login-flow tests) tests. Not yet deployed to production - pending the
+port-2627 isolated test-container verification and production secrets.
 
 ## 0.14 - 2026-08-11
 - Made the location tab bar dynamic instead of hardcoded, in `public/index.html`. Previously the tab bar and its filtering logic were built from a fixed array of location names, so a newly added location never got a tab and renaming/deleting a default location broke its filter.

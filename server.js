@@ -8,9 +8,18 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const Fuse = require('fuse.js');
 const sharp = require('sharp');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 // Initialise App and Server
-const APP_VERSION = '0.13';
+const APP_VERSION = '0.15';
 const app = express();
+
+const JWT_SECRET = process.env.JWT_SECRET;
+const AUTH_USERNAME = process.env.AUTH_USERNAME;
+const AUTH_PASSWORD_HASH = process.env.AUTH_PASSWORD_HASH;
+if (!JWT_SECRET || !AUTH_USERNAME || !AUTH_PASSWORD_HASH) {
+  throw new Error('AUTH_USERNAME, AUTH_PASSWORD_HASH and JWT_SECRET environment variables are required.');
+}
 
 app.disable('x-powered-by');
 
@@ -210,6 +219,18 @@ function broadcastUpdate(action, itemData) {
     io.emit(action, itemData);
   }
 }
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    return next(new Error('Unauthorized'));
+  }
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (err) {
+    next(new Error('Unauthorized'));
+  }
+});
 io.on('connection', (socket) => {
   console.log('A client connected');
   socket.on('disconnect', () => {
@@ -317,6 +338,47 @@ async function fetchWithOllamaFallback(llmApiUrl, payload) {
   }
   return response;
 }
+// --- AUTH ---
+const loginRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 5,
+  bucketName: 'login'
+});
+
+app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
+  }
+
+  const validPassword = await bcrypt.compare(password, AUTH_PASSWORD_HASH);
+  if (username !== AUTH_USERNAME || !validPassword) {
+    return res.status(401).json({ error: 'Invalid credentials.' });
+  }
+
+  const token = jwt.sign({ sub: username }, JWT_SECRET, { expiresIn: '30d' });
+  res.json({ token });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', version: APP_VERSION });
+});
+
+function requireAuth(req, res, next) {
+  const [scheme, token] = (req.headers['authorization'] || '').split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+
+app.use('/api', requireAuth);
+
 // --- LOCATION ENDPOINTS ---
 app.get('/api/locations', (req, res) => {
   res.json(db.prepare('SELECT * FROM locations').all());
