@@ -559,6 +559,16 @@
             fetchCategories();
             fetchItems();
         });
+        let socketErrorShown = false;
+        socket.on('connect_error', () => {
+            if (!socketErrorShown) {
+                socketErrorShown = true;
+                showError('Lost connection to the server — live updates paused.');
+            }
+        });
+        socket.on('connect', () => {
+            socketErrorShown = false;
+        });
 
         function showLogin(message) {
             document.getElementById('appRoot').classList.add('hidden');
@@ -698,9 +708,34 @@
             return response;
         }
 
+        // Standard wrapper around apiFetch: surfaces network errors and non-2xx responses
+        // as a consistent error toast, and throws so callers' code-after-the-call only runs
+        // on success. Pass { silent: true } for call sites that need custom status handling
+        // (e.g. a 404 that isn't really an error) — same raw pass-through as apiFetch.
+        async function apiRequest(url, options = {}) {
+            const { silent = false, ...fetchOptions } = options;
+            let res;
+            try {
+                res = await apiFetch(url, fetchOptions);
+            } catch (err) {
+                if (!silent) showError('Network error — check your connection and try again.');
+                throw err;
+            }
+            if (!res.ok && !silent) {
+                let message = `Request failed (${res.status})`;
+                try {
+                    const body = await res.clone().json();
+                    if (body?.error) message = body.error;
+                } catch {}
+                showError(message);
+                throw new Error(message);
+            }
+            return res;
+        }
+
         async function fetchLocations() {
             try {
-                const res = await apiFetch('/api/locations');
+                const res = await apiRequest('/api/locations');
                 locations = await res.json();
                 populateLocationSelects();
                 renderManageLocations();
@@ -712,7 +747,7 @@
 
         async function fetchCategories() {
             try {
-                const res = await apiFetch('/api/categories');
+                const res = await apiRequest('/api/categories');
                 categories = await res.json();
                 populateCategorySelects();
                 renderManageCategories();
@@ -723,7 +758,7 @@
 
         async function fetchItems() {
             try {
-                const res = await apiFetch('/api/items');
+                const res = await apiRequest('/api/items');
                 items = await res.json();
                 renderItems();
             } catch (err) {
@@ -799,31 +834,31 @@
             const name = input.value.trim();
             if (!name) return;
             try {
-                await apiFetch('/api/categories', {
+                await apiRequest('/api/categories', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
                 });
                 input.value = '';
-            } catch (err) { alert(err.message); }
+            } catch {}
         }
         async function editCategory(id) {
             const currentName = categories.find(c => c.id === id)?.name || '';
             const newName = prompt('Enter new category name:', currentName);
             if (!newName || newName === currentName) return;
             try {
-                await apiFetch(`/api/categories/${id}`, {
+                await apiRequest(`/api/categories/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: newName })
                 });
-            } catch (err) { alert(err.message); }
+            } catch {}
         }
         async function deleteCategory(id) {
             if (!confirm('Delete this category? Items in this category will not be deleted.')) return;
             try {
-                await apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
-            } catch (err) { alert(err.message); }
+                await apiRequest(`/api/categories/${id}`, { method: 'DELETE' });
+            } catch {}
         }
 
         // --- MANAGE LOCATIONS LOGIC ---
@@ -852,31 +887,31 @@
             const name = input.value.trim();
             if (!name) return;
             try {
-                await apiFetch('/api/locations', {
+                await apiRequest('/api/locations', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name })
                 });
                 input.value = '';
-            } catch (err) { alert(err.message); }
+            } catch {}
         }
         async function editLocation(id) {
             const currentName = locations.find(l => l.id === id)?.name || '';
             const newName = prompt('Enter new location name:', currentName);
             if (!newName || newName === currentName) return;
             try {
-                await apiFetch(`/api/locations/${id}`, {
+                await apiRequest(`/api/locations/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: newName })
                 });
-            } catch (err) { alert(err.message); }
+            } catch {}
         }
         async function deleteLocation(id) {
             if (!confirm('Delete this location? Items in this location will not be deleted.')) return;
             try {
-                await apiFetch(`/api/locations/${id}`, { method: 'DELETE' });
-            } catch (err) { alert(err.message); }
+                await apiRequest(`/api/locations/${id}`, { method: 'DELETE' });
+            } catch {}
         }
 
         // --- TAB RENDERING ---
@@ -1063,20 +1098,18 @@
             formData.append('invoice', file);
 
             try {
-                const res = await apiFetch('/api/invoices/parse', {
+                const res = await apiRequest('/api/invoices/parse', {
                     method: 'POST',
                     body: formData
                 });
-                
-                if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-                
+
                 stagingItems = await res.json();
 
                 if (locations.length === 0) await fetchLocations();
 
                 await Promise.all(stagingItems.map(async (item) => {
                     try {
-                        const matchRes = await apiFetch(`/api/items/match?name=${encodeURIComponent(item.name)}`);
+                        const matchRes = await apiRequest(`/api/items/match?name=${encodeURIComponent(item.name)}`, { silent: true });
                         item.suggestedMatch = matchRes.ok ? await matchRes.json() : { type: null, candidates: [] };
                     } catch {
                         item.suggestedMatch = { type: null, candidates: [] };
@@ -1085,8 +1118,7 @@
 
                 renderStagingItems();
                 document.getElementById('invoiceStagingContainer').classList.remove('hidden');
-            } catch (err) {
-                alert('Error parsing invoice: ' + err.message);
+            } catch {
             } finally {
                 document.getElementById('invoiceLoading').classList.add('hidden');
                 e.target.value = '';
@@ -1184,44 +1216,36 @@
             }
 
             try {
-                const res = await apiFetch('/api/invoices/commit', {
+                await apiRequest('/api/invoices/commit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ items: payloadItems })
                 });
 
-                if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-                
                 closeInvoiceModal();
                 fetchItems();
-            } catch (err) {
-                alert('Error committing invoice: ' + err.message);
-            }
+            } catch {}
         }
 
         // --- QUANTITY API ---
         async function updateQty(id, amount, action) {
             try {
-                await apiFetch(`/api/items/${id}/quantity`, {
+                await apiRequest(`/api/items/${id}/quantity`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ amount, action })
                 });
-            } catch (err) {
-                alert('Error updating quantity: ' + err.message);
-            }
+            } catch {}
         }
 
         async function toggleIgnore(id, status) {
             try {
-                await apiFetch(`/api/items/${id}/ignore-grocery`, {
+                await apiRequest(`/api/items/${id}/ignore-grocery`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ is_ignored_grocery: status })
                 });
-            } catch (err) {
-                alert('Error updating grocery status: ' + err.message);
-            }
+            } catch {}
         }
 
         function openQtyModal(id, currentQty) {
@@ -1311,7 +1335,7 @@
             const params = new URLSearchParams({ name: payload.name });
             if (payload.barcode) params.set('barcode', payload.barcode);
             try {
-                const res = await apiFetch(`/api/items/match?${params.toString()}`);
+                const res = await apiRequest(`/api/items/match?${params.toString()}`, { silent: true });
                 return res.ok ? await res.json() : null;
             } catch {
                 return null;
@@ -1348,21 +1372,14 @@
             const method = id ? 'PUT' : 'POST';
 
             try {
-                const response = await apiFetch(url, {
+                await apiRequest(url, {
                     method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({}));
-                    throw new Error(error.error || `Request failed with status ${response.status}`);
-                }
-
                 closeAddModal();
-            } catch (err) {
-                alert('Error saving item: ' + err.message);
-            }
+            } catch {}
         }
 
         async function handleItemSubmit(e) {
@@ -1460,27 +1477,24 @@
                 formData.append('image', blob, 'cropped_label.jpg');
 
                 try {
-                    const res = await apiFetch('/api/parse-label-llm', {
+                    const res = await apiRequest('/api/parse-label-llm', {
                         method: 'POST',
                         body: formData
                     });
-                    
-                    if (!res.ok) throw new Error('LLM Parsing failed');
                     const data = await res.json();
 
                     if (data.name) document.getElementById('itemName').value = data.name;
                     if (data.container_details) document.getElementById('itemDetails').value = data.container_details;
-                    
+
                     if (data.category_id !== undefined && data.category_id !== null) {
                         document.getElementById('itemCategory').value = data.category_id;
                     }
-                    
+
                     if (data.location_id !== undefined && data.location_id !== null) {
                         document.getElementById('itemLocation').value = data.location_id;
                     }
 
-                } catch (err) {
-                    alert('Error parsing label: ' + err.message);
+                } catch {
                 } finally {
                     document.getElementById('loadingOverlay').classList.add('hidden');
                 }
@@ -1548,7 +1562,7 @@
                 const res = await apiFetch(`/api/items/barcode/${encodeURIComponent(barcode)}`);
 
                 if (res.status === 404) {
-                    alert('Barcode not found in database.');
+                    showError('Barcode not found in database.');
                     return;
                 }
 
@@ -1561,27 +1575,34 @@
                 selectDeductItem(item.id, item.name, item.location_id);
             } catch (err) {
                 console.error(err);
-                alert('Error finding barcode: ' + err.message);
+                showError('Error finding barcode: ' + err.message);
             }
         }
 
-        function showToast(message) {
+        function showToast(message, type = 'success') {
             let toast = document.getElementById('toastNotification');
             if (!toast) {
                 toast = document.createElement('div');
                 toast.id = 'toastNotification';
-                toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-green-600 text-white font-bold px-6 py-3 rounded shadow-xl z-[100] transition-opacity duration-300';
+                toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 text-white font-bold px-6 py-3 rounded shadow-xl z-[100] transition-opacity duration-300';
                 document.body.appendChild(toast);
             }
+            toast.classList.remove('bg-green-600', 'bg-red-600');
+            toast.classList.add(type === 'error' ? 'bg-red-600' : 'bg-green-600');
             toast.innerText = message;
             toast.classList.remove('hidden', 'opacity-0');
             toast.classList.add('opacity-100');
-            
-            setTimeout(() => {
+
+            clearTimeout(toast._hideTimer);
+            toast._hideTimer = setTimeout(() => {
                 toast.classList.remove('opacity-100');
                 toast.classList.add('opacity-0');
                 setTimeout(() => toast.classList.add('hidden'), 300);
-            }, 2000);
+            }, type === 'error' ? 4000 : 2000);
+        }
+
+        function showError(message) {
+            showToast(message, 'error');
         }
         
         // --- DEDUCT MODAL ---
@@ -1643,26 +1664,19 @@
             const id = document.getElementById('deductItemId').value;
             const amount = parseFloat(document.getElementById('deductQuantity').value);
 
-            if (isNaN(amount) || amount <= 0) return alert('Invalid amount');
+            if (isNaN(amount) || amount <= 0) return showError('Invalid amount');
 
             try {
-                const response = await apiFetch(`/api/items/${id}/deduct`, {
+                const response = await apiRequest(`/api/items/${id}/deduct`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ amount })
                 });
 
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({}));
-                    throw new Error(error.error || `Request failed with status ${response.status}`);
-                }
-
                 const updatedItem = await response.json();
                 showToast(`${updatedItem.name} quantity reduced by ${amount}`);
                 closeDeductModal();
-            } catch (err) {
-                alert('Error deducting item: ' + err.message);
-            }
+            } catch {}
         }
 
         // --- DETAILS MODAL & CHART LOGIC ---
@@ -1680,8 +1694,8 @@
         async function loadDetailsAndHistory(id) {
             try {
                 const [detailsRes, historyRes] = await Promise.all([
-                    apiFetch(`/api/items/${id}/details`),
-                    apiFetch(`/api/items/${id}/price-history`)
+                    apiRequest(`/api/items/${id}/details`),
+                    apiRequest(`/api/items/${id}/price-history`)
                 ]);
                 
                 const details = await detailsRes.json();
@@ -1791,14 +1805,12 @@
         async function deletePriceHistory(id) {
             if (!confirm('Delete this price history record?')) return;
             try {
-                await apiFetch(`/api/price-history/${id}`, { method: 'DELETE' });
+                await apiRequest(`/api/price-history/${id}`, { method: 'DELETE' });
                 if (activeDetailsItemId) {
                     loadDetailsAndHistory(activeDetailsItemId);
                     fetchItems();
                 }
-            } catch (err) {
-                alert('Error deleting record: ' + err.message);
-            }
+            } catch {}
         }
     </script>
 

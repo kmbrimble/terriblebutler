@@ -83,6 +83,34 @@ validators) isn't separately black-box tested — `npm test`'s smoke test confir
 server still boots with the new require wired in, and the pre-existing backend/e2e suite
 (74 + 11 tests) passing unchanged confirms no behaviour regression for well-formed input.
 
+### Issue #7 — standardise front-end HTTP error handling
+
+`public/index.html` had ~22 `apiFetch` call sites with inconsistent error handling: some
+checked `res.ok` and threw, most didn't; failures were shown via blocking `alert()`,
+`console.error`-only, or silently swallowed; several mutation handlers (category/location
+add/edit/delete) ran their success code — clearing the input field — even when the
+server returned a non-2xx response, because `apiFetch` never threw on failure.
+
+New `apiRequest(url, options)` wraps `apiFetch`: catches network errors, checks `res.ok`,
+and on either failure shows a standardised error toast (extracting the server's `error`
+message from the JSON body when present) then throws — so callers' post-request code
+only runs on success. Pass `{ silent: true }` for the handful of call sites that need
+custom status handling (`/api/items/match` lookups that deliberately fall back to "no
+match" rather than erroring; the barcode-lookup 404 case, which isn't really an error).
+All ~20 non-silent call sites were switched from `apiFetch` to `apiRequest`, dropping
+their now-redundant per-site `if (!res.ok) throw` / `catch { alert(...) }` boilerplate.
+
+- `showToast(message, type)`: now supports an `error` variant (red, 4s) alongside the
+  existing success variant (green, 2s); `showError(message)` is a shorthand.
+- Added `socket.on('connect_error', ...)` — previously silent; now shows a one-shot error
+  toast (reset on reconnect) rather than leaving live-update loss unexplained.
+- Login's raw `fetch()` call (pre-auth, no token yet) was deliberately left as-is — its
+  bespoke `showLogin()` banner is the right UX for a full-page pre-auth state, not a toast.
+
+**Tests:** `test-e2e/error-handling.spec.js` — asserts a failed request (insufficient
+quantity on deduct) shows a red error toast and never triggers a native `alert()` dialog,
+and that a successful request still shows the existing green success toast.
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the
