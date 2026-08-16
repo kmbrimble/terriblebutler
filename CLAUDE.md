@@ -80,6 +80,18 @@ Before any change that alters the database schema or write paths, remind the use
 hand-back to snapshot the live database to `/mnt/user/Kieren/Backup/unRAID/butler/` with a
 dated filename. Do not attempt to take this snapshot yourself — it touches live data.
 
+## Recovery: forgotten household login password
+
+There is no in-app password reset flow — the household login is a single shared
+username/password, and this is intentionally the only recovery path:
+
+1. Run `node scripts/generate-password-hash.js '<new password>'` (in the repo, or via
+   `docker exec terrible-butler node scripts/generate-password-hash.js '<new password>'`
+   against the live container) to print a bcrypt hash.
+2. Set that hash as the `AUTH_PASSWORD_HASH` environment variable on the `terrible-butler`
+   container in unRAID's Docker template (update `AUTH_USERNAME` too if it's changing).
+3. Force update / restart the container for the new env vars to take effect.
+
 ## Deploy and verify
 
 1. Push to `main`.

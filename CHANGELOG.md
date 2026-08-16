@@ -111,6 +111,19 @@ their now-redundant per-site `if (!res.ok) throw` / `catch { alert(...) }` boile
 quantity on deduct) shows a red error toast and never triggers a native `alert()` dialog,
 and that a successful request still shows the existing green success toast.
 
+### Issue #9 — password reset / recovery runbook
+
+No in-app reset flow exists for the shared household login (by design — single shared
+credential, not per-user accounts), so recovery was previously a manual "regenerate a
+bcrypt hash somehow" fire-drill. Added `scripts/generate-password-hash.js` (prints a
+bcrypt hash for a given password using the same `bcryptjs` dependency the app already
+uses) and a new "Recovery: forgotten household login password" section in `CLAUDE.md`
+with the three steps: run the script, set `AUTH_PASSWORD_HASH` on the container, restart.
+
+**Tests:** `test/generate-password-hash.test.js` — runs the script as a child process,
+verifies the printed hash both accepts the correct password and rejects a wrong one
+(via `bcrypt.compareSync`), and that omitting the password argument exits non-zero.
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the
