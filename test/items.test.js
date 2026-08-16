@@ -208,3 +208,35 @@ describe('Items API', () => {
     expect(historyRes.body).toEqual([]);
   });
 });
+
+describe('GET /api/items/match', () => {
+  it('returns no match when nothing is close', async () => {
+    const res = await api(app).get('/api/items/match').query({ name: 'Completely Unrelated Product' });
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBeNull();
+    expect(res.body.candidates).toEqual([]);
+  });
+
+  it('finds a barcode match', async () => {
+    await api(app).post('/api/items').send({ name: 'Beans', barcode: '444555666', quantity: 1 });
+    const res = await api(app).get('/api/items/match').query({ name: 'Different Name', barcode: '444555666' });
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe('barcode');
+    expect(res.body.candidates[0].barcode).toBe('444555666');
+  });
+
+  it('finds an exact normalised-name match', async () => {
+    await api(app).post('/api/items').send({ name: 'Olive Oil 1L', quantity: 1 });
+    const res = await api(app).get('/api/items/match').query({ name: '  olive   OIL 1L ' });
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe('exact_name');
+  });
+
+  it('finds a fuzzy match and reports it as a suggestion (no auto-selected item)', async () => {
+    await api(app).post('/api/items').send({ name: 'Peanut Butter Smooth 500g', quantity: 1 });
+    const res = await api(app).get('/api/items/match').query({ name: 'Peanut Buttr Smooth 500g' });
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe('fuzzy');
+    expect(res.body.candidates.length).toBeGreaterThan(0);
+  });
+});
