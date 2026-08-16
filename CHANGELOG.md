@@ -150,6 +150,76 @@ combined branch. Pre-sprint safety net: live DB snapshot at
 `inventory-2026-08-17-presprint.db` and the `pre-sprint-2026-08-17` git tag, both still
 in place for rollback if needed.
 
+## [Unreleased]
+
+### Issue #1 — inventory in multiple locations
+
+**Context:** deferred from the 2026-08-16/17 sprint as the one genuinely large,
+schema-changing item. Today `items` has a single `location_id` and single `quantity`
+column — one item can only ever be in one place. This adds a proper many-to-many
+item↔location stock model, with the reorder threshold compared against the total across
+all locations, and location-tab filtering showing that location's quantity plus how much
+exists elsewhere.
+
+**Clarified with the user up front (2026-08-17):**
+- Deduct: show an explicit location picker only when the item actually has stock in more
+  than one location; skip it (deduct straight from the one location) otherwise.
+- "All Inventory" tab: one card per item with its **total** quantity plus a small "+N
+  elsewhere" note when multi-location, not one card per item-location pair. Full
+  per-location breakdown lives in the details modal.
+
+**Schema (via the #8 migrations runner, `db-migrations.js`):** new `item_locations`
+table (`item_id`, `location_id` nullable — mirrors `items.location_id`'s current
+nullability for "unassigned" stock, `quantity`), with a partial unique index for
+non-null `(item_id, location_id)` pairs and a second partial unique index enforcing at
+most one null-location row per item. Added to the base `CREATE TABLE IF NOT EXISTS`
+block (fresh installs/tests) **and** as a migration entry that creates the table +
+indexes and backfills one row per existing item from its current `location_id`/`quantity`
+(guarded against re-insertion — safe to re-run). `items.location_id`/`items.quantity`
+are **not** dropped (avoids risky DDL on the populated live table) but become vestigial
+after this change, alongside the existing vestigial `inventory` table — noted in
+`CLAUDE.md`'s Database notes.
+
+**Backend (`server.js`):** a shared base query (`items.*` plus a `COALESCE(SUM(...))`
+total-quantity subquery and a `json_group_array`/`json_object` per-location breakdown
+subquery, aliased so the last-column-wins behaviour overrides the stale raw
+`items.quantity`) used by `GET /api/items`, `/search`, `/match`, `/barcode/:barcode`,
+and the `getItem` helper — each response gains a `locations: [{location_id,
+location_name, quantity}]` array. `GET /api/grocery-list` / `/api/out-of-stock-ignored`
+filter on the aggregated total, not the raw column. `PATCH /api/items/:id/quantity` and
+`POST /api/items/:id/deduct` now take a `location_id` (upsert-into / decrement-from that
+specific `item_locations` row; a single-location item infers it automatically if
+omitted). `POST /api/items` splits into an identity insert (`items`) + one
+`item_locations` row for the chosen initial location. `POST /api/invoices/commit`
+inserts/increments `item_locations` rows per line item's `location_id` instead of
+`items.quantity`, still updating the in-memory match set from #5. Deleting a location
+reassigns its `item_locations` rows to the null-location bucket, merging into an
+existing null-location row if the item already has one (avoids the partial-unique-index
+collision).
+
+**Frontend (`public/index.html`):** location-tab filtering and quantity display switch
+to the `locations` array; item cards show total (+ "elsewhere" note) outside a location
+tab, or that location's specific quantity inside one. Quick +/- buttons act directly
+when the item has one location; for multi-location items they open the existing qty
+modal (extended with a location `<select>`) instead of guessing which location to
+adjust — same "explicit picker when ambiguous" principle as deduct. The deduct modal and
+barcode-scan-to-deduct flow gain the same location picker, shown only when needed. The
+edit modal drops its quantity/location fields (no longer a single value to edit) — stock
+changes happen via qty +/-/modal per location; the add modal keeps a single
+location+quantity picker for the item's initial stock entry. The details modal gains a
+per-location breakdown. Issue #5's manual-add duplicate "Use this" flow now passes the
+chosen location through to the quantity-add call.
+
+**Files:** `db-migrations.js`, `item-matching.js` (quantity field now reflects the
+aggregate), `server.js` (item query helpers + the endpoints listed above),
+`public/index.html` (tabs/cards/qty modal/deduct modal/edit modal/details modal), new
+`test/item-locations.test.js`, extensions to `test/invoices.test.js`,
+`test/db-migrations.test.js`, and a new `test-e2e/multi-location.spec.js`.
+
+**Pre-change backup:** live DB snapshot + `main` tag before the checkpoint commit, per
+CLAUDE.md's pre-change-backup rule for schema changes (same read-only `docker cp`
+approach the user authorised during the prior sprint).
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the

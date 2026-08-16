@@ -82,6 +82,23 @@ describe('POST /api/invoices/commit', () => {
     expect(items.body.filter((i) => i.name === 'Milk 2L')).toHaveLength(2);
   });
 
+  it('matching an existing item at a NEW location creates a second item_locations row instead of merging into the wrong one', async () => {
+    const locA = await api(app).post('/api/locations').send({ name: 'Invoice Loc A' });
+    const locB = await api(app).post('/api/locations').send({ name: 'Invoice Loc B' });
+    const created = await api(app).post('/api/items').send({ name: 'Cereal Box', location_id: locA.body.id, quantity: 1 });
+
+    const res = await api(app).post('/api/invoices/commit').send({
+      items: [{ name: 'Cereal Box', quantity: 3, price: 5, vendor: 'Coles', location_id: locB.body.id }],
+    });
+    expect(res.status).toBe(200);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === created.body.id);
+    expect(item.quantity).toBe(4);
+    const byLocation = Object.fromEntries(item.locations.map((l) => [l.location_id, l.quantity]));
+    expect(byLocation[locA.body.id]).toBe(1);
+    expect(byLocation[locB.body.id]).toBe(3);
+  });
+
   it('updates the in-memory match set as items are inserted, so two identical line items in one invoice merge together', async () => {
     const res = await api(app).post('/api/invoices/commit').send({
       items: [
