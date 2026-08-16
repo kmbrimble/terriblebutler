@@ -2,6 +2,37 @@
 
 The minor version (after the dot) is an integer counter that increments by 1 each change: 0.1, 0.2 ... 0.9, 0.10, 0.11, and so on. The major version (before the dot) is NOT auto-incremented — it only advances when the user manually declares a milestone.
 
+## [Unreleased]
+
+**Sprint plan (2026-08-16):** multi-issue improvement sprint ahead of the React Native
+migration, covering GitHub issues #8, #5, #6, #7, #9, #10 (issue #1 — multi-location
+inventory — and #2 — voice integration — deferred to their own sessions). One feature
+branch per issue, sequential, each merged to `main` only once its own tests are green.
+Pre-sprint safety net: live DB snapshotted to
+`/mnt/user/Kieren/Backup/unRAID/butler/inventory-2026-08-17-presprint.db`, and `main`
+tagged `pre-sprint-2026-08-17` (pushed).
+
+### Issue #8 — migrations table / schema version tracking
+
+**Plan:** add a minimal, native-SQLite migrations runner (`PRAGMA user_version`, no new
+table) in a new `db-migrations.js`, required from `server.js`. `server.js`'s existing
+`CREATE TABLE IF NOT EXISTS` block remains the source of truth for the schema on a
+*fresh* database (tests, new installs) — on a fresh DB, `user_version` is set straight
+to the top of the migrations list with nothing replayed. On an *existing* database
+(the live DB, or any DB from before this change), pending migrations from the current
+`user_version` onward run once, each wrapped in its own transaction, then the version is
+bumped. The `migrations` array starts empty; future ad-hoc `ALTER TABLE ADD COLUMN`
+changes become entries in this array instead, each expected to guard itself with
+`hasColumn()` before altering (belt-and-braces per CLAUDE.md's "must be idempotent and
+safe against an already-populated database" rule — the version gate already prevents
+replay in normal operation).
+
+**Files:** new `db-migrations.js` (runner + `hasColumn` + `migrations` array, CommonJS to
+match `server.js`); `server.js` lines ~163–214 (capture `isFreshDb` before opening the
+DB, call `runMigrations` after the `CREATE TABLE` block); new `test/db-migrations.test.js`
+unit-testing the runner directly against a scratch better-sqlite3 database (fresh-DB
+path, existing-DB path, idempotency on repeated calls, `hasColumn`).
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the
