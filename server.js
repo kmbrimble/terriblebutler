@@ -8,6 +8,7 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const Fuse = require('fuse.js');
 const { findMatch } = require('./item-matching');
+const { validateLabelResult, validateInvoiceItems } = require('./llm-schema');
 const sharp = require('sharp');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -758,26 +759,21 @@ app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) =
       console.error("[Label Parser Error] JSON parse failed on response:", parseErr.message);
       parsedData = fallbackObject;
     }
-    let containerDetailsStr = '';
-    if (typeof parsedData.container_details === 'object' && parsedData.container_details !== null) {
-      const values = Object.values(parsedData.container_details).filter(Boolean);
-      containerDetailsStr = values.join('');
-    } else if (parsedData.container_details) {
-      containerDetailsStr = String(parsedData.container_details);
-    }
+    const validated = validateLabelResult(parsedData);
+    if (validated.errors.length) console.warn('[Label Parser] LLM response failed schema validation:', validated.errors);
     let matchedCategoryId = null;
-    if (parsedData.category_name) {
-      const cat = cats.find(c => c.name.toLowerCase() === String(parsedData.category_name).toLowerCase().trim());
+    if (validated.category_name) {
+      const cat = cats.find(c => c.name.toLowerCase() === validated.category_name.toLowerCase());
       if (cat) matchedCategoryId = cat.id;
     }
     let matchedLocationId = null;
-    if (parsedData.location_name) {
-      const loc = locs.find(l => l.name.toLowerCase() === String(parsedData.location_name).toLowerCase().trim());
+    if (validated.location_name) {
+      const loc = locs.find(l => l.name.toLowerCase() === validated.location_name.toLowerCase());
       if (loc) matchedLocationId = loc.id;
     }
     return res.json({
-      name: typeof parsedData.name === 'string' ? parsedData.name : '',
-      container_details: containerDetailsStr,
+      name: validated.name,
+      container_details: validated.container_details,
       category_id: matchedCategoryId,
       location_id: matchedLocationId
     });
@@ -819,8 +815,9 @@ app.post('/api/invoices/parse', invoiceUpload.single('invoice'), async (req, res
     } catch (e) {
       parsedJson = { items: [] };
     }
-    const items = parsedJson.items || parsedJson;
-    res.json(Array.isArray(items) ? items : []);
+    const { items, errors } = validateInvoiceItems(parsedJson);
+    if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
+    res.json(items);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to parse invoice: ' + err.message });

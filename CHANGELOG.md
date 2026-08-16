@@ -60,6 +60,29 @@ barcode match > exact normalised-name match > user-confirmed (`matchDecision`) >
 hierarchy + in-memory update), `test/items.test.js` additions (`/api/items/match`),
 `test-e2e/duplicate-detection.spec.js` (manual add reuse/override flows).
 
+### Issue #6 — LLM response schema validation
+
+New `llm-schema.js` (`validateLabelResult`, `validateInvoiceItems`) treats LLM JSON output
+as untrusted: non-object/malformed responses fall back to safe empty defaults instead of
+propagating `undefined`/wrong-typed values; invoice line items missing a name or a valid
+non-negative `quantity` are dropped (logged via `console.warn`) rather than reaching the
+DB; an invalid `price` defaults to `0` rather than dropping the whole item.
+
+- `POST /api/parse-label-llm`: the route's existing ad-hoc type-checking (container_details
+  object-vs-string coercion, name type guard, category/location lowercase matching) is now
+  centralised in `validateLabelResult` — same behaviour, one tested place instead of scattered
+  inline checks.
+- `POST /api/invoices/parse`: previously passed the LLM's `items` array straight to the
+  client with no shape checking at all. Now runs through `validateInvoiceItems` first.
+
+**Tests:** `test/llm-schema.test.js` — unit tests covering both validators directly
+(malformed/non-object input, wrong types, missing fields, the object-shaped
+`container_details` quirk observed from the vision model). No LLM-mocking infrastructure
+exists in this repo yet, so the route wiring itself (thin glue around the now-tested
+validators) isn't separately black-box tested — `npm test`'s smoke test confirms the
+server still boots with the new require wired in, and the pre-existing backend/e2e suite
+(74 + 11 tests) passing unchanged confirms no behaviour regression for well-formed input.
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the
