@@ -163,7 +163,9 @@ const invoiceUpload = multer({
 fs.mkdirSync(path.join(__dirname, 'uploads'), { recursive: true });
 fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
 // Initialise Database
+const { runMigrations, migrations } = require('./db-migrations');
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db');
+const isFreshDb = !fs.existsSync(dbPath);
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = FULL');
@@ -206,6 +208,7 @@ db.exec(`
     FOREIGN KEY(item_id) REFERENCES items(id)
   );
 `);
+runMigrations(db, migrations, isFreshDb);
 // Seed default locations
 const insertLocation = db.prepare('INSERT OR IGNORE INTO locations (name) VALUES (?)');
 const defaultLocations = ['Chest Freezer', 'Fridge Freezer', 'Fridge', 'Pantry', 'HP Cupboard'];
