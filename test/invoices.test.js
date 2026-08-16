@@ -58,16 +58,16 @@ describe('POST /api/invoices/commit', () => {
   });
 
   it('merges into a fuzzy candidate when the client explicitly confirms it via matchDecision', async () => {
-    const created = await api(app).post('/api/items').send({ name: 'Baked Beans 420g', quantity: 1 });
+    const created = await api(app).post('/api/items').send({ name: 'Peanut Sauce 250g', quantity: 1 });
     const targetId = created.body.id;
 
     const res = await api(app).post('/api/invoices/commit').send({
-      items: [{ name: 'Baked Beanz 420g', quantity: 2, price: 2, vendor: 'IGA', matchDecision: targetId }],
+      items: [{ name: 'Peanutt Sauce 250g', quantity: 2, price: 2, vendor: 'IGA', matchDecision: targetId }],
     });
     expect(res.status).toBe(200);
 
     const items = await api(app).get('/api/items');
-    expect(items.body.filter((i) => i.name.startsWith('Baked Bean'))).toHaveLength(1);
+    expect(items.body.filter((i) => i.name.startsWith('Peanut'))).toHaveLength(1);
     expect(items.body.find((i) => i.id === targetId).quantity).toBe(3);
   });
 

@@ -486,6 +486,12 @@
                     </div>
                 </div>
 
+                <div id="dupCheckPanel" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
+                    <p class="text-sm font-bold text-amber-400">Possible existing item(s) found:</p>
+                    <div id="dupCheckList" class="space-y-2"></div>
+                    <button type="button" onclick="proceedAddAsNew()" class="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">Add as new item anyway</button>
+                </div>
+
                 <div class="flex gap-4 pt-4">
                     <button type="button" onclick="closeAddModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
                     <button type="submit" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Save</button>
@@ -522,6 +528,7 @@
         let stagingItems = [];
         let currentTab = { type: 'all', id: null };
         let currentQtyItemId = null;
+        let pendingItemPayload = null;
         
         let currentTheme = localStorage.getItem('tb_theme') || 'dark';
         let currentViewMode = localStorage.getItem('tb_view_mode') || 'compact';
@@ -1064,9 +1071,18 @@
                 if (!res.ok) throw new Error(`HTTP error ${res.status}`);
                 
                 stagingItems = await res.json();
-                
+
                 if (locations.length === 0) await fetchLocations();
-                
+
+                await Promise.all(stagingItems.map(async (item) => {
+                    try {
+                        const matchRes = await apiFetch(`/api/items/match?name=${encodeURIComponent(item.name)}`);
+                        item.suggestedMatch = matchRes.ok ? await matchRes.json() : { type: null, candidates: [] };
+                    } catch {
+                        item.suggestedMatch = { type: null, candidates: [] };
+                    }
+                }));
+
                 renderStagingItems();
                 document.getElementById('invoiceStagingContainer').classList.remove('hidden');
             } catch (err) {
@@ -1105,12 +1121,32 @@
                             </select>
                         </div>
                     </div>
+                    ${renderStagingMatch(item, idx)}
                 </div>
             `).join('');
             
             if (stagingItems.length === 0) {
                 container.innerHTML = '<p class="text-center text-rimmy-textMuted py-4 font-bold">No items found in invoice.</p>';
             }
+        }
+
+        function renderStagingMatch(item, idx) {
+            const match = item.suggestedMatch;
+            if (!match || !match.type) return '';
+            if (match.type === 'barcode' || match.type === 'exact_name') {
+                const label = match.type === 'barcode' ? 'barcode match' : 'exact name match';
+                return `<p class="text-xs text-emerald-400">Will merge into existing item: "${escapeHtml(match.candidates[0].name)}" (${label})</p>`;
+            }
+            const options = ['<option value="">Add as new item</option>']
+                .concat(match.candidates.map(c => `<option value="${c.id}">Merge into: ${escapeHtml(c.name)} (fuzzy match, qty ${c.quantity})</option>`));
+            return `
+                <div class="flex items-center gap-2">
+                    <label class="text-xs font-bold text-amber-400 whitespace-nowrap">Possible match:</label>
+                    <select id="stage_match_${idx}" class="border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 flex-1 min-w-0 touch-target bg-rimmy-black text-rimmy-text text-sm transition-colors">
+                        ${options.join('')}
+                    </select>
+                </div>
+            `;
         }
 
         function applyGlobalLocation() {
@@ -1128,14 +1164,16 @@
                 if (isChecked) {
                     const qty = parseFloat(document.getElementById(`stage_qty_${idx}`).value);
                     const locId = document.getElementById(`stage_loc_${idx}`).value;
-                    
+                    const matchSelect = document.getElementById(`stage_match_${idx}`);
+
                     payloadItems.push({
                         name: item.name,
                         container_details: item.container_details,
                         quantity: isNaN(qty) ? item.quantity : qty,
                         price: item.price,
                         vendor: item.vendor,
-                        location_id: locId ? parseInt(locId) : null
+                        location_id: locId ? parseInt(locId) : null,
+                        matchDecision: matchSelect && matchSelect.value ? parseInt(matchSelect.value) : undefined
                     });
                 }
             });
@@ -1244,12 +1282,11 @@
 
         function closeAddModal() {
             document.getElementById('addModal').classList.add('hidden');
+            document.getElementById('dupCheckPanel').classList.add('hidden');
+            pendingItemPayload = null;
         }
 
-        async function handleItemSubmit(e) {
-            e.preventDefault();
-            const id = document.getElementById('itemId').value;
-            
+        function buildItemPayload() {
             const payload = {
                 barcode: document.getElementById('itemBarcode').value,
                 name: document.getElementById('itemName').value,
@@ -1259,7 +1296,7 @@
                 quantity: parseFloat(document.getElementById('itemQuantity').value),
                 reorder_threshold: parseFloat(document.getElementById('itemThreshold').value)
             };
-            
+
             const price = parseFloat(document.getElementById('itemPrice').value);
             if (!isNaN(price) && price > 0) {
                 payload.price = price;
@@ -1267,7 +1304,46 @@
                 const d = document.getElementById('itemDate').value;
                 if (d) payload.purchase_date = d;
             }
+            return payload;
+        }
 
+        async function checkForDuplicate(payload) {
+            const params = new URLSearchParams({ name: payload.name });
+            if (payload.barcode) params.set('barcode', payload.barcode);
+            try {
+                const res = await apiFetch(`/api/items/match?${params.toString()}`);
+                return res.ok ? await res.json() : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function renderDupCheckPanel(match) {
+            const typeLabel = match.type === 'barcode' ? 'barcode match' : match.type === 'exact_name' ? 'exact name match' : 'fuzzy match';
+            document.getElementById('dupCheckList').innerHTML = match.candidates.map(c => `
+                <div class="flex justify-between items-center gap-2 bg-rimmy-charcoal p-2 rounded border border-rimmy-border">
+                    <span class="text-sm text-rimmy-text">${escapeHtml(c.name)} <span class="text-xs text-rimmy-textMuted">(qty ${c.quantity}, ${typeLabel})</span></span>
+                    <button type="button" onclick="useExistingItem(${c.id})" class="touch-target px-3 py-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white text-xs font-bold rounded transition-colors">Use this</button>
+                </div>
+            `).join('');
+            document.getElementById('dupCheckPanel').classList.remove('hidden');
+        }
+
+        async function useExistingItem(existingId) {
+            if (!pendingItemPayload) return;
+            await updateQty(existingId, pendingItemPayload.quantity || 0, 'add');
+            closeAddModal();
+        }
+
+        async function proceedAddAsNew() {
+            if (!pendingItemPayload) return;
+            const payload = pendingItemPayload;
+            document.getElementById('dupCheckPanel').classList.add('hidden');
+            pendingItemPayload = null;
+            await submitItemPayload('', payload);
+        }
+
+        async function submitItemPayload(id, payload) {
             const url = id ? `/api/items/${id}` : '/api/items';
             const method = id ? 'PUT' : 'POST';
 
@@ -1287,6 +1363,23 @@
             } catch (err) {
                 alert('Error saving item: ' + err.message);
             }
+        }
+
+        async function handleItemSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('itemId').value;
+            const payload = buildItemPayload();
+
+            if (!id) {
+                const match = await checkForDuplicate(payload);
+                if (match && match.type) {
+                    pendingItemPayload = payload;
+                    renderDupCheckPanel(match);
+                    return;
+                }
+            }
+
+            await submitItemPayload(id, payload);
         }
 
         // --- CROPPER & LLM PARSE ---

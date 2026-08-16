@@ -33,6 +33,33 @@ DB, call `runMigrations` after the `CREATE TABLE` block); new `test/db-migration
 unit-testing the runner directly against a scratch better-sqlite3 database (fresh-DB
 path, existing-DB path, idempotency on repeated calls, `hasColumn`).
 
+### Issue #5 — invoice matching improvements + manual-add duplicate detection
+
+New `item-matching.js` (`normaliseName`, `findMatch`) implements the shared hierarchy:
+barcode match > exact normalised-name match > user-confirmed (`matchDecision`) > fuzzy
+(suggestion only, never auto-applied).
+
+- `POST /api/invoices/commit`: rewritten to use `findMatch` instead of a bare Fuse
+  search. Barcode/exact-name matches auto-apply (deterministic, safe); a fuzzy match is
+  only used if the client sends an explicit `matchDecision` (an existing item id, or
+  `'new'` to force a new item). As each new item is inserted during the commit loop, it's
+  pushed into the in-memory `existingItems` array and `fuse.setCollection()` re-indexes,
+  so later line items in the same invoice can match items the invoice itself just
+  created. Invoice items may now optionally carry a `barcode` field.
+- New `GET /api/items/match?name=&barcode=` — read-only lookup used by both the invoice
+  staging UI and the manual add-item flow.
+- `public/index.html`: invoice staging list now calls `/api/items/match` per parsed line
+  item and shows a badge (barcode/exact-name) or a "possible match" dropdown (fuzzy,
+  defaults to "add as new") that feeds `matchDecision` into the commit payload. The
+  add-item modal now checks for a match on submit (new items only) and, if found, shows
+  candidates with their match-confidence level, letting the user reuse an existing item
+  (adds the entered quantity via the existing `PATCH /api/items/:id/quantity` endpoint)
+  or override and add as new.
+
+**Tests:** `test/item-matching.test.js` (unit), `test/invoices.test.js` (commit
+hierarchy + in-memory update), `test/items.test.js` additions (`/api/items/match`),
+`test-e2e/duplicate-detection.spec.js` (manual add reuse/override flows).
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the

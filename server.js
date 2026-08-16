@@ -7,6 +7,7 @@ const fs = require('fs');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const Fuse = require('fuse.js');
+const { findMatch } = require('./item-matching');
 const sharp = require('sharp');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -512,6 +513,14 @@ app.get('/api/items/search', (req, res) => {
   const results = fuse.search(query).map(result => result.item);
   res.json(results);
 });
+app.get('/api/items/match', (req, res) => {
+  const barcode = req.query.barcode ? String(req.query.barcode).trim() : null;
+  const name = req.query.name ? String(req.query.name).trim() : '';
+  const existingItems = db.prepare('SELECT id, name, barcode, quantity, location_id FROM items').all();
+  const fuse = new Fuse(existingItems, { keys: ['name'], threshold: 0.3 });
+  const match = findMatch(existingItems, { barcode, name }, fuse);
+  res.json({ type: match.type, candidates: match.candidates });
+});
 app.get('/api/items/barcode/:barcode', (req, res) => {
   const stmt = db.prepare(`
     SELECT items.*, locations.name as location_name, categories.name as category_name
@@ -824,14 +833,14 @@ app.post('/api/invoices/commit', (req, res) => {
   if (!Array.isArray(itemsToCommit)) {
     return res.status(400).json({ error: 'Expected an array of items' });
   }
-  const existingItems = db.prepare('SELECT id, name, quantity, lowest_price FROM items').all();
+  const existingItems = db.prepare('SELECT id, name, barcode, quantity, lowest_price FROM items').all();
   const fuse = new Fuse(existingItems, {
     keys: ['name'],
     threshold: 0.3
   });
   const insertItem = db.prepare(`
-    INSERT INTO items (name, location_id, container_details, quantity, last_price, lowest_price)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO items (name, barcode, location_id, container_details, quantity, last_price, lowest_price)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const updateItem = db.prepare(`
     UPDATE items
@@ -848,10 +857,18 @@ app.post('/api/invoices/commit', (req, res) => {
   try {
     db.transaction(() => {
       for (const item of itemsToCommit) {
-        const results = fuse.search(item.name);
+        // Match hierarchy: barcode > exact normalised name > user-confirmed (matchDecision) >
+        // fuzzy (suggestion only, never auto-applied). See item-matching.js.
+        let matchedItem = null;
+        if (item.matchDecision && item.matchDecision !== 'new') {
+          matchedItem = existingItems.find((i) => i.id === Number(item.matchDecision)) || null;
+        } else if (item.matchDecision !== 'new') {
+          const match = findMatch(existingItems, { barcode: item.barcode || null, name: item.name }, fuse);
+          if (match.type === 'barcode' || match.type === 'exact_name') matchedItem = match.item;
+        }
+
         let itemId;
-        if (results.length > 0) {
-          const matchedItem = results[0].item;
+        if (matchedItem) {
           itemId = matchedItem.id;
           let newLowest = matchedItem.lowest_price;
           if (newLowest === 0 || item.price < newLowest) {
@@ -862,6 +879,7 @@ app.post('/api/invoices/commit', (req, res) => {
           const locationId = item.location_id ? parseInt(item.location_id) : null;
           const info = insertItem.run(
             item.name,
+            item.barcode || null,
             locationId,
             item.container_details || '',
             item.quantity,
@@ -869,6 +887,10 @@ app.post('/api/invoices/commit', (req, res) => {
             item.price
           );
           itemId = info.lastInsertRowid;
+          // Update the in-memory match set so later line items in this same commit can
+          // match against items just inserted, without re-querying the database.
+          existingItems.push({ id: itemId, name: item.name, barcode: item.barcode || null, quantity: item.quantity, lowest_price: item.price });
+          fuse.setCollection(existingItems);
         }
         insertPriceHistory.run(itemId, item.price, item.vendor);
       }
