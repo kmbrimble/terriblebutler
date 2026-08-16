@@ -19,6 +19,10 @@ single `handleCardTap(event, id)` tracking the last tap's id/timestamp; card tem
 drop five touch/mouse attributes for one `onclick`. New
 `test-e2e/card-double-tap.spec.js`.
 
+**Shipped as planned**, no deviations. Tests: `test-e2e/card-double-tap.spec.js` (single
+click doesn't open the details modal, double click does) — 90 backend + 17 e2e tests
+passing.
+
 **Sprint plan (2026-08-16):** multi-issue improvement sprint ahead of the React Native
 migration, covering GitHub issues #8, #5, #6, #7, #9, #10 (issue #1 — multi-location
 inventory — and #2 — voice integration — deferred to their own sessions). One feature

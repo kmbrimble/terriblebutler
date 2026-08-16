@@ -545,7 +545,6 @@
         let currentSortBy = localStorage.getItem('tb_sort_by') || 'name';
         let currentSortDir = localStorage.getItem('tb_sort_dir') || 'asc';
         
-        let pressTimer;
         let priceChartInstance = null;
         let activeDetailsItemId = null;
         let cropper = null;
@@ -948,15 +947,24 @@
             renderItems();
         }
 
-        function startPress(e, id) {
-            if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
-            pressTimer = setTimeout(() => {
-                openDetailsModal(id);
-            }, 500);
-        }
+        const DOUBLE_TAP_MS = 400;
+        let lastTapTime = 0;
+        let lastTapId = null;
 
-        function cancelPress() {
-            clearTimeout(pressTimer);
+        // Double-tap/double-click via the native click event, which browsers already
+        // don't fire after a drag/scroll gesture — unlike the old press-and-hold timer,
+        // this can't mistake "finger held still while the page scrolls" for a hold.
+        function handleCardTap(e, id) {
+            if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+            const now = Date.now();
+            if (lastTapId === id && (now - lastTapTime) < DOUBLE_TAP_MS) {
+                lastTapId = null;
+                lastTapTime = 0;
+                openDetailsModal(id);
+                return;
+            }
+            lastTapId = id;
+            lastTapTime = now;
         }
 
         function renderItems() {
@@ -1025,7 +1033,7 @@
                 if (currentViewMode === 'compact') {
                     return `
                     <div class="item-card bg-rimmy-charcoal rounded border border-rimmy-border flex justify-between items-center px-3 py-1 h-[44px] shadow-sm hover:border-rimmy-purple transition-colors cursor-pointer"
-                         onmousedown="startPress(event, ${item.id})" onmouseup="cancelPress()" onmouseleave="cancelPress()" ontouchstart="startPress(event, ${item.id})" ontouchend="cancelPress()" ontouchcancel="cancelPress()">
+                         onclick="handleCardTap(event, ${item.id})">
                         <div class="flex-1 min-w-0 pr-2 flex flex-col justify-center">
                             <h3 class="font-bold text-sm text-rimmy-orange truncate leading-none">${escapeHtml(item.name)}</h3>
                             <p class="text-[11px] text-rimmy-textMuted truncate leading-tight mt-1">
@@ -1047,7 +1055,7 @@
                 } else {
                     return `
                     <div class="item-card bg-rimmy-charcoal rounded-lg shadow-lg border border-rimmy-border hover:border-rimmy-purple/50 transition-all duration-300 p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center cursor-pointer"
-                         onmousedown="startPress(event, ${item.id})" onmouseup="cancelPress()" onmouseleave="cancelPress()" ontouchstart="startPress(event, ${item.id})" ontouchend="cancelPress()" ontouchcancel="cancelPress()">
+                         onclick="handleCardTap(event, ${item.id})">
                         <div class="flex gap-4 items-center w-full sm:w-auto flex-1 min-w-0">
                             ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded border border-rimmy-border shrink-0">` : `<div class="w-16 h-16 bg-rimmy-black rounded flex items-center justify-center text-rimmy-textMuted text-xs text-center p-1 border border-rimmy-border shrink-0">No Img</div>`}
                             <div class="flex-1 min-w-0">
