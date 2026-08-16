@@ -4,6 +4,21 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Issue #12 — hold-for-details activates while scrolling
+
+**Plan:** item cards opened the details modal via a 500ms press-and-hold timer
+(`startPress`/`cancelPress`, bound to `mousedown`/`touchstart` + `mouseup`/`touchend`/
+`touchcancel`/`mouseleave`). A finger held still on a card while the page scrolls under
+it (e.g. a scroll gesture that starts on a card) still counts as a "hold," since nothing
+cancelled the timer on movement — only on release. Replacing with double-tap/double-click
+via the native `click` event fixes this by construction: browsers don't fire `click`
+after a drag/scroll gesture, so there's no separate scroll-detection logic needed.
+
+**Files:** `public/index.html` — replace `startPress`/`cancelPress`/`pressTimer` with a
+single `handleCardTap(event, id)` tracking the last tap's id/timestamp; card templates
+drop five touch/mouse attributes for one `onclick`. New
+`test-e2e/card-double-tap.spec.js`.
+
 **Sprint plan (2026-08-16):** multi-issue improvement sprint ahead of the React Native
 migration, covering GitHub issues #8, #5, #6, #7, #9, #10 (issue #1 — multi-location
 inventory — and #2 — voice integration — deferred to their own sessions). One feature
@@ -149,8 +164,6 @@ plan/tests/review cycle, merged to `main` individually; nothing was batched into
 combined branch. Pre-sprint safety net: live DB snapshot at
 `inventory-2026-08-17-presprint.db` and the `pre-sprint-2026-08-17` git tag, both still
 in place for rollback if needed.
-
-## [Unreleased]
 
 ### Issue #1 — inventory in multiple locations
 
