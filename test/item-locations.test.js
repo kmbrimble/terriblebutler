@@ -123,15 +123,23 @@ describe('Multi-location stock', () => {
 
   it('deleting a location merges into an existing unassigned row rather than violating the unique index', async () => {
     const tempLoc = await api(app).post('/api/locations').send({ name: 'Temp Garage' });
+    const otherLoc = await api(app).post('/api/locations').send({ name: 'Other Shed' });
     const created = await api(app).post('/api/items').send({ name: 'WD-40', location_id: tempLoc.body.id, quantity: 3 });
-    // Give the item some pre-existing unassigned stock too.
-    await api(app).patch(`/api/items/${created.body.id}/quantity`).send({ amount: 2, action: 'add', location_id: '' });
+    // Give the item stock at a second real location too, so it now has >1 row and an
+    // explicit location_id: '' can't be satisfied by the "only one row" inference shortcut.
+    await api(app).patch(`/api/items/${created.body.id}/quantity`).send({ amount: 1, action: 'add', location_id: otherLoc.body.id });
+    // Now give it some pre-existing unassigned stock too (explicit null bucket).
+    const addUnassigned = await api(app).patch(`/api/items/${created.body.id}/quantity`).send({ amount: 2, action: 'add', location_id: '' });
+    expect(addUnassigned.status).toBe(200);
+    const midway = (await api(app).get('/api/items')).body.find((i) => i.id === created.body.id);
+    expect(midway.locations).toHaveLength(3); // tempLoc(3), otherLoc(1), unassigned(2)
 
     const deleteRes = await api(app).delete(`/api/locations/${tempLoc.body.id}`);
     expect(deleteRes.status).toBe(200);
 
     const item = (await api(app).get('/api/items')).body.find((i) => i.id === created.body.id);
-    expect(item.locations).toHaveLength(1);
-    expect(item.locations[0]).toEqual({ location_id: null, location_name: null, quantity: 5 });
+    expect(item.locations).toHaveLength(2); // otherLoc(1), unassigned(3+2=5)
+    const unassigned = item.locations.find((l) => l.location_id === null);
+    expect(unassigned).toEqual({ location_id: null, location_name: null, quantity: 5 });
   });
 });

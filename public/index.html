@@ -257,9 +257,9 @@
                         <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Quantity taken</label>
                         <input type="number" step="0.1" id="deductQuantity" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
                     </div>
-                    <div class="flex-1">
+                    <div id="deductLocationField" class="flex-1 hidden">
                         <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Location</label>
-                        <select id="deductLocation" disabled class="w-full bg-rimmy-black border border-rimmy-border outline-none rounded p-2 touch-target text-rimmy-textMuted transition-colors disabled:cursor-not-allowed disabled:opacity-75">
+                        <select id="deductLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
                         </select>
                     </div>
                 </div>
@@ -301,7 +301,7 @@
                     <p id="detailsCategory" class="text-rimmy-text"></p>
                 </div>
                 <div>
-                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Location</p>
+                    <p class="text-xs text-rimmy-textMuted uppercase font-bold">Total Stock</p>
                     <p id="detailsLocation" class="text-rimmy-text"></p>
                 </div>
                 <div>
@@ -312,6 +312,11 @@
                     <p class="text-xs text-rimmy-textMuted uppercase font-bold">Barcode</p>
                     <p id="detailsBarcode" class="text-rimmy-text"></p>
                 </div>
+            </div>
+
+            <div class="mb-6">
+                <p class="text-xs text-rimmy-textMuted uppercase font-bold mb-2">Stock by Location</p>
+                <ul id="detailsLocationsBreakdown" class="flex flex-col gap-1 text-sm text-rimmy-text"></ul>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 bg-rimmy-black p-4 rounded border border-rimmy-border">
@@ -442,7 +447,7 @@
                     <input type="text" id="itemName" required class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2">
-                    <div class="flex-1">
+                    <div id="itemLocationField" class="flex-1">
                         <label class="block text-sm font-bold mb-1 text-rimmy-text">Location</label>
                         <select id="itemLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                         </select>
@@ -458,7 +463,7 @@
                     <input type="text" id="itemDetails" placeholder="Size, weight, type" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2">
-                    <div class="flex-1">
+                    <div id="itemQuantityField" class="flex-1">
                         <label class="block text-sm font-bold mb-1 text-rimmy-text">Quantity</label>
                         <input type="number" step="0.1" id="itemQuantity" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                     </div>
@@ -467,7 +472,8 @@
                         <input type="number" step="0.1" id="itemThreshold" value="0" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                     </div>
                 </div>
-                
+                <p id="editStockNote" class="hidden text-xs text-rimmy-textMuted -mt-2">Use the qty +/- controls or item details to adjust stock per location.</p>
+
                 <div class="border-t border-rimmy-border pt-4 mt-2">
                     <h3 class="text-sm font-bold text-rimmy-orange mb-2">Optional Purchase Record</h3>
                     <div class="flex flex-col sm:flex-row gap-2">
@@ -504,6 +510,10 @@
     <div id="qtyModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
         <div class="bg-rimmy-charcoal border border-rimmy-orange shadow-[0_0_20px_rgba(255,111,0,0.2)] rounded-lg w-full max-w-xs p-6 text-center">
             <h3 class="text-lg font-bold mb-4 text-rimmy-orange">Set Quantity</h3>
+            <div id="qtyModalLocationField" class="hidden mb-4 text-left">
+                <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Location</label>
+                <select id="qtyModalLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors"></select>
+            </div>
             <input type="number" id="manualQtyInput" step="0.1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-center text-xl mb-4 text-rimmy-text transition-colors">
             <div class="flex gap-2">
                 <button onclick="closeQtyModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
@@ -776,13 +786,6 @@
                 if (currentVal) addLocSelect.value = currentVal;
             }
             
-            const deductLocSelect = document.getElementById('deductLocation');
-            if (deductLocSelect) {
-                const currentVal = deductLocSelect.value;
-                deductLocSelect.innerHTML = locOptions;
-                if (currentVal) deductLocSelect.value = currentVal;
-            }
-
             const globalLocSelect = document.getElementById('globalLocationSelect');
             if (globalLocSelect) {
                 const currentVal = globalLocSelect.value;
@@ -965,7 +968,7 @@
 
                 switch (currentTab.type) {
                     case 'all': return true;
-                    case 'location': return item.location_id === currentTab.id;
+                    case 'location': return item.locations.some(l => l.location_id === currentTab.id);
                     case 'grocery': return item.quantity <= item.reorder_threshold && item.is_ignored_grocery === 0;
                     case 'ignored': return item.is_ignored_grocery === 1;
                     default: return true;
@@ -996,8 +999,8 @@
                         valB = (b.category_name || '').toLowerCase();
                         break;
                     case 'location':
-                        valA = (a.location_name || '').toLowerCase();
-                        valB = (b.location_name || '').toLowerCase();
+                        valA = (a.locations[0]?.location_name || '').toLowerCase();
+                        valB = (b.locations[0]?.location_name || '').toLowerCase();
                         break;
                     default:
                         valA = (a.name || '').toLowerCase();
@@ -1014,7 +1017,9 @@
                 const isIgnored = currentTab.type === 'ignored';
                 const lastPriceFormatted = (item.last_price || 0).toFixed(2);
                 const lowestPriceFormatted = (item.lowest_price || 0).toFixed(2);
-                
+                const qty = cardQuantity(item);
+                const locLabel = cardLocationLabel(item);
+
                 const editIcon = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>`;
 
                 if (currentViewMode === 'compact') {
@@ -1024,7 +1029,7 @@
                         <div class="flex-1 min-w-0 pr-2 flex flex-col justify-center">
                             <h3 class="font-bold text-sm text-rimmy-orange truncate leading-none">${escapeHtml(item.name)}</h3>
                             <p class="text-[11px] text-rimmy-textMuted truncate leading-tight mt-1">
-                                ${escapeHtml(item.location_name || 'No Loc')} | ${escapeHtml(item.container_details || '')}
+                                ${locLabel ? escapeHtml(locLabel) + ' | ' : ''}${escapeHtml(item.container_details || '')}
                                 ${isGrocery ? `<button onclick="toggleIgnore(${item.id}, 1); event.stopPropagation();" class="ml-2 px-1 text-red-500 border border-red-500 rounded text-[9px]">Ignore</button>` : ''}
                                 ${isIgnored ? `<button onclick="toggleIgnore(${item.id}, 0); event.stopPropagation();" class="ml-2 px-1 text-green-500 border border-green-500 rounded text-[9px]">Restore</button>` : ''}
                             </p>
@@ -1032,9 +1037,9 @@
                         <div class="flex items-center shrink-0 h-[30px] gap-1">
                             <button onclick="openEditModal(${item.id}); event.stopPropagation();" class="w-8 h-full flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange transition-colors touch-target rounded border border-rimmy-border bg-rimmy-black">${editIcon}</button>
                             <div class="flex items-center bg-rimmy-black rounded border border-rimmy-border overflow-hidden h-full">
-                                <button onclick="updateQty(${item.id}, 1, 'subtract'); event.stopPropagation();" class="w-8 h-full flex items-center justify-center bg-red-600 hover:bg-red-500 text-white text-[14px] font-bold transition-colors">-</button>
-                                <button onclick="openQtyModal(${item.id}, ${item.quantity}); event.stopPropagation();" class="w-10 h-full flex items-center justify-center bg-transparent text-rimmy-text font-bold text-[12px] leading-none">${item.quantity}</button>
-                                <button onclick="updateQty(${item.id}, 1, 'add'); event.stopPropagation();" class="w-8 h-full flex items-center justify-center bg-green-600 hover:bg-green-500 text-white text-[14px] font-bold transition-colors">+</button>
+                                <button onclick="quickAdjustQty(${item.id}, 1, 'subtract'); event.stopPropagation();" class="w-8 h-full flex items-center justify-center bg-red-600 hover:bg-red-500 text-white text-[14px] font-bold transition-colors">-</button>
+                                <button onclick="openQtyModal(${item.id}); event.stopPropagation();" class="w-10 h-full flex items-center justify-center bg-transparent text-rimmy-text font-bold text-[12px] leading-none">${qty}</button>
+                                <button onclick="quickAdjustQty(${item.id}, 1, 'add'); event.stopPropagation();" class="w-8 h-full flex items-center justify-center bg-green-600 hover:bg-green-500 text-white text-[14px] font-bold transition-colors">+</button>
                             </div>
                         </div>
                     </div>
@@ -1047,7 +1052,7 @@
                             ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded border border-rimmy-border shrink-0">` : `<div class="w-16 h-16 bg-rimmy-black rounded flex items-center justify-center text-rimmy-textMuted text-xs text-center p-1 border border-rimmy-border shrink-0">No Img</div>`}
                             <div class="flex-1 min-w-0">
                                 <h3 class="font-bold text-lg text-rimmy-orange truncate">${escapeHtml(item.name)}</h3>
-                                <p class="text-sm text-rimmy-textMuted truncate">${escapeHtml(item.location_name || 'No Location')} | ${escapeHtml(item.category_name || item.category_id || 'No Category')}</p>
+                                <p class="text-sm text-rimmy-textMuted truncate">${locLabel ? escapeHtml(locLabel) + ' | ' : ''}${escapeHtml(item.category_name || item.category_id || 'No Category')}</p>
                                 <p class="text-sm text-rimmy-textMuted truncate">${escapeHtml(item.container_details || '')}</p>
                                 <p class="text-sm text-rimmy-text font-semibold mt-1">Last Price: $${lastPriceFormatted} | Lowest: $${lowestPriceFormatted}</p>
                                 
@@ -1059,9 +1064,9 @@
                         <div class="flex w-full sm:w-auto justify-end mt-2 sm:mt-0 gap-2">
                             <button onclick="openEditModal(${item.id}); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange transition-colors rounded-full border border-rimmy-border bg-rimmy-black shadow-inner">${editIcon}</button>
                             <div class="flex items-center bg-rimmy-black rounded-full border border-rimmy-border shadow-inner">
-                                <button onclick="updateQty(${item.id}, 1, 'subtract'); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold bg-red-600 hover:bg-red-500 text-white transition-colors rounded-l-full">-</button>
-                                <button onclick="openQtyModal(${item.id}, ${item.quantity}); event.stopPropagation();" class="touch-target px-2 min-w-[3rem] font-bold text-lg text-center text-rimmy-text hover:bg-gray-800 transition-colors">${item.quantity}</button>
-                                <button onclick="updateQty(${item.id}, 1, 'add'); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold bg-green-600 hover:bg-green-500 text-white transition-colors rounded-r-full">+</button>
+                                <button onclick="quickAdjustQty(${item.id}, 1, 'subtract'); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold bg-red-600 hover:bg-red-500 text-white transition-colors rounded-l-full">-</button>
+                                <button onclick="openQtyModal(${item.id}); event.stopPropagation();" class="touch-target px-2 min-w-[3rem] font-bold text-lg text-center text-rimmy-text hover:bg-gray-800 transition-colors">${qty}</button>
+                                <button onclick="quickAdjustQty(${item.id}, 1, 'add'); event.stopPropagation();" class="touch-target w-12 h-12 flex items-center justify-center text-2xl font-bold bg-green-600 hover:bg-green-500 text-white transition-colors rounded-r-full">+</button>
                             </div>
                         </div>
                     </div>
@@ -1228,14 +1233,54 @@
         }
 
         // --- QUANTITY API ---
-        async function updateQty(id, amount, action) {
+        async function updateQty(id, amount, action, locationId) {
+            const body = { amount, action };
+            if (locationId !== undefined) body.location_id = locationId;
             try {
                 await apiRequest(`/api/items/${id}/quantity`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ amount, action })
+                    body: JSON.stringify(body)
                 });
             } catch {}
+        }
+
+        // Quick +/- targets the active location tab directly when one is selected (that's
+        // the whole point of filtering to a location). Otherwise it only acts directly when
+        // unambiguous (item has at most one location); for a multi-location item viewed
+        // outside a location tab, it opens the qty modal's location picker instead of
+        // guessing which location to adjust.
+        function quickAdjustQty(id, amount, action) {
+            if (currentTab.type === 'location') {
+                updateQty(id, amount, action, currentTab.id);
+                return;
+            }
+            const item = items.find(i => i.id === id);
+            if (item && item.locations && item.locations.length > 1) {
+                openQtyModal(id);
+                return;
+            }
+            updateQty(id, amount, action);
+        }
+
+        // Quantity/location text shown on an item card: inside a location tab, that
+        // location's own quantity plus how many OTHER locations also stock it; otherwise
+        // the total across all locations plus how many locations that total spans.
+        function cardQuantity(item) {
+            if (currentTab.type === 'location') {
+                const here = item.locations.find(l => l.location_id === currentTab.id);
+                return here ? here.quantity : 0;
+            }
+            return item.quantity;
+        }
+        function cardLocationLabel(item) {
+            if (currentTab.type === 'location') {
+                const elsewhere = item.locations.filter(l => l.location_id !== currentTab.id).length;
+                return elsewhere > 0 ? `+${elsewhere} elsewhere` : '';
+            }
+            const primary = item.locations[0]?.location_name || 'No Loc';
+            const extra = item.locations.length - 1;
+            return extra > 0 ? `${primary} +${extra} elsewhere` : primary;
         }
 
         async function toggleIgnore(id, status) {
@@ -1248,22 +1293,47 @@
             } catch {}
         }
 
-        function openQtyModal(id, currentQty) {
+        function openQtyModal(id) {
+            const item = items.find(i => i.id === id);
+            if (!item) return;
             currentQtyItemId = id;
-            document.getElementById('manualQtyInput').value = currentQty;
+            const locField = document.getElementById('qtyModalLocationField');
+            const locSelect = document.getElementById('qtyModalLocation');
+            const qtyInput = document.getElementById('manualQtyInput');
+
+            if (item.locations && item.locations.length > 1) {
+                locSelect.innerHTML = item.locations.map(l =>
+                    `<option value="${l.location_id ?? ''}">${escapeHtml(l.location_name || 'Unassigned')} (qty ${l.quantity})</option>`
+                ).join('');
+                locSelect.onchange = () => {
+                    const loc = item.locations.find(l => String(l.location_id ?? '') === locSelect.value);
+                    qtyInput.value = loc ? loc.quantity : 0;
+                };
+                locField.classList.remove('hidden');
+                qtyInput.value = item.locations[0].quantity;
+            } else {
+                locField.classList.add('hidden');
+                qtyInput.value = item.quantity;
+            }
+
             document.getElementById('qtyModal').classList.remove('hidden');
-            document.getElementById('manualQtyInput').focus();
+            qtyInput.focus();
         }
 
         function closeQtyModal() {
             document.getElementById('qtyModal').classList.add('hidden');
+            document.getElementById('qtyModalLocationField').classList.add('hidden');
             currentQtyItemId = null;
         }
 
         async function submitManualQty() {
             const val = parseFloat(document.getElementById('manualQtyInput').value);
             if (!isNaN(val) && currentQtyItemId) {
-                await updateQty(currentQtyItemId, val, 'set');
+                const locField = document.getElementById('qtyModalLocationField');
+                const locationId = locField.classList.contains('hidden')
+                    ? undefined
+                    : (document.getElementById('qtyModalLocation').value || null);
+                await updateQty(currentQtyItemId, val, 'set', locationId);
                 closeQtyModal();
             }
         }
@@ -1273,34 +1343,41 @@
             document.getElementById('itemForm').reset();
             document.getElementById('itemId').value = '';
             document.getElementById('addModalTitle').innerText = 'Add Item';
+            document.getElementById('itemLocationField').classList.remove('hidden');
+            document.getElementById('itemQuantityField').classList.remove('hidden');
+            document.getElementById('editStockNote').classList.add('hidden');
             populateLocationSelects();
             populateCategorySelects();
             document.getElementById('addModal').classList.remove('hidden');
         }
-        
+
         function openEditModal(id) {
             const item = items.find(i => i.id === id);
             if (!item) return;
-            
+
             document.getElementById('itemForm').reset();
             document.getElementById('itemId').value = item.id;
             document.getElementById('addModalTitle').innerText = 'Edit Item';
-            
+            // Stock is now per-location (see item_locations) — editing it here would be
+            // ambiguous for a multi-location item, so quantity/location move to the qty
+            // +/- controls, deduct, and the details modal breakdown instead.
+            document.getElementById('itemLocationField').classList.add('hidden');
+            document.getElementById('itemQuantityField').classList.add('hidden');
+            document.getElementById('editStockNote').classList.remove('hidden');
+
             document.getElementById('itemBarcode').value = item.barcode || '';
             document.getElementById('itemName').value = item.name || '';
-            document.getElementById('itemLocation').value = item.location_id || '';
-            
+
             let catMatch = item.category_id || '';
             if(!catMatch && item.category_name) {
                 const foundCat = categories.find(c => c.name === item.category_name);
                 if (foundCat) catMatch = foundCat.id;
             }
             document.getElementById('itemCategory').value = catMatch;
-            
+
             document.getElementById('itemDetails').value = item.container_details || '';
-            document.getElementById('itemQuantity').value = item.quantity || 0;
             document.getElementById('itemThreshold').value = item.reorder_threshold || 0;
-            
+
             document.getElementById('addModal').classList.remove('hidden');
         }
 
@@ -1311,15 +1388,18 @@
         }
 
         function buildItemPayload() {
+            const isEdit = Boolean(document.getElementById('itemId').value);
             const payload = {
                 barcode: document.getElementById('itemBarcode').value,
                 name: document.getElementById('itemName').value,
-                location_id: document.getElementById('itemLocation').value,
                 category_id: document.getElementById('itemCategory').value,
                 container_details: document.getElementById('itemDetails').value,
-                quantity: parseFloat(document.getElementById('itemQuantity').value),
                 reorder_threshold: parseFloat(document.getElementById('itemThreshold').value)
             };
+            if (!isEdit) {
+                payload.location_id = document.getElementById('itemLocation').value;
+                payload.quantity = parseFloat(document.getElementById('itemQuantity').value);
+            }
 
             const price = parseFloat(document.getElementById('itemPrice').value);
             if (!isNaN(price) && price > 0) {
@@ -1355,7 +1435,7 @@
 
         async function useExistingItem(existingId) {
             if (!pendingItemPayload) return;
-            await updateQty(existingId, pendingItemPayload.quantity || 0, 'add');
+            await updateQty(existingId, pendingItemPayload.quantity || 0, 'add', pendingItemPayload.location_id || null);
             closeAddModal();
         }
 
@@ -1572,7 +1652,7 @@
                 }
 
                 const item = await res.json();
-                selectDeductItem(item.id, item.name, item.location_id);
+                selectDeductItem(item.id, item.name);
             } catch (err) {
                 console.error(err);
                 showError('Error finding barcode: ' + err.message);
@@ -1620,8 +1700,10 @@
             document.getElementById('deductList').innerHTML = '';
             document.getElementById('deductSearchContainer').classList.remove('hidden');
             document.getElementById('deductActionContainer').classList.add('hidden');
+            document.getElementById('deductLocationField').classList.add('hidden');
+            document.getElementById('deductLocation').innerHTML = '';
         }
-        
+
         function filterDeductItems() {
             const query = document.getElementById('deductSearchInput').value.toLowerCase();
             const list = document.getElementById('deductList');
@@ -1629,48 +1711,67 @@
                 list.innerHTML = '';
                 return;
             }
-            
-            const results = items.filter(i => 
-                (i.name && i.name.toLowerCase().includes(query)) || 
+
+            const results = items.filter(i =>
+                (i.name && i.name.toLowerCase().includes(query)) ||
                 (i.barcode && i.barcode.toLowerCase().includes(query))
             ).slice(0, 10);
-            
+
             list.innerHTML = results.map(i => `
                 <div onclick="selectDeductItemById(${i.id})" class="p-3 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange rounded cursor-pointer transition-colors text-sm">
                     <p class="font-bold text-rimmy-orange truncate">${escapeHtml(i.name)}</p>
-                    <p class="text-xs text-rimmy-textMuted">${escapeHtml(i.location_name || 'No Loc')} | Qty: ${i.quantity}</p>
+                    <p class="text-xs text-rimmy-textMuted">${escapeHtml(i.locations.length > 1 ? `${i.locations.length} locations` : (i.locations[0]?.location_name || 'No Loc'))} | Qty: ${i.quantity}</p>
                 </div>
             `).join('');
         }
-        
+
         function selectDeductItemById(id) {
             const item = items.find(i => i.id === id);
             if (!item) return;
-            selectDeductItem(item.id, item.name, item.location_id);
+            selectDeductItem(item.id, item.name);
         }
 
-        function selectDeductItem(id, name, locId) {
+        function selectDeductItem(id, name) {
+            const item = items.find(i => i.id === id);
             document.getElementById('deductSearchContainer').classList.add('hidden');
             document.getElementById('deductActionContainer').classList.remove('hidden');
             document.getElementById('deductActionContainer').classList.add('flex');
-            
+
             document.getElementById('deductItemId').value = id;
             document.getElementById('deductItemName').innerText = name;
             document.getElementById('deductQuantity').value = 1;
-            document.getElementById('deductLocation').value = locId || '';
+
+            const locField = document.getElementById('deductLocationField');
+            const locSelect = document.getElementById('deductLocation');
+            if (item && item.locations && item.locations.length > 1) {
+                locSelect.innerHTML = item.locations.map(l =>
+                    `<option value="${l.location_id ?? ''}">${escapeHtml(l.location_name || 'Unassigned')} (qty ${l.quantity})</option>`
+                ).join('');
+                locField.classList.remove('hidden');
+            } else {
+                locSelect.innerHTML = '';
+                locField.classList.add('hidden');
+            }
         }
-        
+
         async function submitDeduct() {
             const id = document.getElementById('deductItemId').value;
             const amount = parseFloat(document.getElementById('deductQuantity').value);
 
             if (isNaN(amount) || amount <= 0) return showError('Invalid amount');
 
+            const locField = document.getElementById('deductLocationField');
+            const locationId = locField.classList.contains('hidden')
+                ? undefined
+                : (document.getElementById('deductLocation').value || null);
+            const body = { amount };
+            if (locationId !== undefined) body.location_id = locationId;
+
             try {
                 const response = await apiRequest(`/api/items/${id}/deduct`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ amount })
+                    body: JSON.stringify(body)
                 });
 
                 const updatedItem = await response.json();
@@ -1703,9 +1804,16 @@
 
                 document.getElementById('detailsTitle').innerText = details.name;
                 document.getElementById('detailsCategory').innerText = details.category_name || '-';
-                document.getElementById('detailsLocation').innerText = details.location_name || '-';
+                document.getElementById('detailsLocation').innerText = `${details.quantity} across ${details.locations.length} location${details.locations.length === 1 ? '' : 's'}`;
                 document.getElementById('detailsContainer').innerText = details.container_details || '-';
                 document.getElementById('detailsBarcode').innerText = details.barcode || '-';
+
+                document.getElementById('detailsLocationsBreakdown').innerHTML = details.locations.map(l => `
+                    <li class="flex justify-between border-b border-rimmy-border pb-1">
+                        <span>${escapeHtml(l.location_name || 'Unassigned')}</span>
+                        <span class="font-bold">${l.quantity}</span>
+                    </li>
+                `).join('') || '<li class="text-rimmy-textMuted">No stock recorded.</li>';
 
                 const formatPurchase = (p) => p && p.price > 0 ? `$${p.price.toFixed(2)} at ${p.vendor} on ${new Date(p.recorded_at).toLocaleDateString()}` : 'N/A';
                 document.getElementById('detailsLastPurchase').innerText = formatPurchase(details.last_purchase);

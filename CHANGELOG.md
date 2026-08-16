@@ -218,7 +218,28 @@ aggregate), `server.js` (item query helpers + the endpoints listed above),
 
 **Pre-change backup:** live DB snapshot + `main` tag before the checkpoint commit, per
 CLAUDE.md's pre-change-backup rule for schema changes (same read-only `docker cp`
-approach the user authorised during the prior sprint).
+approach the user authorised during the prior sprint) —
+`inventory-2026-08-17-0731-pre-multilocation.db`.
+
+**Two bugs found and fixed during implementation, beyond the original plan:**
+- `resolveTargetLocation` initially couldn't distinguish "location omitted from the
+  request" (should auto-infer) from "location explicitly sent as `null`/`''`" (should
+  target the unassigned bucket) — both fell through the same branch, so an explicit
+  request for the unassigned bucket on a multi-location item silently landed on
+  whichever location happened to be inferred instead. Caught by a test that passed for
+  the wrong reason (single-location item at the time of the assertion, masking the bug);
+  fixed and the test strengthened to force a genuine multi-row scenario before asserting.
+- `POST /api/invoices/commit`: `existingItems` entries weren't updated after a matched
+  item's `lowest_price` changed, so a third line item matching the same item within one
+  invoice would compare against a stale lowest price. One-line fix
+  (`matchedItem.lowest_price = newLowest`) in the same code path already being edited
+  for the location upsert.
+
+**Deviation from the original plan:** used a hand-rolled derived value / partial-index
+upsert helper (`upsertItemLocationQuantity`) shared by the quantity/deduct/invoice-commit
+endpoints instead of raw `INSERT ... ON CONFLICT` SQL in each call site — simpler to get
+right than SQLite's partial-index upsert target syntax, and it's the same helper the
+plan's tests already exercise directly.
 
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 

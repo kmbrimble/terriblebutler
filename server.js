@@ -209,6 +209,16 @@ db.exec(`
     recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(item_id) REFERENCES items(id)
   );
+  CREATE TABLE IF NOT EXISTS item_locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    location_id INTEGER,
+    quantity REAL NOT NULL DEFAULT 0,
+    FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY(location_id) REFERENCES locations(id)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_item_locations_unique ON item_locations(item_id, location_id) WHERE location_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_item_locations_unique_null ON item_locations(item_id) WHERE location_id IS NULL;
 `);
 runMigrations(db, migrations, isFreshDb);
 // Seed default locations
@@ -242,14 +252,39 @@ io.on('connection', (socket) => {
     console.log('A client disconnected');
   });
 });
+// Multi-location stock: an item's real quantity is the sum of its item_locations rows,
+// not the (now vestigial) items.quantity column. Appending these as SELECT columns named
+// "quantity"/"locations_json" after items.* means the computed value wins in the row
+// object (later same-named keys overwrite earlier ones) without having to enumerate every
+// other items.* column. Repeated verbatim in WHERE clauses since SQLite can't reference a
+// SELECT-list alias there.
+const TOTAL_QUANTITY_SQL = `COALESCE((SELECT SUM(quantity) FROM item_locations WHERE item_id = items.id), 0)`;
+const LOCATIONS_BREAKDOWN_SQL = `(
+    SELECT json_group_array(json_object('location_id', il.location_id, 'location_name', l.name, 'quantity', il.quantity))
+    FROM item_locations il
+    LEFT JOIN locations l ON il.location_id = l.id
+    WHERE il.item_id = items.id
+  )`;
+// Parses the locations_json column produced by LOCATIONS_BREAKDOWN_SQL into a real array.
+function parseItemLocations(row) {
+  if (!row) return row;
+  row.locations = row.locations_json ? JSON.parse(row.locations_json) : [];
+  delete row.locations_json;
+  return row;
+}
 // Helper query to retrieve full item details
-const getItem = db.prepare(`
-  SELECT items.*, locations.name as location_name, categories.name as category_name
+const getItemStmt = db.prepare(`
+  SELECT items.*, locations.name as location_name, categories.name as category_name,
+    ${TOTAL_QUANTITY_SQL} AS quantity,
+    ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
   FROM items
   LEFT JOIN locations ON items.location_id = locations.id
   LEFT JOIN categories ON items.category_id = categories.id
   WHERE items.id = ?
 `);
+function getItem(id) {
+  return parseItemLocations(getItemStmt.get(id));
+}
 // Helper for strict ID parsing
 function parseIntOrNull(val) {
   if (val === "" || val === undefined || val === null) return null;
@@ -416,7 +451,16 @@ app.delete('/api/locations/:id', (req, res) => {
     const existing = db.prepare('SELECT id FROM locations WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Location not found' });
     db.transaction(() => {
-      db.prepare('UPDATE items SET location_id = NULL WHERE location_id = ?').run(req.params.id);
+      const stranded = db.prepare('SELECT id, item_id, quantity FROM item_locations WHERE location_id = ?').all(req.params.id);
+      for (const row of stranded) {
+        const unassigned = db.prepare('SELECT id, quantity FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(row.item_id);
+        if (unassigned) {
+          db.prepare('UPDATE item_locations SET quantity = quantity + ? WHERE id = ?').run(row.quantity, unassigned.id);
+          db.prepare('DELETE FROM item_locations WHERE id = ?').run(row.id);
+        } else {
+          db.prepare('UPDATE item_locations SET location_id = NULL WHERE id = ?').run(row.id);
+        }
+      }
       db.prepare('DELETE FROM locations WHERE id = ?').run(req.params.id);
     })();
     broadcastUpdate('locations_updated', {});
@@ -469,32 +513,38 @@ app.delete('/api/categories/:id', (req, res) => {
 // --- ITEM ENDPOINTS ---
 app.get('/api/items', (req, res) => {
   const stmt = db.prepare(`
-    SELECT items.*, locations.name as location_name, categories.name as category_name
+    SELECT items.*, locations.name as location_name, categories.name as category_name,
+      ${TOTAL_QUANTITY_SQL} AS quantity,
+      ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
     FROM items
     LEFT JOIN locations ON items.location_id = locations.id
     LEFT JOIN categories ON items.category_id = categories.id
   `);
-  res.json(stmt.all());
+  res.json(stmt.all().map(parseItemLocations));
 });
 app.get('/api/grocery-list', (req, res) => {
   const stmt = db.prepare(`
-    SELECT items.*, locations.name as location_name, categories.name as category_name
+    SELECT items.*, locations.name as location_name, categories.name as category_name,
+      ${TOTAL_QUANTITY_SQL} AS quantity,
+      ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
     FROM items
     LEFT JOIN locations ON items.location_id = locations.id
     LEFT JOIN categories ON items.category_id = categories.id
-    WHERE quantity <= reorder_threshold AND is_ignored_grocery = 0
+    WHERE ${TOTAL_QUANTITY_SQL} <= reorder_threshold AND is_ignored_grocery = 0
   `);
-  res.json(stmt.all());
+  res.json(stmt.all().map(parseItemLocations));
 });
 app.get('/api/out-of-stock-ignored', (req, res) => {
   const stmt = db.prepare(`
-    SELECT items.*, locations.name as location_name, categories.name as category_name
+    SELECT items.*, locations.name as location_name, categories.name as category_name,
+      ${TOTAL_QUANTITY_SQL} AS quantity,
+      ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
     FROM items
     LEFT JOIN locations ON items.location_id = locations.id
     LEFT JOIN categories ON items.category_id = categories.id
     WHERE is_ignored_grocery = 1
   `);
-  res.json(stmt.all());
+  res.json(stmt.all().map(parseItemLocations));
 });
 app.get('/api/items/search', (req, res) => {
   const query = req.query.q;
@@ -502,11 +552,13 @@ app.get('/api/items/search', (req, res) => {
     return res.json([]);
   }
   const itemsList = db.prepare(`
-    SELECT items.*, locations.name as location_name, categories.name as category_name
+    SELECT items.*, locations.name as location_name, categories.name as category_name,
+      ${TOTAL_QUANTITY_SQL} AS quantity,
+      ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
     FROM items
     LEFT JOIN locations ON items.location_id = locations.id
     LEFT JOIN categories ON items.category_id = categories.id
-  `).all();
+  `).all().map(parseItemLocations);
   const fuse = new Fuse(itemsList, {
     keys: ['name', 'barcode', 'category_name'],
     threshold: 0.3
@@ -517,14 +569,20 @@ app.get('/api/items/search', (req, res) => {
 app.get('/api/items/match', (req, res) => {
   const barcode = req.query.barcode ? String(req.query.barcode).trim() : null;
   const name = req.query.name ? String(req.query.name).trim() : '';
-  const existingItems = db.prepare('SELECT id, name, barcode, quantity, location_id FROM items').all();
+  const existingItems = db.prepare(`
+    SELECT items.id, items.name, items.barcode, items.location_id,
+      ${TOTAL_QUANTITY_SQL} AS quantity
+    FROM items
+  `).all();
   const fuse = new Fuse(existingItems, { keys: ['name'], threshold: 0.3 });
   const match = findMatch(existingItems, { barcode, name }, fuse);
   res.json({ type: match.type, candidates: match.candidates });
 });
 app.get('/api/items/barcode/:barcode', (req, res) => {
   const stmt = db.prepare(`
-    SELECT items.*, locations.name as location_name, categories.name as category_name
+    SELECT items.*, locations.name as location_name, categories.name as category_name,
+      ${TOTAL_QUANTITY_SQL} AS quantity,
+      ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
     FROM items
     LEFT JOIN locations ON items.location_id = locations.id
     LEFT JOIN categories ON items.category_id = categories.id
@@ -532,13 +590,13 @@ app.get('/api/items/barcode/:barcode', (req, res) => {
   `);
   const item = stmt.get(req.params.barcode);
   if (item) {
-    res.json(item);
+    res.json(parseItemLocations(item));
   } else {
     res.status(404).json({ error: 'Item not found' });
   }
 });
 app.get('/api/items/:id/details', (req, res) => {
-  const item = getItem.get(req.params.id);
+  const item = getItem(req.params.id);
   if (!item) {
     return res.status(404).json({ error: 'Item not found' });
   }
@@ -567,16 +625,17 @@ app.post('/api/items', (req, res) => {
     if (barcodeBelongsToAnotherItem(barcode)) throw new Error('This barcode is already assigned to another item');
     const create = db.transaction(() => {
       const info = db.prepare(`INSERT INTO items
-        (barcode, name, location_id, category_id, container_details, quantity, reorder_threshold)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(barcode, name, locationId, categoryId, details, quantity, threshold);
+        (barcode, name, category_id, container_details, reorder_threshold)
+        VALUES (?, ?, ?, ?, ?)`)
+        .run(barcode, name, categoryId, details, threshold);
       const id = Number(info.lastInsertRowid);
+      db.prepare('INSERT INTO item_locations (item_id, location_id, quantity) VALUES (?, ?, ?)').run(id, locationId, quantity);
       if (price && price > 0) {
         if (purchaseDate) db.prepare('INSERT INTO price_history (item_id, price, vendor, recorded_at) VALUES (?, ?, ?, ?)').run(id, price, vendor, purchaseDate);
         else db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)').run(id, price, vendor);
         recalculateItemPrices(id);
       }
-      return getItem.get(id);
+      return getItem(id);
     });
     const item = create();
     broadcastUpdate('add', item);
@@ -585,63 +644,97 @@ app.post('/api/items', (req, res) => {
 });
 app.put('/api/items/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = getItem.get(id);
+  const existing = getItem(id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   try {
     const barcode = req.body.barcode === undefined ? existing.barcode : normaliseBarcode(req.body.barcode);
     const name = cleanText(req.body.name, { required: true, max: 200 });
-    const locationId = validForeignId('locations', req.body.location_id, 'Location');
     const categoryId = validForeignId('categories', req.body.category_id, 'Category');
     const details = cleanText(req.body.container_details, { max: 500 });
-    const quantity = finiteNumber(req.body.quantity, { name: 'Quantity', min: 0 });
     const threshold = finiteNumber(req.body.reorder_threshold, { name: 'Reorder threshold', min: 0 });
     const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
     const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
     const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
     if (barcodeBelongsToAnotherItem(barcode, id)) throw new Error('This barcode is already assigned to another item');
     const update = db.transaction(() => {
-      db.prepare(`UPDATE items SET barcode = ?, name = ?, location_id = ?, category_id = ?,
-        container_details = ?, quantity = ?, reorder_threshold = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-        .run(barcode, name, locationId, categoryId, details, quantity, threshold, id);
+      db.prepare(`UPDATE items SET barcode = ?, name = ?, category_id = ?,
+        container_details = ?, reorder_threshold = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(barcode, name, categoryId, details, threshold, id);
       if (price && price > 0) {
         if (purchaseDate) db.prepare('INSERT INTO price_history (item_id, price, vendor, recorded_at) VALUES (?, ?, ?, ?)').run(id, price, vendor, purchaseDate);
         else db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)').run(id, price, vendor);
         recalculateItemPrices(id);
       }
-      return getItem.get(id);
+      return getItem(id);
     });
     const item = update();
     broadcastUpdate('update', item);
     res.json(item);
   } catch (err) { sendMutationError(res, err); }
 });
+// Resolves which item_locations row a quantity change should apply to. If the client
+// gave an explicit location_id (including '' / null meaning "unassigned"), use that. If
+// omitted and the item has stock in exactly one location, infer it — otherwise the
+// change is ambiguous and must be rejected (the front end shows a picker in that case).
+function resolveTargetLocation(id, rawLocationId) {
+  // Omitted entirely -> infer (only safe when the item has at most one location row).
+  // Present as null/'' -> an explicit choice of the "unassigned" bucket, not a fallthrough.
+  if (rawLocationId === undefined) {
+    const rows = db.prepare('SELECT location_id FROM item_locations WHERE item_id = ?').all(id);
+    if (rows.length === 1) return rows[0].location_id;
+    if (rows.length === 0) return null;
+    throw new Error('This item has stock in more than one location — a location_id is required');
+  }
+  if (rawLocationId === null || rawLocationId === '') return null;
+  return validForeignId('locations', rawLocationId, 'Location');
+}
+function upsertItemLocationQuantity(id, locationId, action, amount) {
+  const existing = locationId === null
+    ? db.prepare('SELECT id, quantity FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)
+    : db.prepare('SELECT id, quantity FROM item_locations WHERE item_id = ? AND location_id = ?').get(id, locationId);
+  if (action === 'add') {
+    if (existing) db.prepare('UPDATE item_locations SET quantity = quantity + ? WHERE id = ?').run(amount, existing.id);
+    else db.prepare('INSERT INTO item_locations (item_id, location_id, quantity) VALUES (?, ?, ?)').run(id, locationId, amount);
+    return true;
+  }
+  if (action === 'subtract') {
+    if (!existing || existing.quantity < amount) return false;
+    db.prepare('UPDATE item_locations SET quantity = quantity - ? WHERE id = ?').run(amount, existing.id);
+    return true;
+  }
+  if (action === 'set') {
+    if (existing) db.prepare('UPDATE item_locations SET quantity = ? WHERE id = ?').run(amount, existing.id);
+    else db.prepare('INSERT INTO item_locations (item_id, location_id, quantity) VALUES (?, ?, ?)').run(id, locationId, amount);
+    return true;
+  }
+  return null;
+}
 app.patch('/api/items/:id/quantity', (req, res) => {
   const id = Number(req.params.id);
-  if (!getItem.get(id)) return res.status(404).json({ error: 'Item not found' });
+  if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
   try {
     const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0 });
     const action = req.body.action;
-    let info;
-    if (action === 'add') info = db.prepare('UPDATE items SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(amount, id);
-    else if (action === 'subtract') info = db.prepare('UPDATE items SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND quantity >= ?').run(amount, id, amount);
-    else if (action === 'set') info = db.prepare('UPDATE items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(amount, id);
-    else return res.status(400).json({ error: 'Invalid quantity action' });
-    if (!info.changes) return res.status(409).json({ error: 'Insufficient quantity or item not found' });
-    const item = getItem.get(id);
+    const locationId = resolveTargetLocation(id, req.body.location_id);
+    const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, action, amount))();
+    if (changed === null) return res.status(400).json({ error: 'Invalid quantity action' });
+    if (!changed) return res.status(409).json({ error: 'Insufficient quantity or item not found' });
+    db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+    const item = getItem(id);
     broadcastUpdate('update_quantity', item);
     res.json(item);
   } catch (err) { sendMutationError(res, err); }
 });
 app.post('/api/items/:id/deduct', (req, res) => {
   const id = Number(req.params.id);
+  if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
   try {
     const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001 });
-    const info = db.prepare('UPDATE items SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND quantity >= ?').run(amount, id, amount);
-    if (!info.changes) {
-      if (!getItem.get(id)) return res.status(404).json({ error: 'Item not found' });
-      return res.status(409).json({ error: 'Insufficient quantity' });
-    }
-    const item = getItem.get(id);
+    const locationId = resolveTargetLocation(id, req.body.location_id);
+    const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, 'subtract', amount))();
+    if (!changed) return res.status(409).json({ error: 'Insufficient quantity' });
+    db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+    const item = getItem(id);
     broadcastUpdate('update_quantity', item);
     res.json(item);
   } catch (err) { sendMutationError(res, err); }
@@ -652,7 +745,7 @@ app.patch('/api/items/:id/ignore-grocery', (req, res) => {
   try {
     const info = stmt.run(is_ignored_grocery, req.params.id);
     if (!info.changes) return res.status(404).json({ error: 'Item not found' });
-    const updatedItem = getItem.get(req.params.id);
+    const updatedItem = getItem(req.params.id);
     broadcastUpdate('update_ignore', updatedItem);
     res.json(updatedItem);
   } catch (err) {
@@ -661,7 +754,7 @@ app.patch('/api/items/:id/ignore-grocery', (req, res) => {
 });
 app.delete('/api/items/:id', (req, res) => {
   const id = Number(req.params.id);
-  const item = getItem.get(id);
+  const item = getItem(id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
   db.transaction(() => {
     db.prepare('DELETE FROM price_history WHERE item_id = ?').run(id);
@@ -677,7 +770,7 @@ app.delete('/api/price-history/:id', (req, res) => {
     db.prepare('DELETE FROM price_history WHERE id = ?').run(req.params.id);
     recalculateItemPrices(row.item_id);
   })();
-  broadcastUpdate('price_history_updated', getItem.get(row.item_id));
+  broadcastUpdate('price_history_updated', getItem(row.item_id));
   res.json({ message: 'Price history entry deleted' });
 });
 // --- IMAGE AND LLM ENDPOINTS ---
@@ -830,23 +923,16 @@ app.post('/api/invoices/commit', (req, res) => {
   if (!Array.isArray(itemsToCommit)) {
     return res.status(400).json({ error: 'Expected an array of items' });
   }
-  const existingItems = db.prepare('SELECT id, name, barcode, quantity, lowest_price FROM items').all();
+  const existingItems = db.prepare('SELECT id, name, barcode, lowest_price FROM items').all();
   const fuse = new Fuse(existingItems, {
     keys: ['name'],
     threshold: 0.3
   });
   const insertItem = db.prepare(`
-    INSERT INTO items (name, barcode, location_id, container_details, quantity, last_price, lowest_price)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO items (name, barcode, container_details, last_price, lowest_price)
+    VALUES (?, ?, ?, ?, ?)
   `);
-  const updateItem = db.prepare(`
-    UPDATE items
-    SET quantity = quantity + ?,
-        last_price = ?,
-        lowest_price = ?,
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
+  const touchItem = db.prepare('UPDATE items SET last_price = ?, lowest_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
   const insertPriceHistory = db.prepare(`
     INSERT INTO price_history (item_id, price, vendor)
     VALUES (?, ?, ?)
@@ -864,6 +950,7 @@ app.post('/api/invoices/commit', (req, res) => {
           if (match.type === 'barcode' || match.type === 'exact_name') matchedItem = match.item;
         }
 
+        const locationId = item.location_id ? parseInt(item.location_id) : null;
         let itemId;
         if (matchedItem) {
           itemId = matchedItem.id;
@@ -871,22 +958,22 @@ app.post('/api/invoices/commit', (req, res) => {
           if (newLowest === 0 || item.price < newLowest) {
             newLowest = item.price;
           }
-          updateItem.run(item.quantity, item.price, newLowest, itemId);
+          touchItem.run(item.price, newLowest, itemId);
+          matchedItem.lowest_price = newLowest;
+          upsertItemLocationQuantity(itemId, locationId, 'add', item.quantity);
         } else {
-          const locationId = item.location_id ? parseInt(item.location_id) : null;
           const info = insertItem.run(
             item.name,
             item.barcode || null,
-            locationId,
             item.container_details || '',
-            item.quantity,
             item.price,
             item.price
           );
           itemId = info.lastInsertRowid;
+          upsertItemLocationQuantity(itemId, locationId, 'add', item.quantity);
           // Update the in-memory match set so later line items in this same commit can
           // match against items just inserted, without re-querying the database.
-          existingItems.push({ id: itemId, name: item.name, barcode: item.barcode || null, quantity: item.quantity, lowest_price: item.price });
+          existingItems.push({ id: itemId, name: item.name, barcode: item.barcode || null, lowest_price: item.price });
           fuse.setCollection(existingItems);
         }
         insertPriceHistory.run(itemId, item.price, item.vendor);

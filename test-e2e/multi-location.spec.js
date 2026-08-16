@@ -37,12 +37,12 @@ test('deduct shows a location picker only when the item has stock in more than o
   await page.locator('#deductList div', { hasText: singleName }).click();
   await expect(page.locator('#deductLocation')).toBeHidden();
 
-  await page.locator('button[onclick="resetDeductModal()"], #deductSearchInput').first().fill('');
+  await page.locator('button[onclick="resetDeductModal()"]').click();
   await page.locator('#deductSearchInput').fill(multiName);
   await page.locator('#deductList div', { hasText: multiName }).click();
   await expect(page.locator('#deductLocation')).toBeVisible();
 
-  await page.locator('#deductLocation').selectOption({ label: locC.name });
+  await page.locator('#deductLocation').selectOption(String(locC.id));
   await page.locator('#deductQuantity').fill('3');
   await page.locator('button[onclick="submitDeduct()"]').click();
 

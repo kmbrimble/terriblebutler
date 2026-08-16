@@ -22,6 +22,30 @@ function runMigrations(db, migrations, isFreshDb) {
 
 // Append new migrations here, in order. Never edit or remove a migration once it has
 // shipped — add a new one instead.
-const migrations = [];
+const migrations = [
+  // #1: item_locations (multi-location stock). The table + indexes also live in
+  // server.js's base CREATE TABLE block for fresh installs; this migration creates them
+  // for an existing DB and backfills one row per item from its current
+  // location_id/quantity. The WHERE NOT IN guard makes the backfill safe to re-run.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS item_locations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL,
+        location_id INTEGER,
+        quantity REAL NOT NULL DEFAULT 0,
+        FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE,
+        FOREIGN KEY(location_id) REFERENCES locations(id)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_item_locations_unique ON item_locations(item_id, location_id) WHERE location_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_item_locations_unique_null ON item_locations(item_id) WHERE location_id IS NULL;
+    `);
+    db.exec(`
+      INSERT INTO item_locations (item_id, location_id, quantity)
+      SELECT id, location_id, quantity FROM items
+      WHERE id NOT IN (SELECT item_id FROM item_locations)
+    `);
+  },
+];
 
 module.exports = { runMigrations, hasColumn, migrations };
