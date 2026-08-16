@@ -124,6 +124,32 @@ with the three steps: run the script, set `AUTH_PASSWORD_HASH` on the container,
 verifies the printed hash both accepts the correct password and rejects a wrong one
 (via `bcrypt.compareSync`), and that omitting the password argument exits non-zero.
 
+### Issue #10 — leftover local Docker image cleanup
+
+The leftover `terrible-butler-test:verify` image (373MB, left over from the auth
+conversion's container verification) was already gone by the time this sprint reached
+it — no `docker rmi` needed. The permission fix (so a future cleanup attempt isn't
+blocked by Claude Code's own tooling) could not be applied automatically: the auto-mode
+classifier blocks Claude Code from editing its own Bash permission rules, since
+self-granting permissions is exactly the kind of action that control exists to catch.
+Handed to the user as a manual step: add a narrowly-scoped `permissions.allow` rule for
+`docker rmi`/`docker rm` on the `terrible-butler-test` image/container name to
+`.claude/settings.local.json` (not a blanket docker allowance — this host runs many
+unrelated live containers).
+
+## Sprint summary (2026-08-16 to 2026-08-17)
+
+Six-issue improvement sprint ahead of the React Native migration: #8 (migrations
+tracking), #5 (invoice matching + manual-add dedup), #6 (LLM schema validation), #7
+(standardised front-end HTTP error handling), #9 (password recovery runbook), #10
+(Docker image cleanup — partially resolved, permission fix left to the user). Issue #1
+(multi-location inventory) deliberately deferred to its own session — see the sprint
+plan note above. Each issue landed on its own feature branch with its own
+plan/tests/review cycle, merged to `main` individually; nothing was batched into one
+combined branch. Pre-sprint safety net: live DB snapshot at
+`inventory-2026-08-17-presprint.db` and the `pre-sprint-2026-08-17` git tag, both still
+in place for rollback if needed.
+
 ## 0.16 - 2026-08-16 - Docs: reflect deployed auth model
 
 Docs-only change, no code. `CLAUDE.md` constraints #2 and #8 updated to describe the
