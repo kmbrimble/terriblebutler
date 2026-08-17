@@ -4,6 +4,49 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Invoice import: deterministic Coles/Woolworths parsers, staging table, review UI
+
+**Plan:**
+
+- **Part 1 — parsers.** `parsers/woolworths.js` and `parsers/coles.js` parse already-extracted
+  PDF text (via `pdf-parse` v2's `PDFParse` class — the existing `/api/invoices/parse` route
+  uses the old v1 callable-function API and is currently broken as a result; that's a
+  pre-existing bug outside this task's scope and is left untouched) into the shared line-item
+  contract, with no LLM involved. `parsers/router.js` detects retailer by ABN string and
+  dispatches. `parsers/shared.js` holds the `D Month YYYY` → ISO date parser used by both.
+  Fixtures moved to `test/fixtures/invoices/{woolworths,coles}-example.pdf`.
+- **Part 2 — staging tables + API.** New `invoice_imports` / `invoice_import_lines` tables
+  (idempotent `CREATE TABLE IF NOT EXISTS`, added directly to `server.js`'s schema block since
+  these are brand-new tables, not alterations to existing ones — no `db-migrations.js` entry
+  needed). Four new `/api/invoices/import*` routes, all behind the existing `requireAuth`
+  gate. Matching hierarchy at import time reuses `findMatch`: exact-name (or barcode) match
+  sets `matched_item_id` and inherits that item's category/location as the suggestion; a
+  fuzzy hit populates the suggestion from the top candidate but leaves `matched_item_id` null
+  (deliberately stricter than the spec's literal wording of also auto-setting it on fuzzy —
+  kept consistent with `item-matching.js`'s documented project-wide rule that fuzzy matches are
+  suggestion-only, never auto-applied, since this is a money/inventory-affecting write path).
+  Lines with no deterministic match fall back to a new text-only LLM classify call (reusing the
+  granite vision model in text mode, `response_format: json_schema`, a new
+  `validateClassifyResult` in `llm-schema.js`); failures/timeouts degrade to a null suggestion
+  rather than blocking the import, same resilience pattern as `/api/parse-label-llm`. Commit
+  re-runs `findMatch` for any still-unmatched line (covers two new lines in one import sharing a
+  name) inside a single `db.transaction`, so a mid-commit failure (e.g. a bad FK) rolls back
+  atomically and `invoice_imports.status` stays `in_progress`. Staging rows are never deleted
+  after commit — they're the audit trail.
+- **Part 3 — review UI.** New screen in `public/index.html`, one row per staging line, editable
+  category/location (pre-filled from suggestions, reusing the existing suggestion-picker
+  pattern), qty-confirmed field, barcode-scan button reusing the existing scanner component.
+  Every field edit PATCHes immediately (no save button) so a reload mid-review restores state
+  from `GET /api/invoices/import/:id`. Commit button enabled once no line is `pending` — enforced
+  server-side too, not just as a UI gate.
+- **Out of scope, per the brief:** manual retailer picker UI for the "unknown retailer" case
+  (Part 1's router returns a clear `retailer: null` result for this; Part 3 doesn't specify a
+  picker, so the review screen just surfaces the error) — flagged in the hand-back rather than
+  built speculatively.
+
+**Pre-change reminder:** this adds two new tables — snapshot the live DB to
+`/mnt/user/Kieren/Backup/unRAID/butler/` before deploying, per `CLAUDE.md`.
+
 ### Pin Playwright to 1 worker
 
 `playwright.config.js` didn't set `workers`, so Playwright defaulted to a CPU-core-based
