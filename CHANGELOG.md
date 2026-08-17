@@ -4,6 +4,24 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Pin Playwright to 1 worker
+
+`playwright.config.js` didn't set `workers`, so Playwright defaulted to a CPU-core-based
+worker count (8 on a 16-core box) since `CI` isn't set in this environment. `global-setup.mjs`
+starts one shared server + SQLite DB on a fixed port for the entire e2e run — every test in
+every worker hits that same live instance. Ran the suite four times back-to-back at the
+default 8 workers to check whether that holds up under concurrency: one run crashed the shared
+server outright (17 tests failed with `ECONNREFUSED`), another had two unrelated tests fail for
+different reasons (a `/api/categories` POST came back without an `id`; a location delete
+returned `false`). Real flakiness, not slowness, and it moved between different files each
+run — a shared-instance architecture problem, not a bad test. The suite already runs in
+single-digit seconds serially, so pinned `workers: 1` rather than chase a marginal speedup that
+trades away trust in the suite. Per-worker isolated server+DB+port (Playwright's
+`testInfo.workerIndex`) would make real parallelism safe — worth it if the suite grows enough
+for serial runtime to matter, not worth it at today's size (21 e2e tests, ~7–18s).
+
+**Files:** `playwright.config.js`.
+
 ### Label-scan LLM: fix schema-drift root cause, close silent-parsing gap, add category/location suggestion picker
 
 **Plan:** investigation (prompted by "scanned items always get the same category/location")
