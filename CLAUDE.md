@@ -76,9 +76,49 @@ apply patterns from outside this project without checking against this list.
 
 ## Pre-change backup
 
-Before any change that alters the database schema or write paths, remind the user in the
-hand-back to snapshot the live database to `/mnt/user/Kieren/Backup/unRAID/butler/` with a
-dated filename. Do not attempt to take this snapshot yourself — it touches live data.
+Before any change that alters the database schema or write paths, take the snapshot yourself
+(the user has confirmed this is now standard process, not something to ask permission for each
+time) — do not just remind them to do it manually. Steps:
+
+1. Run a live-safe SQLite backup **inside the `terrible-butler` container**, not a raw file
+   copy — the live DB runs in WAL mode, so copying `inventory.db` alone can miss uncommitted
+   WAL frames. Use better-sqlite3's online backup API (it's already a dependency in the
+   container image):
+   ```
+   docker exec terrible-butler node -e "
+     const Database = require('better-sqlite3');
+     const db = new Database('/app/data/inventory.db', { readonly: true });
+     db.backup('/app/data/inventory-YYYY-MM-DD-<short-description>.db')
+       .then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
+   "
+   ```
+2. The `terrible-butler` container only has `/app/data` and `/app/public/uploads` bind-mounted
+   (not the backup destination), so relocate the file with a throwaway container that mounts
+   both real host paths directly — this only works because the docker daemon reachable from
+   this environment *is* the unRAID host's daemon (confirm via
+   `docker inspect terrible-butler --format '{{json .Mounts}}'`, source paths should read
+   `/mnt/user/appdata/butler/...`):
+   ```
+   docker run --rm \
+     -v /mnt/user/appdata/butler/data:/src:ro \
+     -v /mnt/user/Kieren/Backup/unRAID/butler:/dest \
+     alpine cp /src/inventory-YYYY-MM-DD-<short-description>.db /dest/
+   ```
+3. Delete the temp copy left in `/app/data` afterward
+   (`docker exec terrible-butler rm /app/data/inventory-YYYY-MM-DD-<short-description>.db`) —
+   only `inventory.db`/`-wal`/`-shm` should live there day to day.
+4. Verify before trusting it: `PRAGMA integrity_check;` via a throwaway container with the
+   backup destination mounted **read-write** (SQLite needs to create a temp/journal file next
+   to the DB even just to read it — a `:ro` mount makes `sqlite3` fail to open the file
+   entirely, not fail safely):
+   ```
+   docker run --rm -v /mnt/user/Kieren/Backup/unRAID/butler:/dest alpine sh -c \
+     "apk add --no-cache sqlite >/dev/null && sqlite3 /dest/<file>.db 'PRAGMA integrity_check;'"
+   ```
+
+If `docker`/`docker exec` isn't reachable from wherever this is being run, or the classifier/
+permission layer blocks it, fall back to asking the user to run it or to grant the permission —
+don't try to route around a permission block via another tool.
 
 ## Recovery: forgotten household login password
 
