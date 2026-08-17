@@ -1,6 +1,6 @@
 import Fuse from 'fuse.js';
 import { describe, it, expect } from 'vitest';
-import { normaliseName, findMatch } from '../item-matching.js';
+import { normaliseName, findMatch, resolveNamedMatch } from '../item-matching.js';
 
 function fuseFor(items) {
   return new Fuse(items, { keys: ['name'], threshold: 0.3 });
@@ -46,5 +46,43 @@ describe('findMatch', () => {
   it('works without a fuse instance (fuzzy step skipped, not an error)', () => {
     const result = findMatch(existing, { barcode: null, name: 'Baked Beanz 420g' }, null);
     expect(result.type).toBeNull();
+  });
+});
+
+describe('resolveNamedMatch', () => {
+  const categories = [
+    { id: 1, name: 'Snacks' },
+    { id: 2, name: 'Pantry Staples' },
+  ];
+
+  it('returns the id on a case-insensitive exact match, no suggestion needed', () => {
+    const result = resolveNamedMatch(categories, '  snacks  ', fuseFor(categories));
+    expect(result).toEqual({ id: 1, suggested_name: null, similar: null });
+  });
+
+  it('returns the raw suggested name plus the closest fuzzy candidate when nothing matches exactly', () => {
+    const result = resolveNamedMatch(categories, 'Snack', fuseFor(categories));
+    expect(result.id).toBeNull();
+    expect(result.suggested_name).toBe('Snack');
+    expect(result.similar).toEqual({ id: 1, name: 'Snacks' });
+  });
+
+  it('returns a null similar match when nothing is close enough', () => {
+    const result = resolveNamedMatch(categories, 'Completely Unrelated Category', fuseFor(categories));
+    expect(result.id).toBeNull();
+    expect(result.suggested_name).toBe('Completely Unrelated Category');
+    expect(result.similar).toBeNull();
+  });
+
+  it('returns all nulls for a blank/missing name rather than suggesting an empty category', () => {
+    expect(resolveNamedMatch(categories, '', fuseFor(categories))).toEqual({ id: null, suggested_name: null, similar: null });
+    expect(resolveNamedMatch(categories, undefined, fuseFor(categories))).toEqual({ id: null, suggested_name: null, similar: null });
+  });
+
+  it('works without a fuse instance (fuzzy step skipped, similar stays null)', () => {
+    const result = resolveNamedMatch(categories, 'Snack', null);
+    expect(result.id).toBeNull();
+    expect(result.suggested_name).toBe('Snack');
+    expect(result.similar).toBeNull();
   });
 });

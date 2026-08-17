@@ -4,6 +4,39 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Label-scan LLM: fix schema-drift root cause, close silent-parsing gap, add category/location suggestion picker
+
+**Plan:** investigation (prompted by "scanned items always get the same category/location")
+found two stacked bugs in `/api/parse-label-llm`:
+
+1. **Root cause:** the route sends a raw top-level `format: {...}` JSON-schema field in the
+   payload to Ollama's OpenAI-compatible `/v1/chat/completions` endpoint. That field is the
+   native Ollama `/api/chat` structured-output mechanism and is silently ignored on the
+   OpenAI-compat endpoint — verified empirically (identical hallucinated, off-schema output
+   with the field present vs entirely absent, against real fixture photos). Fix: send
+   `response_format: { type: 'json_schema', json_schema: { name: 'label_result', schema } }`
+   instead, which Ollama 0.32.13 does honour on this endpoint.
+2. **Downstream gap:** `validateLabelResult` (`llm-schema.js`) only checked that the top-level
+   parsed value was a non-null, non-array object, then silently coerced any missing
+   `name`/`category_name`/`location_name` to `''`. A fully hallucinated, off-schema response
+   (e.g. `{"A images":1,"A descriptions":"..."}`) passed with zero reported errors, ending up
+   indistinguishable from "the model legitimately found nothing." Fix: explicitly flag missing/
+   empty `name`, `category_name`, `location_name` as `schema mismatch: ...` errors
+   (`container_details` stays optional/blank-tolerant, per its existing comment).
+
+Also, per user request: when the LLM's `category_name`/`location_name` doesn't exactly match
+an existing category/location, the route now returns the raw suggested name plus the best
+Fuse.js fuzzy match (if any, threshold 0.3 — same convention used elsewhere in `server.js`)
+instead of silently dropping to `null`. The frontend shows an inline suggestion picker (styled
+like the existing `dupCheckPanel`/invoice-fuzzy-match patterns) offering: add the suggested
+name as a new category/location, pick an existing one (pre-selected to the fuzzy match if
+present), or type a different new name.
+
+**Files:** `server.js` (`/api/parse-label-llm` payload + category/location matching),
+`llm-schema.js` (`validateLabelResult`), `public/index.html` (`confirmCrop` result handling +
+new suggestion-picker UI), `test/llm-schema.test.js`, new
+`test-e2e/label-scan-suggestion.spec.js`.
+
 ### Issue #12 — hold-for-details activates while scrolling
 
 **Plan:** item cards opened the details modal via a 500ms press-and-hold timer

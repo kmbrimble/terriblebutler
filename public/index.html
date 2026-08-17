@@ -498,6 +498,20 @@
                     <button type="button" onclick="proceedAddAsNew()" class="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">Add as new item anyway</button>
                 </div>
 
+                <div id="categorySuggestBlock" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
+                    <p class="text-sm font-bold text-amber-400">Scanned category "<span id="categorySuggestName"></span>" isn't in your list:</p>
+                    <select id="categorySuggestSelect" onchange="onSuggestSelectChange('category')" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors"></select>
+                    <input type="text" id="categorySuggestCustomInput" placeholder="New category name" class="hidden w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                    <button type="button" onclick="applySuggestion('category')" class="touch-target px-3 py-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white text-xs font-bold rounded transition-colors">Use this</button>
+                </div>
+
+                <div id="locationSuggestBlock" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
+                    <p class="text-sm font-bold text-amber-400">Scanned location "<span id="locationSuggestName"></span>" isn't in your list:</p>
+                    <select id="locationSuggestSelect" onchange="onSuggestSelectChange('location')" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors"></select>
+                    <input type="text" id="locationSuggestCustomInput" placeholder="New location name" class="hidden w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                    <button type="button" onclick="applySuggestion('location')" class="touch-target px-3 py-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white text-xs font-bold rounded transition-colors">Use this</button>
+                </div>
+
                 <div class="flex gap-4 pt-4">
                     <button type="button" onclick="closeAddModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
                     <button type="submit" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Save</button>
@@ -1392,6 +1406,8 @@
         function closeAddModal() {
             document.getElementById('addModal').classList.add('hidden');
             document.getElementById('dupCheckPanel').classList.add('hidden');
+            document.getElementById('categorySuggestBlock').classList.add('hidden');
+            document.getElementById('locationSuggestBlock').classList.add('hidden');
             pendingItemPayload = null;
         }
 
@@ -1570,25 +1586,100 @@
                         body: formData
                     });
                     const data = await res.json();
-
-                    if (data.name) document.getElementById('itemName').value = data.name;
-                    if (data.container_details) document.getElementById('itemDetails').value = data.container_details;
-
-                    if (data.category_id !== undefined && data.category_id !== null) {
-                        document.getElementById('itemCategory').value = data.category_id;
-                    }
-
-                    if (data.location_id !== undefined && data.location_id !== null) {
-                        document.getElementById('itemLocation').value = data.location_id;
-                    }
-
+                    applyLabelScanResult(data);
                 } catch {
                 } finally {
                     document.getElementById('loadingOverlay').classList.add('hidden');
                 }
             }, 'image/jpeg', 0.8);
         }
-        
+
+        function applyLabelScanResult(data) {
+            if (data.name) document.getElementById('itemName').value = data.name;
+            if (data.container_details) document.getElementById('itemDetails').value = data.container_details;
+
+            if (data.category_id !== undefined && data.category_id !== null) {
+                document.getElementById('itemCategory').value = data.category_id;
+            }
+            renderSuggestBlock('category', data.suggested_category_name, data.similar_category);
+
+            if (data.location_id !== undefined && data.location_id !== null) {
+                document.getElementById('itemLocation').value = data.location_id;
+            }
+            renderSuggestBlock('location', data.suggested_location_name, data.similar_location);
+        }
+
+        // --- LABEL-SCAN CATEGORY/LOCATION SUGGESTION PICKER ---
+        // When the scanned category/location isn't an exact match for anything the
+        // household already has, offer: add the scanned name as new, pick an existing
+        // one (defaulting to the closest fuzzy match, if any), or type a different name —
+        // rather than silently leaving the field blank.
+        const SUGGEST_KINDS = {
+            category: { apiPath: '/api/categories', list: () => categories, refetch: fetchCategories, formSelectId: 'itemCategory' },
+            location: { apiPath: '/api/locations', list: () => locations, refetch: fetchLocations, formSelectId: 'itemLocation' }
+        };
+
+        function renderSuggestBlock(kind, suggestedName, similar) {
+            const block = document.getElementById(`${kind}SuggestBlock`);
+            if (!suggestedName) {
+                block.classList.add('hidden');
+                return;
+            }
+            document.getElementById(`${kind}SuggestName`).textContent = suggestedName;
+
+            const options = [`<option value="__new__">Add "${escapeHtml(suggestedName)}" as new ${kind}</option>`]
+                .concat(SUGGEST_KINDS[kind].list().map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`))
+                .concat([`<option value="__custom__">Type a different name...</option>`]);
+
+            const select = document.getElementById(`${kind}SuggestSelect`);
+            select.innerHTML = options.join('');
+            select.value = similar ? String(similar.id) : '__new__';
+
+            const customInput = document.getElementById(`${kind}SuggestCustomInput`);
+            customInput.value = '';
+            customInput.classList.toggle('hidden', select.value !== '__custom__');
+            block.classList.remove('hidden');
+        }
+
+        function onSuggestSelectChange(kind) {
+            const select = document.getElementById(`${kind}SuggestSelect`);
+            document.getElementById(`${kind}SuggestCustomInput`).classList.toggle('hidden', select.value !== '__custom__');
+        }
+
+        async function createSuggested(kind, name) {
+            try {
+                const res = await apiRequest(SUGGEST_KINDS[kind].apiPath, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const created = await res.json();
+                await SUGGEST_KINDS[kind].refetch();
+                return created.id;
+            } catch {
+                return null;
+            }
+        }
+
+        async function applySuggestion(kind) {
+            const select = document.getElementById(`${kind}SuggestSelect`);
+            const val = select.value;
+            let id;
+            if (val === '__custom__') {
+                const name = document.getElementById(`${kind}SuggestCustomInput`).value.trim();
+                if (!name) return;
+                id = await createSuggested(kind, name);
+            } else if (val === '__new__') {
+                id = await createSuggested(kind, document.getElementById(`${kind}SuggestName`).textContent);
+            } else {
+                id = parseInt(val);
+            }
+            if (id === null || id === undefined || isNaN(id)) return;
+
+            document.getElementById(SUGGEST_KINDS[kind].formSelectId).value = id;
+            document.getElementById(`${kind}SuggestBlock`).classList.add('hidden');
+        }
+
         // --- BARCODE SCANNER LOGIC ---
         function openBarcodeScanner(context) {
             scannerContext = context;

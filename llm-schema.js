@@ -23,11 +23,21 @@ function validateLabelResult(data) {
   } else {
     containerDetails = cleanString(data.container_details);
   }
+  const name = cleanString(data.name);
+  const categoryName = cleanString(data.category_name);
+  const locationName = cleanString(data.location_name);
+  // container_details is legitimately optional (not every label states a size) so it's
+  // exempt — but a genuinely empty name/category/location means the model ignored the
+  // requested schema (e.g. returned unrelated hallucinated keys), not that it found
+  // nothing. That must be flagged, not silently accepted as "no match".
+  if (!name) errors.push('schema mismatch: missing or empty "name"');
+  if (!categoryName) errors.push('schema mismatch: missing or empty "category_name"');
+  if (!locationName) errors.push('schema mismatch: missing or empty "location_name"');
   return {
-    name: cleanString(data.name),
+    name,
     container_details: containerDetails,
-    category_name: cleanString(data.category_name),
-    location_name: cleanString(data.location_name),
+    category_name: categoryName,
+    location_name: locationName,
     errors,
   };
 }

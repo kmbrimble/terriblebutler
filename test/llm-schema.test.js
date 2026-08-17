@@ -32,15 +32,50 @@ describe('validateLabelResult', () => {
     }
   });
 
-  it('defaults missing fields to empty strings without throwing', () => {
+  it('defaults missing fields to empty strings but flags them as a schema mismatch', () => {
     const result = validateLabelResult({});
-    expect(result).toEqual({ name: '', container_details: '', category_name: '', location_name: '', errors: [] });
+    expect(result).toEqual({
+      name: '',
+      container_details: '',
+      category_name: '',
+      location_name: '',
+      errors: [
+        'schema mismatch: missing or empty "name"',
+        'schema mismatch: missing or empty "category_name"',
+        'schema mismatch: missing or empty "location_name"',
+      ],
+    });
   });
 
-  it('ignores non-string fields rather than passing them through', () => {
-    const result = validateLabelResult({ name: 12345, category_name: { nested: true } });
+  it('ignores non-string fields rather than passing them through, and flags them as a schema mismatch', () => {
+    const result = validateLabelResult({ name: 12345, category_name: { nested: true }, location_name: 'Pantry' });
     expect(result.name).toBe('');
     expect(result.category_name).toBe('');
+    expect(result.errors).toEqual([
+      'schema mismatch: missing or empty "name"',
+      'schema mismatch: missing or empty "category_name"',
+    ]);
+  });
+
+  it('flags a completely hallucinated, off-schema response rather than silently accepting it', () => {
+    // Observed real behaviour: the model ignores the requested schema entirely and
+    // returns unrelated keys. This is valid JSON and a valid object, so it must not
+    // pass validation silently just because the top-level shape check succeeds.
+    const result = validateLabelResult({ 'A images': 1, 'A descriptions': 'A can on a table.' });
+    expect(result.name).toBe('');
+    expect(result.category_name).toBe('');
+    expect(result.location_name).toBe('');
+    expect(result.errors).toEqual([
+      'schema mismatch: missing or empty "name"',
+      'schema mismatch: missing or empty "category_name"',
+      'schema mismatch: missing or empty "location_name"',
+    ]);
+  });
+
+  it('does not flag container_details as a schema mismatch when blank — it is legitimately optional', () => {
+    const result = validateLabelResult({ name: 'Heinz Baked Beans', category_name: 'Tinned', location_name: 'Pantry' });
+    expect(result.container_details).toBe('');
+    expect(result.errors).toEqual([]);
   });
 });
 

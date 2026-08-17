@@ -24,4 +24,19 @@ function findMatch(existingItems, { barcode, name }, fuse) {
   return { type: null, item: null, candidates: [] };
 }
 
-module.exports = { normaliseName, findMatch };
+// Resolves an LLM-suggested category/location name against an existing {id, name} list.
+// Mirrors findMatch's hierarchy but for a single flat name rather than a full item: exact
+// case-insensitive match wins outright; otherwise the raw suggested name and the closest
+// fuzzy candidate (if any) are returned for the caller to offer the user a create/pick/
+// rename choice. Never auto-creates or auto-selects on a fuzzy hit.
+function resolveNamedMatch(list, rawName, fuse) {
+  const name = String(rawName || '').trim();
+  if (!name) return { id: null, suggested_name: null, similar: null };
+  const exact = list.find((item) => item.name.toLowerCase() === name.toLowerCase());
+  if (exact) return { id: exact.id, suggested_name: null, similar: null };
+  const fuzzyHits = fuse ? fuse.search(name) : [];
+  const similar = fuzzyHits.length > 0 ? { id: fuzzyHits[0].item.id, name: fuzzyHits[0].item.name } : null;
+  return { id: null, suggested_name: name, similar };
+}
+
+module.exports = { normaliseName, findMatch, resolveNamedMatch };

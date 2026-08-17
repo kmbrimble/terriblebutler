@@ -7,7 +7,7 @@ const fs = require('fs');
 const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const Fuse = require('fuse.js');
-const { findMatch } = require('./item-matching');
+const { findMatch, resolveNamedMatch } = require('./item-matching');
 const { validateLabelResult, validateInvoiceItems } = require('./llm-schema');
 const sharp = require('sharp');
 const jwt = require('jsonwebtoken');
@@ -820,15 +820,26 @@ app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) =
       temperature: 0.1,
       max_tokens: 1024,
       stream: false,
-      format: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          category_name: { type: "string" },
-          location_name: { type: "string" },
-          container_details: { type: "string" }
-        },
-        required: ["name", "category_name", "location_name", "container_details"]
+      // Ollama's OpenAI-compatible /v1/chat/completions endpoint does not honour a raw
+      // top-level `format` field (that's the native /api/chat structured-output
+      // mechanism) — it's silently ignored, letting the model return free-form,
+      // off-schema JSON. `response_format` with an attached json_schema is the field
+      // this endpoint actually enforces. Verified against ibm/granite3.3-vision:2b.
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "label_result",
+          schema: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              category_name: { type: "string" },
+              location_name: { type: "string" },
+              container_details: { type: "string" }
+            },
+            required: ["name", "category_name", "location_name", "container_details"]
+          }
+        }
       }
     };
     console.log(`[Label Parser] Sending request to LLM URL: ${llmApiUrl} (Model: ${llmModel})`);
@@ -854,21 +865,17 @@ app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) =
     }
     const validated = validateLabelResult(parsedData);
     if (validated.errors.length) console.warn('[Label Parser] LLM response failed schema validation:', validated.errors);
-    let matchedCategoryId = null;
-    if (validated.category_name) {
-      const cat = cats.find(c => c.name.toLowerCase() === validated.category_name.toLowerCase());
-      if (cat) matchedCategoryId = cat.id;
-    }
-    let matchedLocationId = null;
-    if (validated.location_name) {
-      const loc = locs.find(l => l.name.toLowerCase() === validated.location_name.toLowerCase());
-      if (loc) matchedLocationId = loc.id;
-    }
+    const categoryMatch = resolveNamedMatch(cats, validated.category_name, new Fuse(cats, { keys: ['name'], threshold: 0.3 }));
+    const locationMatch = resolveNamedMatch(locs, validated.location_name, new Fuse(locs, { keys: ['name'], threshold: 0.3 }));
     return res.json({
       name: validated.name,
       container_details: validated.container_details,
-      category_id: matchedCategoryId,
-      location_id: matchedLocationId
+      category_id: categoryMatch.id,
+      location_id: locationMatch.id,
+      suggested_category_name: categoryMatch.suggested_name,
+      similar_category: categoryMatch.similar,
+      suggested_location_name: locationMatch.suggested_name,
+      similar_location: locationMatch.similar
     });
   } catch (err) {
     console.error("[Label Parser Exception]", err);
