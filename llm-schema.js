@@ -75,4 +75,20 @@ function validateInvoiceItems(data) {
   return { items, errors };
 }
 
-module.exports = { validateLabelResult, validateInvoiceItems };
+// Text-only classification result (invoice-import Stage B: category/location suggestion
+// for a line item with no deterministic existing-item match). Same drop-or-default
+// philosophy as validateLabelResult, minus the fields that call doesn't ask the LLM for.
+function validateClassifyResult(data) {
+  const errors = [];
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    errors.push('response is not an object');
+    data = {};
+  }
+  const categoryName = cleanString(data.category_name);
+  const locationName = cleanString(data.location_name);
+  if (!categoryName) errors.push('schema mismatch: missing or empty "category_name"');
+  if (!locationName) errors.push('schema mismatch: missing or empty "location_name"');
+  return { category_name: categoryName, location_name: locationName, errors };
+}
+
+module.exports = { validateLabelResult, validateInvoiceItems, validateClassifyResult };

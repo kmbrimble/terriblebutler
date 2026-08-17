@@ -6,8 +6,6 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ### Invoice import: deterministic Coles/Woolworths parsers, staging table, review UI
 
-**Plan:**
-
 - **Part 1 — parsers.** `parsers/woolworths.js` and `parsers/coles.js` parse already-extracted
   PDF text (via `pdf-parse` v2's `PDFParse` class — the existing `/api/invoices/parse` route
   uses the old v1 callable-function API and is currently broken as a result; that's a
@@ -43,6 +41,50 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
   (Part 1's router returns a clear `retailer: null` result for this; Part 3 doesn't specify a
   picker, so the review screen just surfaces the error) — flagged in the hand-back rather than
   built speculatively.
+
+**Two bugs found and fixed during review, both pre-existing conditions this feature exposed:**
+
+1. `items.location_id` turned out to be a column `POST /api/items` deliberately never writes
+   (`item_locations` is the real source of truth since the multi-location migration) — the
+   import route's first draft read it for match-suggestion location, always got `null`, and
+   wrote to it on new-item creation. Fixed to derive a location suggestion from
+   `item_locations` (only when an item lives in exactly one location — otherwise ambiguous)
+   and to stop writing the vestigial column, matching `POST /api/items`'s own convention.
+2. The two new staging columns' FKs to `categories`/`locations` meant deleting a category or
+   location that had ever been suggested or selected on an *uncommitted* staging line failed
+   with a live `FOREIGN KEY constraint failed` — `DELETE /api/categories/:id` and
+   `DELETE /api/locations/:id` already null out `items.category_id` /
+   `item_locations.location_id` before deleting, but didn't know about the new
+   `invoice_import_lines` columns. Fixed both routes to null those out too, in the same
+   transaction. Covered by a new regression test.
+
+Also parallelised the per-line LLM classify fallback (`Promise.all` instead of a sequential
+loop) — with a 32-line invoice and no existing-item matches, awaiting each one one-at-a-time
+would have meant minutes of serial network latency the UI is blocking on for something that's
+naturally parallel.
+
+**Tests:** 137 backend (Vitest) + 24 e2e (Playwright), all green — 40 new backend tests
+(parsers 24, staging API 16) and 3 new e2e tests for the review screen, plus the two pre-existing
+suites re-verified with no regressions.
+
+**Retailer detection:** confirmed correct against both fixtures (Woolworths via
+`ABN 88 000 014 675`, Coles via `ABN: 45 004 189 708`) and a clear `null` result for neither.
+
+**Parsing edge cases found in the fixtures, not anticipated in the brief:**
+- Woolworths: one product description ("Nestle golden rough milk chocolate...") wraps across
+  two physical PDF text lines before its numeric columns appear — handled by buffering an
+  in-progress description until a line resolves to a complete row.
+- Woolworths: a weighted item's Supplied quantity carries a literal `" kg"` suffix
+  (`8.05 kg`) rather than being a plain number.
+- Woolworths: the totals block's *values* (`$432.15` etc.) are printed on page 2, textually
+  separated from their *labels* on page 1 by the second page's product-table continuation —
+  harmless for parsing since neither the label lines nor the bare-value lines match the
+  product-row shape, but worth flagging as a PDF-extraction-order quirk if a future retailer
+  format needs an explicit "stop" marker instead of shape-matching.
+- Coles: out-of-stock rows split across two physical lines (bare product name, then a
+  separate `Out of Stock <qty> ...` line with no product-row shape) — both are naturally
+  excluded by the row-shape check, no special-casing needed beyond the explicit
+  "contains literal text" guard the brief asked for.
 
 **Pre-change reminder:** this adds two new tables — snapshot the live DB to
 `/mnt/user/Kieren/Backup/unRAID/butler/` before deploying, per `CLAUDE.md`.

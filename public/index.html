@@ -153,6 +153,7 @@
         
         <div class="flex flex-col gap-3 shrink-0">
             <button onclick="toggleDrawer(); openInvoiceModal()" class="w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white font-bold py-3 rounded shadow transition-all">Upload Invoice</button>
+            <button onclick="toggleDrawer(); openInvoiceImportModal()" class="w-full bg-rimmy-purple hover:bg-rimmy-purpleHover text-white font-bold py-3 rounded shadow transition-all">Import Coles/Woolworths Invoice</button>
             <button onclick="toggleDrawer(); toggleFullScreen()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-3 rounded shadow transition-all">Toggle Full Screen</button>
         </div>
 
@@ -386,6 +387,32 @@
         </div>
     </div>
 
+    <!-- Invoice Import Review Modal (deterministic Coles/Woolworths parser + staging review) -->
+    <div id="invoiceImportModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-2xl max-h-full flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-rimmy-orange">Import Coles/Woolworths Invoice</h2>
+                <button onclick="closeInvoiceImportModal()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+
+            <div id="invoiceImportPicker" class="flex flex-col gap-2">
+                <input type="file" id="invoiceImportFileInput" accept="application/pdf" class="w-full bg-rimmy-black border border-rimmy-border rounded p-2 touch-target text-rimmy-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-rimmy-purple file:text-white hover:file:bg-rimmy-purpleHover" onchange="processInvoiceImport(event)">
+                <p class="text-xs text-rimmy-textMuted">Deterministic parsing for Coles and Woolworths order PDFs only — other invoices should use the regular "Upload Invoice" option instead.</p>
+            </div>
+
+            <div id="invoiceImportLoading" class="hidden flex-col items-center justify-center py-8 text-center text-rimmy-purpleHover">
+                <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-rimmy-orange mb-4"></div>
+                <p class="font-bold text-lg text-rimmy-text">Parsing invoice...</p>
+            </div>
+
+            <div id="invoiceImportStagingContainer" class="hidden flex-col gap-3 flex-1 overflow-hidden">
+                <p id="invoiceImportSummaryLine" class="text-sm text-rimmy-textMuted shrink-0"></p>
+                <div id="invoiceImportStagingList" class="flex flex-col gap-3 overflow-y-auto pr-2 pb-2"></div>
+                <button id="invoiceImportCommitBtn" onclick="commitInvoiceImport()" disabled class="touch-target shrink-0 w-full bg-rimmy-orange hover:bg-rimmy-orangeHover disabled:opacity-40 disabled:cursor-not-allowed text-white rounded font-bold py-3 mt-2 shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Import to Inventory</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Manage Categories Modal -->
     <div id="manageCategoriesModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
         <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6 relative">
@@ -567,6 +594,12 @@
         let scannerContext = null;
         let barcodeScanHandled = false;
 
+        // Deterministic Coles/Woolworths invoice import — persisted across reload/crash by
+        // stashing the in-progress import id, so a resumed session picks up exactly where
+        // the user left off (see resumeActiveInvoiceImport()).
+        let activeImport = null;
+        let scanningInvoiceLineId = null;
+
         const socket = io({ auth: { token: localStorage.getItem('tb_token') || '' }, autoConnect: false });
         socket.on('inventory_updated', () => {
             fetchItems();
@@ -626,6 +659,7 @@
             fetchLocations();
             fetchCategories();
             fetchItems();
+            resumeActiveInvoiceImport();
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -763,6 +797,7 @@
                 populateLocationSelects();
                 renderManageLocations();
                 renderTabs();
+                if (activeImport) renderInvoiceImportStaging();
             } catch (err) {
                 console.error('Failed to fetch locations:', err);
             }
@@ -774,6 +809,7 @@
                 categories = await res.json();
                 populateCategorySelects();
                 renderManageCategories();
+                if (activeImport) renderInvoiceImportStaging();
             } catch (err) {
                 console.error('Failed to fetch categories:', err);
             }
@@ -1254,6 +1290,196 @@
             } catch {}
         }
 
+        // --- INVOICE IMPORT REVIEW (deterministic Coles/Woolworths parser) ---
+        function openInvoiceImportModal() {
+            document.getElementById('invoiceImportModal').classList.remove('hidden');
+            if (locations.length === 0) fetchLocations();
+            if (categories.length === 0) fetchCategories();
+            if (activeImport) {
+                showInvoiceImportStaging();
+            } else {
+                document.getElementById('invoiceImportPicker').classList.remove('hidden');
+                document.getElementById('invoiceImportLoading').classList.add('hidden');
+                document.getElementById('invoiceImportStagingContainer').classList.add('hidden');
+                document.getElementById('invoiceImportFileInput').value = '';
+            }
+        }
+
+        function closeInvoiceImportModal() {
+            document.getElementById('invoiceImportModal').classList.add('hidden');
+        }
+
+        async function processInvoiceImport(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('invoiceImportPicker').classList.add('hidden');
+            document.getElementById('invoiceImportLoading').classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append('invoice', file);
+
+            try {
+                const res = await apiRequest('/api/invoices/import', { method: 'POST', body: formData });
+                activeImport = await res.json();
+                localStorage.setItem('tb_active_import_id', String(activeImport.import.id));
+                showInvoiceImportStaging();
+            } catch {
+                document.getElementById('invoiceImportPicker').classList.remove('hidden');
+            } finally {
+                document.getElementById('invoiceImportLoading').classList.add('hidden');
+                e.target.value = '';
+            }
+        }
+
+        function showInvoiceImportStaging() {
+            document.getElementById('invoiceImportPicker').classList.add('hidden');
+            document.getElementById('invoiceImportLoading').classList.add('hidden');
+            document.getElementById('invoiceImportStagingContainer').classList.remove('hidden');
+            renderInvoiceImportStaging();
+        }
+
+        function renderInvoiceImportStaging() {
+            if (!activeImport) return;
+            const imp = activeImport.import;
+            const retailerLabel = imp.retailer ? imp.retailer[0].toUpperCase() + imp.retailer.slice(1) : 'Unknown retailer';
+            document.getElementById('invoiceImportSummaryLine').textContent =
+                `${retailerLabel} — invoice ${imp.invoice_number || '?'} (${imp.invoice_date || 'unknown date'}) — ${activeImport.lines.length} line${activeImport.lines.length === 1 ? '' : 's'}`;
+            document.getElementById('invoiceImportStagingList').innerHTML = activeImport.lines.map(renderInvoiceImportLine).join('');
+            updateInvoiceImportCommitState();
+        }
+
+        function renderInvoiceImportLine(line) {
+            const catId = line.final_category_id ?? line.suggested_category_id;
+            const locId = line.final_location_id ?? line.suggested_location_id;
+            const catOptions = '<option value="">Select category...</option>' + categories.map(c =>
+                `<option value="${c.id}" ${String(catId) === String(c.id) ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+            const locOptions = '<option value="">Select location...</option>' + locations.map(l =>
+                `<option value="${l.id}" ${String(locId) === String(l.id) ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('');
+            const statusBadge = line.line_status === 'skipped'
+                ? '<span class="text-xs font-bold text-gray-500 shrink-0">SKIPPED</span>'
+                : line.line_status === 'reviewed'
+                    ? '<span class="text-xs font-bold text-emerald-400 shrink-0">REVIEWED</span>'
+                    : '<span class="text-xs font-bold text-amber-400 shrink-0">PENDING</span>';
+
+            return `
+            <div class="border border-rimmy-border rounded-lg p-3 bg-rimmy-black flex flex-col gap-2 shadow-sm ${line.line_status === 'skipped' ? 'opacity-50' : ''}">
+                <div class="flex justify-between items-start gap-2">
+                    <div class="min-w-0">
+                        <p class="font-bold text-[15px] leading-tight break-words text-rimmy-text">${escapeHtml(line.raw_name)}</p>
+                        <p class="text-xs text-rimmy-textMuted mt-1">Qty supplied: ${line.qty_supplied ?? '-'} | $${Number(line.unit_price ?? 0).toFixed(2)} ea | ${line.gst_applicable ? 'GST' : 'No GST'}</p>
+                        <p class="text-xs mt-1 ${line.matched_item_id ? 'text-emerald-400' : 'text-rimmy-textMuted'}">${line.matched_item_id ? 'Will merge into an existing item' : 'Will be added as a new item'}</p>
+                    </div>
+                    ${statusBadge}
+                </div>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <select id="il_cat_${line.id}" onchange="patchInvoiceLine(${line.id}, { final_category_id: this.value || null })" class="flex-1 border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target bg-rimmy-charcoal text-rimmy-text text-sm transition-colors">${catOptions}</select>
+                    <select id="il_loc_${line.id}" onchange="patchInvoiceLine(${line.id}, { final_location_id: this.value || null })" class="flex-1 border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target bg-rimmy-charcoal text-rimmy-text text-sm transition-colors">${locOptions}</select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <label class="text-xs font-bold text-rimmy-textMuted whitespace-nowrap">Qty confirmed:</label>
+                    <input type="number" step="0.1" id="il_qty_${line.id}" value="${line.qty_confirmed ?? line.qty_supplied ?? 0}" onchange="patchInvoiceLine(${line.id}, { qty_confirmed: this.value })" class="flex-1 border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target bg-rimmy-charcoal text-rimmy-text text-sm transition-colors">
+                    <button type="button" onclick="scanInvoiceLineBarcode(${line.id})" class="touch-target w-10 h-10 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-rimmy-text rounded transition-all shadow-sm shrink-0">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zm14-1a1 1 0 011 1v3a1 1 0 01-2 0V5h-3a1 1 0 010-2h4zM3 20a1 1 0 001 1h4a1 1 0 000-2H5v-3a1 1 0 00-2 0v3zm18-4a1 1 0 00-1-1h-3a1 1 0 000 2h3v3a1 1 0 002 0v-4zM7 8h2v8H7V8zm4 0h2v8h-2V8zm4 0h2v8h-2V8z"></path></svg>
+                    </button>
+                </div>
+                ${line.barcode_scanned ? `<p class="text-xs text-rimmy-textMuted">Scanned barcode: ${escapeHtml(line.barcode_scanned)}</p>` : ''}
+                <div class="flex gap-3 items-center pt-1 border-t border-rimmy-border">
+                    <label class="flex items-center gap-2 text-xs font-bold text-rimmy-text cursor-pointer">
+                        <input type="checkbox" ${line.line_status === 'reviewed' ? 'checked' : ''} onchange="setInvoiceLineReviewed(${line.id}, this.checked)" class="w-5 h-5 rounded text-rimmy-orange bg-rimmy-charcoal border-gray-600">
+                        Reviewed
+                    </label>
+                    ${line.line_status === 'skipped'
+                        ? `<button type="button" onclick="setInvoiceLineStatus(${line.id}, 'pending')" class="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange ml-auto">Restore</button>`
+                        : `<button type="button" onclick="setInvoiceLineStatus(${line.id}, 'skipped')" class="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange ml-auto">Skip this line</button>`}
+                </div>
+            </div>
+            `;
+        }
+
+        function updateInvoiceImportCommitState() {
+            const btn = document.getElementById('invoiceImportCommitBtn');
+            if (!btn || !activeImport) return;
+            btn.disabled = activeImport.lines.some(l => l.line_status === 'pending');
+        }
+
+        // Every field change PATCHes immediately (no save button) — this is what makes the
+        // review crash-safe. category/location/qty edits update local state + the commit
+        // button's enabled state without a full re-render, so the row the user is actively
+        // editing doesn't lose focus; status changes (reviewed/skip/restore) re-render the
+        // whole list since those visibly change the row's badge/opacity anyway.
+        async function patchInvoiceLine(lineId, fields, { rerender = false } = {}) {
+            if (!activeImport) return;
+            try {
+                const res = await apiRequest(`/api/invoices/import/${activeImport.import.id}/lines/${lineId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(fields)
+                });
+                const updated = await res.json();
+                const idx = activeImport.lines.findIndex(l => l.id === lineId);
+                if (idx !== -1) activeImport.lines[idx] = updated;
+                if (rerender) renderInvoiceImportStaging();
+                else updateInvoiceImportCommitState();
+            } catch {}
+        }
+
+        function setInvoiceLineReviewed(lineId, checked) {
+            patchInvoiceLine(lineId, { line_status: checked ? 'reviewed' : 'pending' }, { rerender: true });
+        }
+
+        function setInvoiceLineStatus(lineId, status) {
+            patchInvoiceLine(lineId, { line_status: status }, { rerender: true });
+        }
+
+        function scanInvoiceLineBarcode(lineId) {
+            scanningInvoiceLineId = lineId;
+            openBarcodeScanner('invoiceLine');
+        }
+
+        async function handleInvoiceLineScan(barcode) {
+            if (scanningInvoiceLineId == null) return;
+            await patchInvoiceLine(scanningInvoiceLineId, { barcode_scanned: barcode }, { rerender: true });
+            scanningInvoiceLineId = null;
+        }
+
+        async function commitInvoiceImport() {
+            if (!activeImport) return;
+            try {
+                const res = await apiRequest(`/api/invoices/import/${activeImport.import.id}/commit`, { method: 'POST' });
+                const summary = await res.json();
+                showToast(`Imported: ${summary.items_added} new, ${summary.items_matched} merged, $${Number(summary.total_value).toFixed(2)} total`);
+                activeImport = null;
+                localStorage.removeItem('tb_active_import_id');
+                fetchItems();
+                openInvoiceImportModal();
+            } catch {}
+        }
+
+        // Restores an in-progress import automatically on load — the crash-safety
+        // guarantee: if the tab closed or the app restarted mid-review, the user lands
+        // straight back on the same review screen rather than having to remember it existed.
+        async function resumeActiveInvoiceImport() {
+            const id = localStorage.getItem('tb_active_import_id');
+            if (!id) return;
+            try {
+                const res = await apiFetch(`/api/invoices/import/${id}`);
+                if (!res.ok) {
+                    localStorage.removeItem('tb_active_import_id');
+                    return;
+                }
+                const data = await res.json();
+                if (data.import.status !== 'in_progress') {
+                    localStorage.removeItem('tb_active_import_id');
+                    return;
+                }
+                if (categories.length === 0) await fetchCategories();
+                if (locations.length === 0) await fetchLocations();
+                activeImport = data;
+                openInvoiceImportModal();
+            } catch {}
+        }
+
         // --- QUANTITY API ---
         async function updateQty(id, amount, action, locationId) {
             const body = { amount, action };
@@ -1713,6 +1939,8 @@
                         barcodeInput.focus();
                     } else if (contextAtScan === 'deduct') {
                         await handleDeductScan(barcode);
+                    } else if (contextAtScan === 'invoiceLine') {
+                        await handleInvoiceLineScan(barcode);
                     }
                 },
                 () => {

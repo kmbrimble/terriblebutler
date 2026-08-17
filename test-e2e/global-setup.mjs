@@ -37,6 +37,11 @@ export default async function globalSetup() {
       AUTH_USERNAME,
       AUTH_PASSWORD_HASH,
       JWT_SECRET,
+      // Invoice-import's LLM classify fallback must never depend on a real network call in
+      // tests — point it at an address that refuses the connection immediately so the
+      // fallback's own error handling (a null suggestion, not a blocked import) is what
+      // actually runs, fast.
+      LLM_API_URL: 'http://127.0.0.1:1',
     },
     stdio: 'inherit',
   });
