@@ -14,6 +14,8 @@ const { parseInvoice } = require('./parsers/router');
 const sharp = require('sharp');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { logAction } = require('./logger');
+const { scheduleNightlyBackup } = require('./backup');
 // Initialise App and Server
 const APP_VERSION = '0.15';
 const app = express();
@@ -43,6 +45,25 @@ const io = new Server(server, {
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Verbose action logging (#14): every mutating /api/* call, request + response body.
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET') return next();
+  const start = Date.now();
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    logAction({
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      duration_ms: Date.now() - start,
+      request_body: req.body,
+      response_body: body,
+    });
+    return originalJson(body);
+  };
+  next();
+});
 
 app.get('/healthz', (req, res) => {
   res.json({ status: 'ok', version: APP_VERSION });
@@ -1383,5 +1404,6 @@ if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Terrible Butler server listening on port ${PORT}`);
   });
+  scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));
 }
 module.exports = { app, server, db };

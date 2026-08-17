@@ -16,12 +16,12 @@ function readLoggedEntries() {
 describe('action logging middleware', () => {
   it('logs a POST /api/items action with method, path, status and bodies', async () => {
     const res = await api(app).post('/api/items').send({ name: 'Logged Item', quantity: 1 });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
 
     const entries = readLoggedEntries();
     const entry = entries.find((e) => e.path === '/api/items' && e.method === 'POST' && e.request_body?.name === 'Logged Item');
     expect(entry).toBeTruthy();
-    expect(entry.status).toBe(200);
+    expect(entry.status).toBe(201);
     expect(entry.response_body.name).toBe('Logged Item');
     expect(typeof entry.duration_ms).toBe('number');
   });

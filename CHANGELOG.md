@@ -6,24 +6,38 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ### Nightly database backups, 2-week retention (#17)
 
-Plan: new `backup.js` using better-sqlite3's online `db.backup()` API (WAL-safe, same
-mechanism `CLAUDE.md`'s pre-change backup process already uses) to write
-`data/backups/inventory-YYYY-MM-DD.db` nightly at 02:00 local time, then prune any backup
-file older than 14 days. Scheduled from `server.js` only inside the `require.main === module`
-guard so tests never trigger it. Backups directory lives under `data/`, which is already the
-bind-mounted, persistent path.
+New `backup.js`: `runBackup(db, dir)` uses better-sqlite3's online `db.backup()` API
+(WAL-safe, same mechanism `CLAUDE.md`'s manual pre-change backup process already uses) to
+write `data/backups/inventory-YYYY-MM-DD.db`; re-running on the same day overwrites rather
+than accumulating duplicates. `pruneOldBackups()` deletes any backup file older than 14 days
+(mtime-based). `scheduleNightlyBackup()` runs it at 02:00 local time and every 24h after,
+wired into `server.js` only inside the `require.main === module` guard so tests never trigger
+it. Backups live under `data/backups/`, which is already the bind-mounted, persistent path —
+no new volume mount needed.
+
+**Tests:** 8 new (`test/backup.test.js`) — backup produces a restorable, integrity-checked
+copy; same-day overwrite; pruning by age; pruning ignores unrelated files; no-op on a missing
+directory.
 
 ### Verbose action logging with weekly rotation, 1-month retention (#14)
 
-Plan: new `logger.js` with a generic Express middleware on `/api/*` (mutating methods only)
-that wraps `res.json` to capture method, path, status, duration, request body, and response
-body for every action — covers add/remove/edit/scan/LLM-response uniformly without touching
-each of the ~20 route handlers individually. Logs go to both stdout (`console.log`, visible via
-`docker logs`) and a file `logs/actions-<week-start-date>.log` — one file per week, so rotation
-is just a new filename, no rename step needed. Old log files (mtime > 30 days) are pruned on
-each write. `password`/`token` fields are redacted before logging. `LOG_DIR` env var override
-added, mirroring the existing `DB_PATH` test seam, so tests write to a temp dir instead of the
-repo's `logs/`.
+New `logger.js` + a generic Express middleware on `/api/*` (mutating methods only, registered
+in `server.js` right after the JSON body parser) that wraps `res.json` to capture method,
+path, status, duration, request body, and response body for every action — covers
+add/remove/edit/scan/LLM-response/auth failures uniformly, without touching each of the ~20
+route handlers individually, and also catches the global error handler since it responds via
+`res.json` too. Logs go to both stdout (`console.log`, visible via `docker logs`, per the
+user's explicit request) and a file `logs/actions-<week-start-monday>.log` — one file per
+week, so "rotation" is just a new filename, no rename step needed. `pruneOldLogs()` deletes
+log files older than 30 days (mtime-based), run on each write. `password`/`token` fields are
+redacted in both request and response bodies before logging. `LOG_DIR` env var override added,
+mirroring the existing `DB_PATH` test seam, and set to a per-run temp directory in
+`test/setup.js` so tests never write to the repo's real `logs/`.
+
+**Tests:** 8 new (`test/logger.test.js`) covering week-label computation, file+stdout writes,
+redaction, and pruning; 3 new (`test/action-logging.test.js`) integration-testing the
+middleware against the real server — a real mutation gets logged with correct fields, GETs are
+skipped, and a login attempt's password/token are redacted end-to-end.
 
 ### Invoice import: deterministic Coles/Woolworths parsers, staging table, review UI
 
