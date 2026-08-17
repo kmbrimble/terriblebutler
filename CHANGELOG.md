@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.17 - 2026-08-18
+
 ### Nightly database backups, 2-week retention (#17)
 
 New `backup.js`: `runBackup(db, dir)` uses better-sqlite3's online `db.backup()` API

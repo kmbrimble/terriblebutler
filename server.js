@@ -17,7 +17,7 @@ const bcrypt = require('bcryptjs');
 const { logAction } = require('./logger');
 const { scheduleNightlyBackup } = require('./backup');
 // Initialise App and Server
-const APP_VERSION = '0.15';
+const APP_VERSION = '0.17';
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET;
