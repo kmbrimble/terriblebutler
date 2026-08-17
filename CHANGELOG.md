@@ -4,6 +4,27 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Nightly database backups, 2-week retention (#17)
+
+Plan: new `backup.js` using better-sqlite3's online `db.backup()` API (WAL-safe, same
+mechanism `CLAUDE.md`'s pre-change backup process already uses) to write
+`data/backups/inventory-YYYY-MM-DD.db` nightly at 02:00 local time, then prune any backup
+file older than 14 days. Scheduled from `server.js` only inside the `require.main === module`
+guard so tests never trigger it. Backups directory lives under `data/`, which is already the
+bind-mounted, persistent path.
+
+### Verbose action logging with weekly rotation, 1-month retention (#14)
+
+Plan: new `logger.js` with a generic Express middleware on `/api/*` (mutating methods only)
+that wraps `res.json` to capture method, path, status, duration, request body, and response
+body for every action — covers add/remove/edit/scan/LLM-response uniformly without touching
+each of the ~20 route handlers individually. Logs go to both stdout (`console.log`, visible via
+`docker logs`) and a file `logs/actions-<week-start-date>.log` — one file per week, so rotation
+is just a new filename, no rename step needed. Old log files (mtime > 30 days) are pruned on
+each write. `password`/`token` fields are redacted before logging. `LOG_DIR` env var override
+added, mirroring the existing `DB_PATH` test seam, so tests write to a temp dir instead of the
+repo's `logs/`.
+
 ### Invoice import: deterministic Coles/Woolworths parsers, staging table, review UI
 
 - **Part 1 — parsers.** `parsers/woolworths.js` and `parsers/coles.js` parse already-extracted

@@ -10,6 +10,9 @@ import { afterAll } from 'vitest';
 const tmpDbPath = path.join(os.tmpdir(), `butler-test-${crypto.randomBytes(8).toString('hex')}.db`);
 process.env.DB_PATH = tmpDbPath;
 
+const tmpLogDir = path.join(os.tmpdir(), `butler-test-logs-${crypto.randomBytes(8).toString('hex')}`);
+process.env.LOG_DIR = tmpLogDir;
+
 export const TEST_USERNAME = 'testuser';
 export const TEST_PASSWORD = 'testpass123';
 
@@ -39,4 +42,5 @@ afterAll(() => {
       fs.unlinkSync(file);
     }
   }
+  fs.rmSync(tmpLogDir, { recursive: true, force: true });
 });
