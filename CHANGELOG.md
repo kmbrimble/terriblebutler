@@ -4,6 +4,44 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Plan: React client stage 1 — scaffold + auth path at /v2
+
+Scaffold a Vite + React + TypeScript client under `client/`, served at `/v2` alongside the
+existing `public/index.html` front end (which stays untouched and keeps serving `/`). This
+stage proves the build, the serving route, and the auth/socket foundation with a login screen
+only — no inventory UI.
+
+- New `test-e2e/v2-login.spec.js`: logged-out state renders the login screen at `/v2`, wrong
+  credentials show an error without navigating, correct credentials reach the authenticated
+  view with the socket observably connected (a DOM attribute polled by Playwright, not a
+  sleep). Reuses `LOGIN_SCREEN`/`LOGIN_USERNAME_INPUT`/`LOGIN_PASSWORD_INPUT`/
+  `LOGIN_SUBMIT_BUTTON`/`LOGIN_ERROR`/`APP_ROOT` from `test-e2e/testids.js` unchanged — proof
+  the stage-0 contract is genuinely front-end agnostic. Committed failing (404 at `/v2`) first.
+- `client/`: its own `package.json` (not an npm workspace), Vite + React + TypeScript, built
+  with `base: '/v2/'`. `client/src/lib/` (api/token/socket) is plain TypeScript with no
+  React/DOM-library imports — the layer the eventual React Native app reuses. Uses the same
+  `tb_token` localStorage key as the existing front end.
+  Tailwind is a real build here (not the CDN script `public/index.html` uses) — the `rimmy`
+  colour palette and CSS custom properties are ported from `index.html`'s `<style>`/tailwind
+  config blocks verbatim.
+- `server.js`: mounts the built client at `/v2` (static assets, then an SPA fallback for deep
+  links), registered after the existing static mounts and scoped so it structurally cannot
+  shadow `/api` or `/uploads`. `APP_VERSION` bumped to match this changelog entry, resolving
+  the drift a prior task's scope guard left behind.
+- `Dockerfile`: new `client-builder` stage (its own `npm install`, since the existing builder
+  stage's `npm install --production` never installs the client's Vite/TS devDependencies);
+  only the built `client/dist` is copied into the runtime stage, not the client's source or
+  `node_modules`. `.dockerignore` updated accordingly.
+- Root `package.json`: `pretest:e2e` builds the client before every `npm run test:e2e` run, so
+  a missing or stale `client/dist` fails the npm script chain loudly instead of 404ing quietly
+  into a passing suite.
+- Secondary: broadened `test/e2e-selector-guard.test.js`'s raw-selector regex — it previously
+  only matched an id/class at the very start of a selector string, across six method names.
+  It now matches an id/class anywhere in the selector (across a wider method list, including
+  `waitForSelector`/`$`/`$$`), while still explicitly allowing bare tag selectors like
+  `header` (a stable HTML landmark, not implementation-detail wiring).
+- Not the 1.0 milestone — that's reserved for shipping the React Native app.
+
 ## 0.18 - 2026-08-18
 
 ### data-testid contract for the e2e suite (React rewrite prep)
