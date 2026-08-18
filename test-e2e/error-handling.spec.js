@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { DEDUCT_OPEN_BUTTON, DEDUCT_SEARCH_INPUT, DEDUCT_LIST_ITEM, DEDUCT_QUANTITY_INPUT, DEDUCT_SUBMIT_BUTTON, TOAST_NOTIFICATION } from './testids.js';
 
 test('a failed request shows an error toast, not a blocking alert dialog', async ({ page, request }) => {
   const name = `E2E Deduct Error ${Date.now()}`;
@@ -12,13 +13,13 @@ test('a failed request shows an error toast, not a blocking alert dialog', async
   });
 
   await page.goto('/');
-  await page.locator('button[onclick="openDeductModal()"]').click();
-  await page.locator('#deductSearchInput').fill(name);
-  await page.locator('#deductList div', { hasText: name }).click();
-  await page.locator('#deductQuantity').fill('5');
-  await page.locator('button[onclick="submitDeduct()"]').click();
+  await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
+  await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(name);
+  await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: name }).click();
+  await page.getByTestId(DEDUCT_QUANTITY_INPUT).fill('5');
+  await page.getByTestId(DEDUCT_SUBMIT_BUTTON).click();
 
-  const toast = page.locator('#toastNotification');
+  const toast = page.getByTestId(TOAST_NOTIFICATION);
   await expect(toast).toBeVisible();
   await expect(toast).toContainText(/insufficient/i);
   await expect(toast).toHaveClass(/bg-red-600/);
@@ -35,13 +36,13 @@ test('a successful request still shows the (green) success toast', async ({ page
   await request.post('/api/items', { data: { name, quantity: 5 } });
 
   await page.goto('/');
-  await page.locator('button[onclick="openDeductModal()"]').click();
-  await page.locator('#deductSearchInput').fill(name);
-  await page.locator('#deductList div', { hasText: name }).click();
-  await page.locator('#deductQuantity').fill('2');
-  await page.locator('button[onclick="submitDeduct()"]').click();
+  await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
+  await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(name);
+  await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: name }).click();
+  await page.getByTestId(DEDUCT_QUANTITY_INPUT).fill('2');
+  await page.getByTestId(DEDUCT_SUBMIT_BUTTON).click();
 
-  const toast = page.locator('#toastNotification');
+  const toast = page.getByTestId(TOAST_NOTIFICATION);
   await expect(toast).toBeVisible();
   await expect(toast).toContainText('quantity reduced');
   await expect(toast).toHaveClass(/bg-green-600/);

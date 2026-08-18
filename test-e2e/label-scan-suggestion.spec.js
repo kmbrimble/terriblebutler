@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ADD_OPEN_BUTTON, CATEGORY_SUGGEST_BLOCK, CATEGORY_SUGGEST_SELECT, CATEGORY_SUGGEST_CUSTOM_INPUT, ITEM_CATEGORY_SELECT } from './testids.js';
 
 // applyLabelScanResult() is the frontend function that turns a /api/parse-label-llm
 // response into form updates + the category/location suggestion picker. It's called
@@ -10,7 +11,7 @@ test('label scan: no match offers to add the scanned category as new, and applie
   const categoryName = `E2E Scanned Category ${Date.now()}`;
 
   await page.goto('/');
-  await page.locator('button[onclick="openAddModal()"]').click();
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
 
   await page.evaluate((name) => window.applyLabelScanResult({
     name: 'Some Product',
@@ -20,10 +21,10 @@ test('label scan: no match offers to add the scanned category as new, and applie
     similar_category: null,
   }), categoryName);
 
-  const panel = page.locator('#categorySuggestBlock');
+  const panel = page.getByTestId(CATEGORY_SUGGEST_BLOCK);
   await expect(panel).toBeVisible();
   await expect(panel).toContainText(categoryName);
-  await expect(page.locator('#categorySuggestSelect')).toHaveValue('__new__');
+  await expect(page.getByTestId(CATEGORY_SUGGEST_SELECT)).toHaveValue('__new__');
 
   await panel.getByRole('button', { name: 'Use this' }).click();
   await expect(panel).toBeHidden();
@@ -33,7 +34,7 @@ test('label scan: no match offers to add the scanned category as new, and applie
   const created = cats.find((c) => c.name === categoryName);
   expect(created).toBeTruthy();
 
-  await expect(page.locator('#itemCategory')).toHaveValue(String(created.id));
+  await expect(page.getByTestId(ITEM_CATEGORY_SELECT)).toHaveValue(String(created.id));
 });
 
 test('label scan: a close existing category is pre-selected and does not create a duplicate', async ({ page, request }) => {
@@ -42,10 +43,10 @@ test('label scan: a close existing category is pre-selected and does not create 
   const existing = await created.json();
 
   await page.goto('/');
-  await page.locator('button[onclick="openAddModal()"]').click();
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
   // The category list is fetched asynchronously on page load; wait for it to actually
   // land before the suggestion picker (built from that same in-memory list) is rendered.
-  await expect(page.locator(`#itemCategory option[value="${existing.id}"]`)).toBeAttached();
+  await expect(page.getByTestId(ITEM_CATEGORY_SELECT).locator(`option[value="${existing.id}"]`)).toBeAttached();
 
   await page.evaluate(({ name, id }) => window.applyLabelScanResult({
     name: 'Some Product',
@@ -55,14 +56,14 @@ test('label scan: a close existing category is pre-selected and does not create 
     similar_category: { id, name },
   }), { name: existingName, id: existing.id });
 
-  const panel = page.locator('#categorySuggestBlock');
+  const panel = page.getByTestId(CATEGORY_SUGGEST_BLOCK);
   await expect(panel).toBeVisible();
-  await expect(page.locator('#categorySuggestSelect')).toHaveValue(String(existing.id));
+  await expect(page.getByTestId(CATEGORY_SUGGEST_SELECT)).toHaveValue(String(existing.id));
 
   await panel.getByRole('button', { name: 'Use this' }).click();
   await expect(panel).toBeHidden();
 
-  await expect(page.locator('#itemCategory')).toHaveValue(String(existing.id));
+  await expect(page.getByTestId(ITEM_CATEGORY_SELECT)).toHaveValue(String(existing.id));
 
   const catsRes = await request.get('/api/categories');
   const cats = await catsRes.json();
@@ -73,7 +74,7 @@ test('label scan: user can override the suggestion and type a different new cate
   const customName = `E2E Custom Category ${Date.now()}`;
 
   await page.goto('/');
-  await page.locator('button[onclick="openAddModal()"]').click();
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
 
   await page.evaluate(() => window.applyLabelScanResult({
     name: 'Some Product',
@@ -83,12 +84,12 @@ test('label scan: user can override the suggestion and type a different new cate
     similar_category: null,
   }));
 
-  const panel = page.locator('#categorySuggestBlock');
+  const panel = page.getByTestId(CATEGORY_SUGGEST_BLOCK);
   await expect(panel).toBeVisible();
 
-  await page.locator('#categorySuggestSelect').selectOption('__custom__');
-  await expect(page.locator('#categorySuggestCustomInput')).toBeVisible();
-  await page.locator('#categorySuggestCustomInput').fill(customName);
+  await page.getByTestId(CATEGORY_SUGGEST_SELECT).selectOption('__custom__');
+  await expect(page.getByTestId(CATEGORY_SUGGEST_CUSTOM_INPUT)).toBeVisible();
+  await page.getByTestId(CATEGORY_SUGGEST_CUSTOM_INPUT).fill(customName);
 
   await panel.getByRole('button', { name: 'Use this' }).click();
   await expect(panel).toBeHidden();
@@ -97,7 +98,7 @@ test('label scan: user can override the suggestion and type a different new cate
   const cats = await catsRes.json();
   const created = cats.find((c) => c.name === customName);
   expect(created).toBeTruthy();
-  await expect(page.locator('#itemCategory')).toHaveValue(String(created.id));
+  await expect(page.getByTestId(ITEM_CATEGORY_SELECT)).toHaveValue(String(created.id));
 });
 
 test('label scan: an exact category/location match populates the form directly, no picker shown', async ({ page, request }) => {
@@ -105,10 +106,10 @@ test('label scan: an exact category/location match populates the form directly, 
   const existing = await created.json();
 
   await page.goto('/');
-  await page.locator('button[onclick="openAddModal()"]').click();
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
   // The category list is fetched asynchronously on page load; wait for it to actually
   // land in the <select> before relying on its option being present.
-  await expect(page.locator(`#itemCategory option[value="${existing.id}"]`)).toBeAttached();
+  await expect(page.getByTestId(ITEM_CATEGORY_SELECT).locator(`option[value="${existing.id}"]`)).toBeAttached();
 
   await page.evaluate((id) => window.applyLabelScanResult({
     name: 'Some Product',
@@ -118,6 +119,6 @@ test('label scan: an exact category/location match populates the form directly, 
     similar_category: null,
   }), existing.id);
 
-  await expect(page.locator('#itemCategory')).toHaveValue(String(existing.id));
-  await expect(page.locator('#categorySuggestBlock')).toBeHidden();
+  await expect(page.getByTestId(ITEM_CATEGORY_SELECT)).toHaveValue(String(existing.id));
+  await expect(page.getByTestId(CATEGORY_SUGGEST_BLOCK)).toBeHidden();
 });

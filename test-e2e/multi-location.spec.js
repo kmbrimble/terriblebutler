@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ITEM_CARD, DEDUCT_OPEN_BUTTON, DEDUCT_SEARCH_INPUT, DEDUCT_LIST_ITEM, DEDUCT_LOCATION_SELECT, DEDUCT_RESET_BUTTON, DEDUCT_QUANTITY_INPUT, DEDUCT_SUBMIT_BUTTON } from './testids.js';
 
 test('All Inventory shows the total quantity plus an "elsewhere" note; a location tab shows just that location\'s quantity', async ({ page, request }) => {
   const locA = await (await request.post('/api/locations', { data: { name: `E2E ML Pantry ${Date.now()}` } })).json();
@@ -10,12 +11,12 @@ test('All Inventory shows the total quantity plus an "elsewhere" note; a locatio
 
   await page.goto('/');
 
-  const allCard = page.locator('.item-card', { hasText: name });
+  const allCard = page.getByTestId(ITEM_CARD).filter({ hasText: name });
   await expect(allCard).toContainText('5');
   await expect(allCard).toContainText(/elsewhere/i);
 
   await page.getByRole('button', { name: locA.name, exact: true }).click();
-  const locCard = page.locator('.item-card', { hasText: name });
+  const locCard = page.getByTestId(ITEM_CARD).filter({ hasText: name });
   await expect(locCard).toContainText('3');
 });
 
@@ -31,20 +32,20 @@ test('deduct shows a location picker only when the item has stock in more than o
   await request.patch(`/api/items/${multiItem.id}/quantity`, { data: { amount: 3, action: 'add', location_id: locC.id } });
 
   await page.goto('/');
-  await page.locator('button[onclick="openDeductModal()"]').click();
+  await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
 
-  await page.locator('#deductSearchInput').fill(singleName);
-  await page.locator('#deductList div', { hasText: singleName }).click();
-  await expect(page.locator('#deductLocation')).toBeHidden();
+  await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(singleName);
+  await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: singleName }).click();
+  await expect(page.getByTestId(DEDUCT_LOCATION_SELECT)).toBeHidden();
 
-  await page.locator('button[onclick="resetDeductModal()"]').click();
-  await page.locator('#deductSearchInput').fill(multiName);
-  await page.locator('#deductList div', { hasText: multiName }).click();
-  await expect(page.locator('#deductLocation')).toBeVisible();
+  await page.getByTestId(DEDUCT_RESET_BUTTON).click();
+  await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(multiName);
+  await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: multiName }).click();
+  await expect(page.getByTestId(DEDUCT_LOCATION_SELECT)).toBeVisible();
 
-  await page.locator('#deductLocation').selectOption(String(locC.id));
-  await page.locator('#deductQuantity').fill('3');
-  await page.locator('button[onclick="submitDeduct()"]').click();
+  await page.getByTestId(DEDUCT_LOCATION_SELECT).selectOption(String(locC.id));
+  await page.getByTestId(DEDUCT_QUANTITY_INPUT).fill('3');
+  await page.getByTestId(DEDUCT_SUBMIT_BUTTON).click();
 
   const itemsRes = await request.get('/api/items');
   const items = await itemsRes.json();

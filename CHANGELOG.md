@@ -4,28 +4,41 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: data-testid contract for the e2e suite (React rewrite prep)
+## 0.18 - 2026-08-18
 
-Decouple `test-e2e/` from `public/index.html`'s implementation details (element ids, the
+### data-testid contract for the e2e suite (React rewrite prep)
+
+Decoupled `test-e2e/` from `public/index.html`'s implementation details (element ids, the
 `.item-card` class, `onclick="..."` attribute selectors) so the same Playwright suite can act
-as acceptance criteria for the future React front end.
+as acceptance criteria for a future React front end.
 
-- New `test/e2e-selector-guard.test.js` (Vitest): fails while any spec still uses an
-  `[onclick=...]` selector, a raw `#id`/`.class` selector, or a `getByTestId` identifier not
-  exported from `test-e2e/testids.js`. Committed failing first as the checkpoint.
-- New `test-e2e/testids.js`: kebab-case testid constants, named for what each element *is*
+- New `test/e2e-selector-guard.test.js` (Vitest): fails if any spec uses an `[onclick=...]`
+  selector, a raw `#id`/`.class` selector, or a `getByTestId` identifier not exported from
+  `test-e2e/testids.js`. Committed failing first as the checkpoint; the CSS-selector regex is
+  deliberately narrow to `#id`/`.class` only (per the plan), so it doesn't flag the two
+  `option[value="..."]` attribute lookups still used in `label-scan-suggestion.spec.js` —
+  those are scoped inside a `getByTestId(...)` locator and aren't id/class selectors.
+- New `test-e2e/testids.js`: 39 kebab-case testid constants, named for what each element *is*
   (e.g. `item-card`, `deduct-submit-button`), not where it sits in the DOM.
-- `public/index.html`: add-only `data-testid` attributes matching the contract — no existing
-  id, class, or onclick handler removed or renamed; current front end behaviour unchanged.
+- `public/index.html`: add-only `data-testid` attributes matching the contract (35 sites,
+  including one set at runtime on the dynamically-created toast element) — no existing id,
+  class, or onclick handler removed or renamed; current front end behaviour unchanged.
 - `playwright.config.js`: explicit `testIdAttribute: 'data-testid'`.
 - All 11 specs rewritten to `page.getByTestId(...)`, importing the shared constants.
   `getByRole`/`getByText` selectors left untouched (already framework-agnostic).
 - Invoice-import staging rows keep their per-row dynamic id (`il_cat_${lineId}`) internally,
-  but get a stable `invoice-import-line` row testid + `data-line-id` attribute so specs scope
-  into the row instead of selecting the dynamic id directly.
+  but each row now also gets a stable `invoice-import-line` testid + `data-line-id` attribute,
+  so specs scope into the row (`getByTestId(...).and(locator('[data-line-id="..."]'))`) instead
+  of selecting the dynamic id directly.
+- `server.js`'s `APP_VERSION` constant was intentionally left at `0.17` — the task scope guard
+  excluded `server.js` from this change, so it now trails this changelog entry by one version.
 - Internal test infrastructure only — no user-facing change, not the 1.0 milestone.
 
-## 0.17 - 2026-08-18
+**Tests:** `test/e2e-selector-guard.test.js` (33 assertions across the 11 specs); full local
+suites re-verified: `npm test` 183/183, `npm run test:e2e` 24/24 (same count before and after —
+the sandbox's Playwright system libraries were missing at the start of this session and were
+installed as part of verification, which is why the "before" run also needed a rerun to confirm
+a fair baseline).
 
 ### Nightly database backups, 2-week retention (#17)
 

@@ -5,6 +5,7 @@ const baseURL = 'http://127.0.0.1:2699';
 
 export default defineConfig({
   testDir: './test-e2e',
+  testIdAttribute: 'data-testid',
   globalSetup: './test-e2e/global-setup.mjs',
   globalTeardown: './test-e2e/global-teardown.mjs',
   // global-setup.mjs spins up ONE shared server + SQLite DB on a fixed port for the

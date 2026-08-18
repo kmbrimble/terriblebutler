@@ -1,5 +1,15 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import {
+  INVOICE_IMPORT_FILE_INPUT,
+  INVOICE_IMPORT_STAGING_CONTAINER,
+  INVOICE_IMPORT_SUMMARY_LINE,
+  INVOICE_IMPORT_COMMIT_BUTTON,
+  INVOICE_IMPORT_LINE,
+  INVOICE_IMPORT_LINE_CATEGORY_SELECT,
+  INVOICE_IMPORT_MODAL,
+  TOAST_NOTIFICATION,
+} from './testids.js';
 
 // openInvoiceImportModal() etc. are top-level `function` declarations in the page's inline
 // script, so — unlike the `let` state vars — they land on `window` and are safe to call
@@ -8,15 +18,22 @@ import path from 'node:path';
 const WOOLWORTHS_PDF = path.join(process.cwd(), 'test/fixtures/invoices/woolworths-example.pdf');
 const COLES_PDF = path.join(process.cwd(), 'test/fixtures/invoices/coles-example.pdf');
 
+// Invoice import rows keep a dynamic per-line id internally (il_cat_${lineId}), but each row
+// carries a stable testid plus data-line-id, so specs scope into the row rather than reaching
+// for the dynamic id directly.
+function lineRow(page, lineId) {
+  return page.getByTestId(INVOICE_IMPORT_LINE).and(page.locator(`[data-line-id="${lineId}"]`));
+}
+
 test('invoice import: uploading a Woolworths PDF renders the review checklist with the correct line count', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => window.openInvoiceImportModal());
-  await page.locator('#invoiceImportFileInput').setInputFiles(WOOLWORTHS_PDF);
+  await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
 
-  await expect(page.locator('#invoiceImportStagingContainer')).toBeVisible();
-  await expect(page.locator('#invoiceImportStagingList > div')).toHaveCount(32);
-  await expect(page.locator('#invoiceImportSummaryLine')).toContainText('32 lines');
-  await expect(page.locator('#invoiceImportCommitBtn')).toBeDisabled();
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await expect(page.getByTestId(INVOICE_IMPORT_LINE)).toHaveCount(32);
+  await expect(page.getByTestId(INVOICE_IMPORT_SUMMARY_LINE)).toContainText('32 lines');
+  await expect(page.getByTestId(INVOICE_IMPORT_COMMIT_BUTTON)).toBeDisabled();
 });
 
 test('invoice import: a category change on one line persists across a page reload (crash-safety)', async ({ page, request }) => {
@@ -25,7 +42,7 @@ test('invoice import: a category change on one line persists across a page reloa
 
   const [importRes] = await Promise.all([
     page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
-    page.locator('#invoiceImportFileInput').setInputFiles(WOOLWORTHS_PDF),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
   ]);
   const importBody = await importRes.json();
   const importId = importBody.import.id;
@@ -34,13 +51,13 @@ test('invoice import: a category change on one line persists across a page reloa
   const catRes = await request.post('/api/categories', { data: { name: `E2E Invoice Category ${Date.now()}` } });
   const category = await catRes.json();
 
-  await expect(page.locator('#invoiceImportStagingContainer')).toBeVisible();
-  await page.locator(`#il_cat_${firstLineId}`).selectOption(String(category.id));
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await lineRow(page, firstLineId).getByTestId(INVOICE_IMPORT_LINE_CATEGORY_SELECT).selectOption(String(category.id));
   // No save button anywhere on this screen — the select's own onchange already PATCHed it.
 
   await page.reload();
-  await expect(page.locator('#invoiceImportStagingContainer')).toBeVisible();
-  await expect(page.locator(`#il_cat_${firstLineId}`)).toHaveValue(String(category.id));
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await expect(lineRow(page, firstLineId).getByTestId(INVOICE_IMPORT_LINE_CATEGORY_SELECT)).toHaveValue(String(category.id));
 
   const getRes = await request.get(`/api/invoices/import/${importId}`);
   const persisted = await getRes.json();
@@ -53,7 +70,7 @@ test('invoice import: completing a review and committing shows a summary and cre
 
   const [importRes] = await Promise.all([
     page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
-    page.locator('#invoiceImportFileInput').setInputFiles(COLES_PDF),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(COLES_PDF),
   ]);
   const importBody = await importRes.json();
   const importId = importBody.import.id;
@@ -66,12 +83,12 @@ test('invoice import: completing a review and committing shows a summary and cre
   }
 
   await page.reload();
-  await expect(page.locator('#invoiceImportStagingContainer')).toBeVisible();
-  const commitBtn = page.locator('#invoiceImportCommitBtn');
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  const commitBtn = page.getByTestId(INVOICE_IMPORT_COMMIT_BUTTON);
   await expect(commitBtn).toBeEnabled();
   await commitBtn.click();
 
-  await expect(page.locator('#toastNotification')).toContainText('Imported:');
+  await expect(page.getByTestId(TOAST_NOTIFICATION)).toContainText('Imported:');
 
   const itemsRes = await request.get('/api/items');
   const items = await itemsRes.json();
@@ -80,5 +97,5 @@ test('invoice import: completing a review and committing shows a summary and cre
 
   // Resuming after a commit shouldn't re-open the same import — it's done.
   await page.reload();
-  await expect(page.locator('#invoiceImportModal')).toBeHidden();
+  await expect(page.getByTestId(INVOICE_IMPORT_MODAL)).toBeHidden();
 });

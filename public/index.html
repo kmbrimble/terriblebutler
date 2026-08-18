@@ -113,19 +113,19 @@
 </head>
 <body class="bg-rimmy-black text-rimmy-text font-sans antialiased pb-20 transition-colors duration-300">
 
-    <div id="loginScreen" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-rimmy-black px-4">
+    <div id="loginScreen" data-testid="login-screen" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-rimmy-black px-4">
         <form id="loginForm" class="bg-rimmy-charcoal border border-rimmy-border rounded-lg p-6 w-full max-w-xs space-y-4 shadow-lg">
             <h1 class="text-2xl text-rimmy-orange leading-[1]" style="font-family: 'Lobster Two', cursive;">Terrible Butler</h1>
-            <input id="loginUsername" name="username" type="text" placeholder="Username" autocomplete="username" required
+            <input id="loginUsername" data-testid="login-username-input" name="username" type="text" placeholder="Username" autocomplete="username" required
                 class="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
-            <input id="loginPassword" name="password" type="password" placeholder="Password" autocomplete="current-password" required
+            <input id="loginPassword" data-testid="login-password-input" name="password" type="password" placeholder="Password" autocomplete="current-password" required
                 class="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
-            <p id="loginError" class="hidden text-sm text-red-500"></p>
-            <button type="submit" class="w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white font-semibold p-2 rounded">Log in</button>
+            <p id="loginError" data-testid="login-error" class="hidden text-sm text-red-500"></p>
+            <button type="submit" data-testid="login-submit-button" class="w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white font-semibold p-2 rounded">Log in</button>
         </form>
     </div>
 
-    <div id="appRoot" class="hidden">
+    <div id="appRoot" data-testid="app-root" class="hidden">
 
     <header class="bg-rimmy-purple text-white p-4 sticky top-0 z-10 shadow-[0_4px_15px_rgba(0,0,0,0.3)] flex flex-wrap justify-between items-center gap-2 border-b border-rimmy-purpleHover transition-colors duration-300">
         <div class="leading-[1] text-rimmy-orange drop-shadow-md" style="font-family: 'Lobster Two', cursive;">
@@ -133,8 +133,8 @@
             <div class="text-[1.3rem] -mt-1">Butler</div>
         </div>
         <div class="flex gap-2">
-            <button onclick="openDeductModal()" class="touch-target w-11 h-11 flex items-center justify-center bg-gray-600 hover:bg-gray-500 text-white rounded font-bold text-2xl transition-all shadow-[0_0_10px_rgba(0,0,0,0.4)]">-</button>
-            <button onclick="openAddModal()" class="touch-target w-11 h-11 flex items-center justify-center bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold text-2xl transition-all shadow-[0_0_10px_rgba(255,111,0,0.4)]">+</button>
+            <button onclick="openDeductModal()" data-testid="deduct-open-button" class="touch-target w-11 h-11 flex items-center justify-center bg-gray-600 hover:bg-gray-500 text-white rounded font-bold text-2xl transition-all shadow-[0_0_10px_rgba(0,0,0,0.4)]">-</button>
+            <button onclick="openAddModal()" data-testid="add-open-button" class="touch-target w-11 h-11 flex items-center justify-center bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold text-2xl transition-all shadow-[0_0_10px_rgba(255,111,0,0.4)]">+</button>
             <button onclick="toggleDrawer()" class="touch-target w-11 h-11 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-rimmy-text rounded transition-all shadow-sm">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
@@ -245,28 +245,28 @@
                 </button>
                 
                 <div class="relative mt-1">
-                    <input type="text" id="deductSearchInput" oninput="filterDeductItems()" placeholder="Manual Search..." class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                    <input type="text" id="deductSearchInput" data-testid="deduct-search-input" oninput="filterDeductItems()" placeholder="Manual Search..." class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                 </div>
                 <div id="deductList" class="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1"></div>
             </div>
 
-            <div id="deductActionContainer" class="hidden flex-col gap-4 mt-4 border-t border-rimmy-border pt-4">
+            <div id="deductActionContainer" data-testid="deduct-action-container" class="hidden flex-col gap-4 mt-4 border-t border-rimmy-border pt-4">
                 <h3 id="deductItemName" class="font-bold text-rimmy-text break-words"></h3>
-                <input type="hidden" id="deductItemId">
+                <input type="hidden" id="deductItemId" data-testid="deduct-item-id">
                 <div class="flex gap-2">
                     <div class="flex-1">
                         <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Quantity taken</label>
-                        <input type="number" step="0.1" id="deductQuantity" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        <input type="number" step="0.1" id="deductQuantity" data-testid="deduct-quantity-input" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
                     </div>
                     <div id="deductLocationField" class="flex-1 hidden">
                         <label class="block text-xs font-bold mb-1 text-rimmy-textMuted">Location</label>
-                        <select id="deductLocation" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                        <select id="deductLocation" data-testid="deduct-location-select" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
                         </select>
                     </div>
                 </div>
                 <div class="flex gap-2">
-                    <button onclick="resetDeductModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold transition-colors">Back</button>
-                    <button onclick="submitDeduct()" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Deduct</button>
+                    <button onclick="resetDeductModal()" data-testid="deduct-reset-button" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold transition-colors">Back</button>
+                    <button onclick="submitDeduct()" data-testid="deduct-submit-button" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Deduct</button>
                 </div>
             </div>
         </div>
@@ -289,10 +289,10 @@
     </div>
 
     <!-- Details & Price History Modal -->
-    <div id="detailsModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+    <div id="detailsModal" data-testid="details-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
         <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 relative">
             <div class="flex justify-between items-start mb-4">
-                <h2 id="detailsTitle" class="text-2xl font-bold text-rimmy-orange break-words pr-6"></h2>
+                <h2 id="detailsTitle" data-testid="details-title" class="text-2xl font-bold text-rimmy-orange break-words pr-6"></h2>
                 <button onclick="closeDetailsModal()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors absolute top-6 right-6">&times;</button>
             </div>
             
@@ -388,7 +388,7 @@
     </div>
 
     <!-- Invoice Import Review Modal (deterministic Coles/Woolworths parser + staging review) -->
-    <div id="invoiceImportModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+    <div id="invoiceImportModal" data-testid="invoice-import-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
         <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-2xl max-h-full flex flex-col p-6 relative">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold text-rimmy-orange">Import Coles/Woolworths Invoice</h2>
@@ -396,7 +396,7 @@
             </div>
 
             <div id="invoiceImportPicker" class="flex flex-col gap-2">
-                <input type="file" id="invoiceImportFileInput" accept="application/pdf" class="w-full bg-rimmy-black border border-rimmy-border rounded p-2 touch-target text-rimmy-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-rimmy-purple file:text-white hover:file:bg-rimmy-purpleHover" onchange="processInvoiceImport(event)">
+                <input type="file" id="invoiceImportFileInput" data-testid="invoice-import-file-input" accept="application/pdf" class="w-full bg-rimmy-black border border-rimmy-border rounded p-2 touch-target text-rimmy-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-rimmy-purple file:text-white hover:file:bg-rimmy-purpleHover" onchange="processInvoiceImport(event)">
                 <p class="text-xs text-rimmy-textMuted">Deterministic parsing for Coles and Woolworths order PDFs only — other invoices should use the regular "Upload Invoice" option instead.</p>
             </div>
 
@@ -405,10 +405,10 @@
                 <p class="font-bold text-lg text-rimmy-text">Parsing invoice...</p>
             </div>
 
-            <div id="invoiceImportStagingContainer" class="hidden flex-col gap-3 flex-1 overflow-hidden">
-                <p id="invoiceImportSummaryLine" class="text-sm text-rimmy-textMuted shrink-0"></p>
+            <div id="invoiceImportStagingContainer" data-testid="invoice-import-staging-container" class="hidden flex-col gap-3 flex-1 overflow-hidden">
+                <p id="invoiceImportSummaryLine" data-testid="invoice-import-summary-line" class="text-sm text-rimmy-textMuted shrink-0"></p>
                 <div id="invoiceImportStagingList" class="flex flex-col gap-3 overflow-y-auto pr-2 pb-2"></div>
-                <button id="invoiceImportCommitBtn" onclick="commitInvoiceImport()" disabled class="touch-target shrink-0 w-full bg-rimmy-orange hover:bg-rimmy-orangeHover disabled:opacity-40 disabled:cursor-not-allowed text-white rounded font-bold py-3 mt-2 shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Import to Inventory</button>
+                <button id="invoiceImportCommitBtn" data-testid="invoice-import-commit-button" onclick="commitInvoiceImport()" disabled class="touch-target shrink-0 w-full bg-rimmy-orange hover:bg-rimmy-orangeHover disabled:opacity-40 disabled:cursor-not-allowed text-white rounded font-bold py-3 mt-2 shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Import to Inventory</button>
             </div>
         </div>
     </div>
@@ -448,7 +448,7 @@
     </div>
 
     <!-- Add/Edit Item Modal -->
-    <div id="addModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+    <div id="addModal" data-testid="add-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
         <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-6 relative">
             <h2 id="addModalTitle" class="text-xl font-bold mb-4 text-rimmy-orange">Add / Edit Item</h2>
             
@@ -463,7 +463,7 @@
                 <div>
                     <label class="block text-sm font-bold mb-1 text-rimmy-text">Barcode</label>
                     <div class="flex gap-2">
-                        <input type="text" id="itemBarcode" class="flex-1 bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                        <input type="text" id="itemBarcode" data-testid="item-barcode-input" class="flex-1 bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                         <button type="button" onclick="openBarcodeScanner('add')" class="touch-target w-12 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-rimmy-text rounded transition-all shadow-sm">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H5v3a1 1 0 01-2 0V4zm14-1a1 1 0 011 1v3a1 1 0 01-2 0V5h-3a1 1 0 010-2h4zM3 20a1 1 0 001 1h4a1 1 0 000-2H5v-3a1 1 0 00-2 0v3zm18-4a1 1 0 00-1-1h-3a1 1 0 000 2h3v3a1 1 0 002 0v-4zM7 8h2v8H7V8zm4 0h2v8h-2V8zm4 0h2v8h-2V8z"></path></svg>
                         </button>
@@ -471,7 +471,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-bold mb-1 text-rimmy-text">Name *</label>
-                    <input type="text" id="itemName" required class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                    <input type="text" id="itemName" data-testid="item-name-input" required class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2">
                     <div id="itemLocationField" class="flex-1">
@@ -481,7 +481,7 @@
                     </div>
                     <div class="flex-1">
                         <label class="block text-sm font-bold mb-1 text-rimmy-text">Category</label>
-                        <select id="itemCategory" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                        <select id="itemCategory" data-testid="item-category-select" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                         </select>
                     </div>
                 </div>
@@ -492,7 +492,7 @@
                 <div class="flex flex-col sm:flex-row gap-2">
                     <div id="itemQuantityField" class="flex-1">
                         <label class="block text-sm font-bold mb-1 text-rimmy-text">Quantity</label>
-                        <input type="number" step="0.1" id="itemQuantity" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
+                        <input type="number" step="0.1" id="itemQuantity" data-testid="item-quantity-input" value="1" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-3 touch-target text-rimmy-text transition-colors">
                     </div>
                     <div class="flex-1">
                         <label class="block text-sm font-bold mb-1 text-rimmy-text">Reorder Threshold</label>
@@ -519,16 +519,16 @@
                     </div>
                 </div>
 
-                <div id="dupCheckPanel" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
+                <div id="dupCheckPanel" data-testid="dup-check-panel" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
                     <p class="text-sm font-bold text-amber-400">Possible existing item(s) found:</p>
                     <div id="dupCheckList" class="space-y-2"></div>
                     <button type="button" onclick="proceedAddAsNew()" class="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">Add as new item anyway</button>
                 </div>
 
-                <div id="categorySuggestBlock" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
+                <div id="categorySuggestBlock" data-testid="category-suggest-block" class="hidden border border-amber-500 rounded p-3 bg-rimmy-black space-y-2">
                     <p class="text-sm font-bold text-amber-400">Scanned category "<span id="categorySuggestName"></span>" isn't in your list:</p>
-                    <select id="categorySuggestSelect" onchange="onSuggestSelectChange('category')" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors"></select>
-                    <input type="text" id="categorySuggestCustomInput" placeholder="New category name" class="hidden w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
+                    <select id="categorySuggestSelect" data-testid="category-suggest-select" onchange="onSuggestSelectChange('category')" class="w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors"></select>
+                    <input type="text" id="categorySuggestCustomInput" data-testid="category-suggest-custom-input" placeholder="New category name" class="hidden w-full bg-rimmy-black border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target text-rimmy-text transition-colors">
                     <button type="button" onclick="applySuggestion('category')" class="touch-target px-3 py-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white text-xs font-bold rounded transition-colors">Use this</button>
                 </div>
 
@@ -541,7 +541,7 @@
 
                 <div class="flex gap-4 pt-4">
                     <button type="button" onclick="closeAddModal()" class="touch-target flex-1 bg-gray-600 hover:bg-gray-500 text-white rounded font-bold shadow-sm transition-colors">Cancel</button>
-                    <button type="submit" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Save</button>
+                    <button type="submit" data-testid="item-form-submit-button" class="touch-target flex-1 bg-rimmy-orange hover:bg-rimmy-orangeHover text-white rounded font-bold shadow-[0_0_10px_rgba(255,111,0,0.3)] transition-all">Save</button>
                 </div>
             </form>
         </div>
@@ -984,7 +984,7 @@
                 const isActive = currentTab.type === tab.type && currentTab.id === tab.id;
                 const onclickArgs = tab.type === 'location' ? `'location', ${tab.id}` : `'${tab.type}'`;
                 return `
-                <button onclick="setTab(${onclickArgs})" class="shrink-0 touch-target px-4 py-2 rounded-full font-bold transition-all duration-300 ${isActive ? 'bg-rimmy-purple text-white shadow-[0_0_10px_rgba(106,13,173,0.5)]' : 'bg-rimmy-black text-rimmy-textMuted border border-rimmy-border hover:border-rimmy-orange/50 hover:text-rimmy-text'}">
+                <button onclick="setTab(${onclickArgs})" data-testid="location-tab-button" class="shrink-0 touch-target px-4 py-2 rounded-full font-bold transition-all duration-300 ${isActive ? 'bg-rimmy-purple text-white shadow-[0_0_10px_rgba(106,13,173,0.5)]' : 'bg-rimmy-black text-rimmy-textMuted border border-rimmy-border hover:border-rimmy-orange/50 hover:text-rimmy-text'}">
                     ${escapeHtml(tab.label)}
                 </button>
                 `;
@@ -1083,7 +1083,7 @@
                 if (currentViewMode === 'compact') {
                     return `
                     <div class="item-card bg-rimmy-charcoal rounded border border-rimmy-border flex justify-between items-center px-3 py-1 h-[44px] shadow-sm hover:border-rimmy-purple transition-colors cursor-pointer"
-                         onclick="handleCardTap(event, ${item.id})">
+                         data-testid="item-card" onclick="handleCardTap(event, ${item.id})">
                         <div class="flex-1 min-w-0 pr-2 flex flex-col justify-center">
                             <h3 class="font-bold text-sm text-rimmy-orange truncate leading-none">${escapeHtml(item.name)}</h3>
                             <p class="text-[11px] text-rimmy-textMuted truncate leading-tight mt-1">
@@ -1105,7 +1105,7 @@
                 } else {
                     return `
                     <div class="item-card bg-rimmy-charcoal rounded-lg shadow-lg border border-rimmy-border hover:border-rimmy-purple/50 transition-all duration-300 p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center cursor-pointer"
-                         onclick="handleCardTap(event, ${item.id})">
+                         data-testid="item-card" onclick="handleCardTap(event, ${item.id})">
                         <div class="flex gap-4 items-center w-full sm:w-auto flex-1 min-w-0">
                             ${item.image_path ? `<img src="${item.image_path}" class="w-16 h-16 object-cover rounded border border-rimmy-border shrink-0">` : `<div class="w-16 h-16 bg-rimmy-black rounded flex items-center justify-center text-rimmy-textMuted text-xs text-center p-1 border border-rimmy-border shrink-0">No Img</div>`}
                             <div class="flex-1 min-w-0">
@@ -1363,7 +1363,7 @@
                     : '<span class="text-xs font-bold text-amber-400 shrink-0">PENDING</span>';
 
             return `
-            <div class="border border-rimmy-border rounded-lg p-3 bg-rimmy-black flex flex-col gap-2 shadow-sm ${line.line_status === 'skipped' ? 'opacity-50' : ''}">
+            <div class="border border-rimmy-border rounded-lg p-3 bg-rimmy-black flex flex-col gap-2 shadow-sm ${line.line_status === 'skipped' ? 'opacity-50' : ''}" data-testid="invoice-import-line" data-line-id="${line.id}">
                 <div class="flex justify-between items-start gap-2">
                     <div class="min-w-0">
                         <p class="font-bold text-[15px] leading-tight break-words text-rimmy-text">${escapeHtml(line.raw_name)}</p>
@@ -1373,7 +1373,7 @@
                     ${statusBadge}
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2">
-                    <select id="il_cat_${line.id}" onchange="patchInvoiceLine(${line.id}, { final_category_id: this.value || null })" class="flex-1 border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target bg-rimmy-charcoal text-rimmy-text text-sm transition-colors">${catOptions}</select>
+                    <select id="il_cat_${line.id}" data-testid="invoice-import-line-category-select" onchange="patchInvoiceLine(${line.id}, { final_category_id: this.value || null })" class="flex-1 border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target bg-rimmy-charcoal text-rimmy-text text-sm transition-colors">${catOptions}</select>
                     <select id="il_loc_${line.id}" onchange="patchInvoiceLine(${line.id}, { final_location_id: this.value || null })" class="flex-1 border border-rimmy-border focus:border-rimmy-orange outline-none rounded p-2 touch-target bg-rimmy-charcoal text-rimmy-text text-sm transition-colors">${locOptions}</select>
                 </div>
                 <div class="flex items-center gap-2">
@@ -1991,6 +1991,7 @@
             if (!toast) {
                 toast = document.createElement('div');
                 toast.id = 'toastNotification';
+                toast.setAttribute('data-testid', 'toast-notification');
                 toast.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 text-white font-bold px-6 py-3 rounded shadow-xl z-[100] transition-opacity duration-300';
                 document.body.appendChild(toast);
             }
@@ -2045,7 +2046,7 @@
             ).slice(0, 10);
 
             list.innerHTML = results.map(i => `
-                <div onclick="selectDeductItemById(${i.id})" class="p-3 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange rounded cursor-pointer transition-colors text-sm">
+                <div onclick="selectDeductItemById(${i.id})" data-testid="deduct-list-item" class="p-3 bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange rounded cursor-pointer transition-colors text-sm">
                     <p class="font-bold text-rimmy-orange truncate">${escapeHtml(i.name)}</p>
                     <p class="text-xs text-rimmy-textMuted">${escapeHtml(i.locations.length > 1 ? `${i.locations.length} locations` : (i.locations[0]?.location_name || 'No Loc'))} | Qty: ${i.quantity}</p>
                 </div>

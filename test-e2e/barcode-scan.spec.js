@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ITEM_BARCODE_INPUT, DEDUCT_ACTION_CONTAINER, DEDUCT_ITEM_ID } from './testids.js';
 
 async function stubScanner(page) {
   await page.route('**/html5-qrcode**', route => route.abort());
@@ -22,7 +23,7 @@ test('scanning a barcode in Add context populates the barcode field', async ({ p
   await page.evaluate(() => window.openBarcodeScanner('add'));
   await page.evaluate(() => window.__scanSuccess('9310598500211'));
 
-  await expect(page.locator('#itemBarcode')).toHaveValue('9310598500211');
+  await expect(page.getByTestId(ITEM_BARCODE_INPUT)).toHaveValue('9310598500211');
 });
 
 test('scanning a barcode in Deduct context selects the item without immediately deducting', async ({ page }) => {
@@ -49,7 +50,7 @@ test('scanning a barcode in Deduct context selects the item without immediately 
   await page.evaluate(() => window.openBarcodeScanner('deduct'));
   await page.evaluate(() => window.__scanSuccess('9310598500211'));
 
-  await expect(page.locator('#deductActionContainer')).toBeVisible();
-  await expect(page.locator('#deductItemId')).toHaveValue('42');
+  await expect(page.getByTestId(DEDUCT_ACTION_CONTAINER)).toBeVisible();
+  await expect(page.getByTestId(DEDUCT_ITEM_ID)).toHaveValue('42');
   expect(deductCalled).toBe(false);
 });

@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { LOCATION_TAB_BUTTON, ITEM_CARD } from './testids.js';
 
 test('the three special tabs are always present', async ({ page }) => {
   await page.goto('/');
-  const tabs = page.locator('#tabs button');
+  const tabs = page.getByTestId(LOCATION_TAB_BUTTON);
   await expect(tabs.filter({ hasText: 'All Inventory' })).toHaveCount(1);
   await expect(tabs.filter({ hasText: 'Grocery List' })).toHaveCount(1);
   await expect(tabs.filter({ hasText: 'Ignored Out-of-Stock' })).toHaveCount(1);
@@ -32,18 +33,18 @@ test('a newly seeded location gets its own tab and filters items to that locatio
 
   await page.goto('/');
 
-  const tabButton = page.locator('#tabs button', { hasText: locationName });
+  const tabButton = page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locationName });
   await expect(tabButton).toHaveCount(1);
 
   // special tabs remain present alongside the new location tab
-  await expect(page.locator('#tabs button', { hasText: 'All Inventory' })).toHaveCount(1);
-  await expect(page.locator('#tabs button', { hasText: 'Grocery List' })).toHaveCount(1);
-  await expect(page.locator('#tabs button', { hasText: 'Ignored Out-of-Stock' })).toHaveCount(1);
+  await expect(page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'All Inventory' })).toHaveCount(1);
+  await expect(page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Grocery List' })).toHaveCount(1);
+  await expect(page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Ignored Out-of-Stock' })).toHaveCount(1);
 
   await tabButton.click();
 
-  await expect(page.locator('.item-card', { hasText: inLocationItemName })).toBeVisible();
-  await expect(page.locator('.item-card', { hasText: outsideItemName })).toHaveCount(0);
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: inLocationItemName })).toBeVisible();
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: outsideItemName })).toHaveCount(0);
 });
 
 test('renaming a location updates its tab label and deleting it falls back to All Inventory', async ({ page, request }) => {

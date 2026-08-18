@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ADD_OPEN_BUTTON, ITEM_NAME_INPUT, ITEM_QUANTITY_INPUT, ITEM_FORM_SUBMIT_BUTTON, DUP_CHECK_PANEL, ADD_MODAL } from './testids.js';
 
 test('manual add: an exact-name match offers to reuse the existing item instead of creating a duplicate', async ({ page, request }) => {
   const name = `E2E Dup Item ${Date.now()}`;
@@ -7,17 +8,17 @@ test('manual add: an exact-name match offers to reuse the existing item instead 
   const existing = await created.json();
 
   await page.goto('/');
-  await page.locator('button[onclick="openAddModal()"]').click();
-  await page.locator('#itemName').fill(name);
-  await page.locator('#itemQuantity').fill('3');
-  await page.locator('#itemForm button[type="submit"]').click();
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await page.getByTestId(ITEM_NAME_INPUT).fill(name);
+  await page.getByTestId(ITEM_QUANTITY_INPUT).fill('3');
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
 
-  const dupPanel = page.locator('#dupCheckPanel');
+  const dupPanel = page.getByTestId(DUP_CHECK_PANEL);
   await expect(dupPanel).toBeVisible();
   await expect(dupPanel).toContainText('exact name match');
 
   await dupPanel.getByRole('button', { name: 'Use this' }).click();
-  await expect(page.locator('#addModal')).toBeHidden();
+  await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
 
   const itemsRes = await request.get('/api/items');
   const items = await itemsRes.json();
@@ -32,16 +33,16 @@ test('manual add: "Add as new item anyway" overrides a detected match', async ({
   await request.post('/api/items', { data: { name, quantity: 1 } });
 
   await page.goto('/');
-  await page.locator('button[onclick="openAddModal()"]').click();
-  await page.locator('#itemName').fill(name);
-  await page.locator('#itemQuantity').fill('1');
-  await page.locator('#itemForm button[type="submit"]').click();
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await page.getByTestId(ITEM_NAME_INPUT).fill(name);
+  await page.getByTestId(ITEM_QUANTITY_INPUT).fill('1');
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
 
-  const dupPanel = page.locator('#dupCheckPanel');
+  const dupPanel = page.getByTestId(DUP_CHECK_PANEL);
   await expect(dupPanel).toBeVisible();
   await dupPanel.getByText('Add as new item anyway').click();
 
-  await expect(page.locator('#addModal')).toBeHidden();
+  await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
 
   const itemsRes = await request.get('/api/items');
   const items = await itemsRes.json();
