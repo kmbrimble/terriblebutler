@@ -4,6 +4,32 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### React client stage 5 — price history (plan)
+
+Confirmed via `repository-reader` before writing code: legacy's price history lives in the
+"details modal" (`openDetailsModal`, `public/index.html` ~L2111-2250), reached by a
+double-tap/double-click on an item card (single click is reserved for the edit-icon button).
+It shows a Chart.js line chart (`GET /api/items/:id/price-history`, filtered to `price > 0`,
+oldest→newest) plus a table of every record (date/price/vendor/delete), and a last/lowest
+purchase summary sourced from `GET /api/items/:id/details`. Read-only except per-row delete
+(`DELETE /api/price-history/:id`, `confirm()`-gated) — history rows are only ever created via
+item add/edit or invoice commit, never from this view. All three routes and the schema already
+support this; no server.js/schema changes needed for this stage.
+
+Plan: add a "View history" button to `ItemCard` (parallel to the existing edit button — a
+plain click on the card body does nothing in the React client today, unlike legacy, so no
+double-tap gesture is needed to disambiguate from editing) opening a new `PriceHistoryModal`.
+Scope is price history specifically, per this stage's title: last/lowest purchase summary +
+chart + table + delete, reusing the `DETAILS_MODAL`/`DETAILS_TITLE` testids stage 3 already
+reserved. The legacy details modal's other fields (category, container, barcode, stock-by-
+location breakdown) are a different, out-of-scope feature — not built here. Chart rendering
+is a small inline SVG line chart in a framework-free `client/src/lib/priceHistoryChart.ts`
+(sort/filter helpers, unit-tested) rather than adding `chart.js`/`react-chartjs-2` as a new
+dependency — same visual information, no new package for what a few lines of SVG cover.
+`client/src/lib/api.ts` gains `getItemDetails`, `getPriceHistory`, `deletePriceHistoryEntry`.
+E2E coverage extends `test-e2e/v2-item-detail.spec.js` (populated history + delete, and the
+empty-history state). Legacy (`/`) untouched.
+
 ## 0.24 - 2026-08-20
 
 ### React client stage 4 — barcode scanning, label-scan crop, invoice import

@@ -25,6 +25,15 @@ import {
   DEDUCT_QUANTITY_INPUT,
   DEDUCT_RESET_BUTTON,
   DEDUCT_SUBMIT_BUTTON,
+  VIEW_HISTORY_BUTTON,
+  DETAILS_MODAL,
+  DETAILS_TITLE,
+  DETAILS_LAST_PURCHASE,
+  DETAILS_LOWEST_PURCHASE,
+  PRICE_CHART,
+  PRICE_HISTORY_TABLE_BODY,
+  PRICE_HISTORY_ROW,
+  PRICE_HISTORY_DELETE_BUTTON,
 } from './testids.js';
 
 // Shares the mutationRateLimiter (90/60s)/generalApiRateLimiter (240/60s, GETs included)
@@ -53,6 +62,7 @@ let dupExisting, overrideExisting, editOriginal;
 let qtySingle, qtyMulti;
 let deductSingle, deductMulti;
 let ignoreItem;
+let historyItem, noHistoryItem;
 
 test.beforeAll(async ({ request }) => {
   // Default hook timeout (30s) isn't enough if the wait below is needed — the reset can be up
@@ -69,8 +79,13 @@ test.beforeAll(async ({ request }) => {
     expect(res.ok()).toBeTruthy();
     return res.json();
   }
+  async function put(path, data) {
+    const res = await request.put(path, { data });
+    expect(res.ok()).toBeTruthy();
+    return res.json();
+  }
 
-  const NEEDED_HEADROOM = 25; // this file's total fixture + UI-driven mutation count, generously rounded
+  const NEEDED_HEADROOM = 32; // this file's total fixture + UI-driven mutation count, generously rounded
   const probeRes = await request.post('/api/locations', { data: { name: `${prefix} Loc A` } });
   expect(probeRes.ok()).toBeTruthy();
   locA = await probeRes.json();
@@ -97,6 +112,22 @@ test.beforeAll(async ({ request }) => {
   await patch(`/api/items/${deductMulti.id}/quantity`, { amount: 3, action: 'add', location_id: locB.id });
 
   ignoreItem = await post('/api/items', { name: `${prefix} Ignore`, quantity: 1, reorder_threshold: 2, location_id: locA.id });
+
+  // Three price-history records via one add + two edits, spanning a max (8, most recent) and a
+  // min (3) that differ from each other and from the most-recent record, so last-purchase,
+  // lowest-purchase, and the row highlighting can each be asserted distinctly.
+  historyItem = await post('/api/items', {
+    name: `${prefix} History`, quantity: 1, location_id: locA.id, reorder_threshold: 0,
+    price: 5, vendor: 'Vendor A', purchase_date: '2026-01-01',
+  });
+  await put(`/api/items/${historyItem.id}`, {
+    name: historyItem.name, reorder_threshold: 0, price: 3, vendor: 'Vendor B', purchase_date: '2026-02-01',
+  });
+  await put(`/api/items/${historyItem.id}`, {
+    name: historyItem.name, reorder_threshold: 0, price: 8, vendor: 'Vendor C', purchase_date: '2026-03-01',
+  });
+
+  noHistoryItem = await post('/api/items', { name: `${prefix} NoHistory`, quantity: 1, location_id: locA.id, reorder_threshold: 0 });
 });
 
 test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
@@ -254,4 +285,59 @@ test('deduct requires a location picker only for multi-location items, and ignor
 
   await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Grocery List' }).click();
   await expect(page.getByTestId(ITEM_CARD).filter({ hasText: ignoreItem.name })).toHaveCount(1);
+});
+
+test('price history: shows last/lowest purchase, a chart, and a deletable table for an item with recorded prices', async ({ page }) => {
+  page.on('dialog', (dialog) => dialog.accept());
+
+  await page.goto('/v2/');
+  const card = page.getByTestId(ITEM_CARD).filter({ hasText: historyItem.name });
+  await card.getByTestId(VIEW_HISTORY_BUTTON).click();
+
+  const modal = page.getByTestId(DETAILS_MODAL);
+  await expect(modal).toBeVisible();
+  await expect(modal.getByTestId(DETAILS_TITLE)).toHaveText(historyItem.name);
+
+  // Last purchase = most recent record (Vendor C, $8, Mar); lowest = cheapest overall (Vendor B, $3, Feb).
+  await expect(modal.getByTestId(DETAILS_LAST_PURCHASE)).toContainText('$8.00');
+  await expect(modal.getByTestId(DETAILS_LAST_PURCHASE)).toContainText('Vendor C');
+  await expect(modal.getByTestId(DETAILS_LOWEST_PURCHASE)).toContainText('$3.00');
+  await expect(modal.getByTestId(DETAILS_LOWEST_PURCHASE)).toContainText('Vendor B');
+
+  await expect(modal.getByTestId(PRICE_CHART)).toBeVisible();
+
+  const rows = modal.getByTestId(PRICE_HISTORY_TABLE_BODY).getByTestId(PRICE_HISTORY_ROW);
+  await expect(rows).toHaveCount(3);
+
+  // Delete the $3 (Vendor B) record; the modal reloads its own data, and the underlying item's
+  // last/lowest purchase figures move to what's left (min of the remaining $5 and $8 is $5).
+  const rowToDelete = rows.filter({ hasText: 'Vendor B' });
+  await rowToDelete.getByTestId(PRICE_HISTORY_DELETE_BUTTON).click();
+  await expect(rows).toHaveCount(2);
+  await expect(modal.getByTestId(DETAILS_LOWEST_PURCHASE)).toContainText('$5.00');
+  await expect(modal.getByTestId(DETAILS_LOWEST_PURCHASE)).toContainText('Vendor A');
+
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(modal).toBeHidden();
+
+  // The item card behind the modal reflects the same deletion (server recalculates
+  // last_price/lowest_price, broadcasts inventory_updated, and ItemList refetches).
+  await expect(card).toContainText('Lowest: $5.00');
+});
+
+test('price history: an item with no recorded prices shows the empty state, not a blank or crashed view', async ({ page }) => {
+  await page.goto('/v2/');
+  const card = page.getByTestId(ITEM_CARD).filter({ hasText: noHistoryItem.name });
+  await card.getByTestId(VIEW_HISTORY_BUTTON).click();
+
+  const modal = page.getByTestId(DETAILS_MODAL);
+  await expect(modal).toBeVisible();
+  await expect(modal.getByTestId(DETAILS_TITLE)).toHaveText(noHistoryItem.name);
+  await expect(modal.getByTestId(DETAILS_LAST_PURCHASE)).toHaveText('N/A');
+  await expect(modal.getByTestId(DETAILS_LOWEST_PURCHASE)).toHaveText('N/A');
+  await expect(modal.getByTestId(PRICE_HISTORY_TABLE_BODY)).toContainText('No history available');
+  await expect(modal.getByTestId(PRICE_HISTORY_ROW)).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(modal).toBeHidden();
 });

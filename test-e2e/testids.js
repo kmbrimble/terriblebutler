@@ -79,6 +79,17 @@ export const INVOICE_IMPORT_LINE_LOCATION_SELECT = 'invoice-import-line-location
 export const INVOICE_IMPORT_LINE_QTY_INPUT = 'invoice-import-line-qty-input';
 export const INVOICE_IMPORT_LINE_REVIEWED_CHECKBOX = 'invoice-import-line-reviewed-checkbox';
 
+// Stage 5 (React client price history) — new fields/controls. DETAILS_MODAL/DETAILS_TITLE
+// above were reserved in stage 3 for this exact view. The modal's Close button has unique,
+// fixed accessible text and is targeted via getByRole, matching the existing convention.
+export const VIEW_HISTORY_BUTTON = 'view-history-button';
+export const DETAILS_LAST_PURCHASE = 'details-last-purchase';
+export const DETAILS_LOWEST_PURCHASE = 'details-lowest-purchase';
+export const PRICE_CHART = 'price-chart';
+export const PRICE_HISTORY_TABLE_BODY = 'price-history-table-body';
+export const PRICE_HISTORY_ROW = 'price-history-row';
+export const PRICE_HISTORY_DELETE_BUTTON = 'price-history-delete-button';
+
 // Stage 4 (React client barcode/crop/invoice-import) — new fields/controls. Buttons with
 // unique, fixed accessible text (Cancel, Use this, Skip this line, Restore) are targeted via
 // getByRole/getByText, matching the existing convention.
