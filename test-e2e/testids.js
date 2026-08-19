@@ -34,6 +34,25 @@ export const CATEGORY_SUGGEST_BLOCK = 'category-suggest-block';
 export const CATEGORY_SUGGEST_SELECT = 'category-suggest-select';
 export const CATEGORY_SUGGEST_CUSTOM_INPUT = 'category-suggest-custom-input';
 
+// Stage 3 (React client item detail/editing) — new fields/controls the legacy DOM has no
+// existing testid for. Buttons with unique, fixed accessible text (Cancel, Use this, Add as
+// new item anyway, -, +) are targeted via getByRole/getByText instead, matching the existing
+// convention in duplicate-detection.spec.js and multi-location.spec.js.
+export const ITEM_LOCATION_SELECT = 'item-location-select';
+export const ITEM_THRESHOLD_INPUT = 'item-threshold-input';
+export const ITEM_PRICE_INPUT = 'item-price-input';
+export const ITEM_VENDOR_INPUT = 'item-vendor-input';
+export const ITEM_DATE_INPUT = 'item-date-input';
+export const EDIT_ITEM_BUTTON = 'edit-item-button';
+export const IGNORE_TOGGLE_BUTTON = 'ignore-toggle-button';
+export const QTY_MINUS_BUTTON = 'qty-minus-button';
+export const QTY_PLUS_BUTTON = 'qty-plus-button';
+export const QTY_DISPLAY_BUTTON = 'qty-display-button';
+export const QTY_MODAL = 'qty-modal';
+export const QTY_MODAL_AMOUNT_INPUT = 'qty-modal-amount-input';
+export const QTY_MODAL_LOCATION_SELECT = 'qty-modal-location-select';
+export const QTY_MODAL_SUBMIT_BUTTON = 'qty-modal-submit-button';
+
 export const DEDUCT_ACTION_CONTAINER = 'deduct-action-container';
 export const DEDUCT_ITEM_ID = 'deduct-item-id';
 export const DEDUCT_SEARCH_INPUT = 'deduct-search-input';

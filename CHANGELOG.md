@@ -4,6 +4,59 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Plan: React client stage 3 — item detail and editing
+
+Brings `/v2` to parity with `public/index.html` for: add item, edit item, quantity
+adjustment (+/- and manual set), deduct, and ignore/restore from the grocery list.
+Confirmed against server.js and public/index.html directly (not inferred from stage 2):
+
+- Routes: `POST /api/items`, `PUT /api/items/:id`, `PATCH /api/items/:id/quantity`
+  (`{amount, action: 'add'|'subtract'|'set', location_id?}`, location inferred when the
+  item has exactly one location, required/optional otherwise), `POST /api/items/:id/deduct`
+  (`{amount, location_id?}`), `PATCH /api/items/:id/ignore-grocery`
+  (`{is_ignored_grocery: 0|1}`), `GET /api/items/match?name=&barcode=` (duplicate check).
+  All item mutations broadcast `inventory_updated` with a full item payload — already
+  refetched by `ItemList`'s existing socket listener, so no new socket wiring is needed.
+- Legacy quirks to replicate exactly, not "improve": editing hides location/quantity
+  entirely (stock is per-location, ambiguous otherwise); the qty +/- buttons apply a
+  direct ±1 delta only when unambiguous (single location, or a location tab is active) —
+  for a multi-location item viewed outside a location tab, +/- opens a manual "set exact
+  quantity" modal with a location picker instead of guessing; ignore/restore button
+  visibility is driven by which tab is active (`grocery`/`ignored`), not by reading the
+  item's own flag; duplicate-check on add offers "Use this" (merges qty into the existing
+  item) or "Add as new item anyway".
+- Null-in-practice audit against the **live** database (read-only query, not fixtures):
+  of the fields this stage reads/writes, `container_details`, `quantity`,
+  `reorder_threshold` are clean (0/51 NULL). `barcode` (49/51) and `category_id` (50/51)
+  are already `T | null` in `api.ts` and already guarded in the legacy edit-prefill this
+  stage ports. `is_ignored_grocery` is NULL on 1 live row (`id 11`, "Basa cooked" — the
+  same row with NULL prices from the previous fix) despite `DEFAULT 0`, confirming the
+  ad-hoc-ALTER-history risk isn't limited to prices — but the ignore/restore button reads
+  the *active tab*, never the item's own flag, so there's no formatting/crash path for it
+  in this stage's new code; the only reader of the raw flag is stage 2's `filterItems.ts`
+  (untouched), which is already null-safe via strict `=== 0`/`=== 1` equality.
+- Out of scope, confirmed separable in the legacy modal: barcode scanning, "Snap Label
+  with LLM" / image crop, and the location/category "suggest" blocks that only appear
+  after an LLM scan.
+
+**Files:** `client/src/lib/api.ts` (add `createItem`/`updateItem`/`updateItemQuantity`/
+`deductItem`/`setIgnoreGrocery`/`matchItem`, widen `Item.is_ignored_grocery` to
+`number | null`), new `client/src/lib/cardQuantity.ts` (pure, unit-tested — ports
+`cardQuantity()`'s tab-aware per-location display), new `client/src/components/Header.tsx`,
+`ItemFormModal.tsx` (add+edit, shared, matching the legacy single-modal reuse), `DeductModal.tsx`,
+`QtyModal.tsx`; `ItemCard.tsx` extended with edit/qty/ignore controls; `ItemList.tsx` extended
+to own modal-open state and render the above. New testids added to `test-e2e/testids.js`
+(extending the stage-0 contract, not forking it) for fields/controls the legacy DOM has no
+testid for. `public/index.html` is not touched at all this stage.
+
+**Tests:** new `test-e2e/v2-item-detail.spec.js` (add, duplicate-detect/override, edit,
+quick-adjust incl. the ambiguous-multi-location case, deduct incl. the location-picker
+case, ignore/restore); new `client/src/lib/cardQuantity.test.ts`; new
+`client/src/components/ItemFormModal.test.tsx` (constructed-object unit tests for the
+null-guarded edit-prefill fields — barcode/category_id/container_details/reorder_threshold
+— since neither e2e fixtures nor the live API can produce a fresh NULL for a
+DEFAULT-backed column, matching the precedent from the last fix).
+
 ## 0.21 - 2026-08-19
 
 ### Fix: ItemCard crash on null last_price/lowest_price
