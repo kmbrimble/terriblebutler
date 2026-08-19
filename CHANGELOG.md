@@ -4,6 +4,32 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Plan: Fix reorder-threshold step in the React item-edit form
+
+Bug 1 confirmed real (contrary to the initial report's premise): `public/index.html`'s
+`itemThreshold` input also uses `step="0.1"` (confirmed by direct inspection, not assumed) —
+this stage-3 regression report is actually a pre-existing legacy usability bug that was never
+caught before. Per explicit user decision, this fix deliberately diverges from legacy: only
+`client/src/components/ItemFormModal.tsx`'s threshold input changes to `step="1"`; legacy
+(`public/index.html`) is untouched, since "match legacy" was never the goal for this specific
+field once the legacy behaviour itself was identified as the bug.
+
+Bug 2 investigated independently before assuming it shares bug 1's cause: built a diagnostic
+e2e probe (edit an item's threshold via keyboard ArrowUp/Down on the field, submit, check the
+Grocery List tab) — the save → refetch → grocery-tab-filter pipeline itself works correctly
+for whatever value actually gets saved (proven by testing with `step="0.1"` still in place,
+before this fix: pressing ArrowUp 30 times from 0 produced a clean "3", saved correctly, and
+the item appeared in the Grocery List tab immediately). Live DB also checked (read-only): no
+existing item has a fractional `reorder_threshold`, so tightening to `step="1"` won't trip
+HTML5 step-mismatch validation on an existing row's edit. Conclusion: bug 2 has no separate
+code-level cause — it's downstream UX fallout from bug 1 (a user aiming for a whole-number
+threshold via the confusing 0.1-per-click spinner easily lands on an unintended fractional
+value, e.g. 0.3 instead of 3, which then legitimately fails `quantity <= reorder_threshold`).
+Fixing the step to 1 resolves both.
+
+**Fix:** `client/src/components/ItemFormModal.tsx` — `step="0.1"` → `step="1"` on the
+reorder-threshold input only. No other field, `server.js`, or `public/index.html` change.
+
 ## 0.22 - 2026-08-19
 
 ### React client stage 3 — item detail and editing

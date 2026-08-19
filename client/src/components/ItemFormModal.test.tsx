@@ -85,3 +85,28 @@ describe('ItemFormModal edit-mode prefill null-guards', () => {
     expect(html).toContain('value="500g tin"');
   });
 });
+
+describe('ItemFormModal reorder-threshold step', () => {
+  // Regression test: public/index.html's itemThreshold input also uses step="0.1" (confirmed
+  // by direct inspection, not assumed) — this is a pre-existing legacy usability bug, not a
+  // stage-3 regression. Fixed here by deliberate, explicit decision to diverge from legacy:
+  // whole-number steps are what a reorder threshold should have, regardless of what legacy does.
+  function thresholdInputTag(html: string): string {
+    const match = html.match(/<input[^>]*data-testid="item-threshold-input"[^>]*>/);
+    expect(match).toBeTruthy();
+    return match![0];
+  }
+
+  it('uses a whole-number step, not 0.1, in both add and edit mode', () => {
+    const addHtml = renderToStaticMarkup(
+      <ItemFormModal mode="add" locations={[]} categories={categories} onClose={() => {}} />
+    );
+    expect(thresholdInputTag(addHtml)).toContain('step="1"');
+
+    const item = makeItem();
+    const editHtml = renderToStaticMarkup(
+      <ItemFormModal mode="edit" item={item} locations={[]} categories={categories} onClose={() => {}} />
+    );
+    expect(thresholdInputTag(editHtml)).toContain('step="1"');
+  });
+});

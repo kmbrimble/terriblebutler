@@ -157,7 +157,15 @@ test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
   await expect(page.getByTestId(ITEM_LOCATION_SELECT)).toBeHidden();
   await expect(page.getByTestId(ITEM_QUANTITY_INPUT)).toBeHidden();
   await page.getByTestId(ITEM_NAME_INPUT).fill(editNewName);
-  await page.getByTestId(ITEM_THRESHOLD_INPUT).fill('4');
+  // Drives the threshold via keyboard stepping (same native stepUp/stepDown the spinner
+  // buttons use) rather than .fill(), so this proves the control moves by a whole 1 per
+  // press in both directions — not just that *some* final value can be typed in directly.
+  const thresholdInput = page.getByTestId(ITEM_THRESHOLD_INPUT);
+  await thresholdInput.focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowUp');
+  await expect(thresholdInput).toHaveValue('5');
+  await page.keyboard.press('ArrowDown');
+  await expect(thresholdInput).toHaveValue('4');
   await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
   await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
   await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Grocery List' }).click();
