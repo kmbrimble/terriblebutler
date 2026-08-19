@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.25 - 2026-08-20
+
 ### React client stage 5 — price history
 
 Confirmed via `repository-reader` before writing code: legacy's price history lives in the
