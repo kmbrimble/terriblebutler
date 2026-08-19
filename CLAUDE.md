@@ -72,7 +72,12 @@ apply patterns from outside this project without checking against this list.
   been added by ad-hoc `ALTER TABLE ADD COLUMN` (for example `last_price`, `lowest_price`).
   Any schema change must therefore be idempotent and safe to apply to an existing populated
   database. State explicitly in the changelog what schema change was made.
-- There are no invoice or vendor tables; invoice matching state is transient.
+- `invoice_imports` and `invoice_import_lines` hold the deterministic Coles/Woolworths
+  import's server-side staging state (added alongside that flow; confirmed live-empty at the
+  time of the stage-4 React port, 0 rows in each). The plain LLM-parse invoice upload
+  (`/api/invoices/parse` + `/api/invoices/commit`) is unrelated and keeps its staging list
+  entirely client-side — no table backs it. There is still no dedicated `vendor` table;
+  vendors are free-text in `price_history.vendor`.
 
 ## Pre-change backup
 

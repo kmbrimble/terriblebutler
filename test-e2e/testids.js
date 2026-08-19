@@ -68,9 +68,28 @@ export const DETAILS_MODAL = 'details-modal';
 export const DETAILS_TITLE = 'details-title';
 
 export const INVOICE_IMPORT_MODAL = 'invoice-import-modal';
+export const INVOICE_IMPORT_OPEN_BUTTON = 'invoice-import-open-button';
 export const INVOICE_IMPORT_FILE_INPUT = 'invoice-import-file-input';
 export const INVOICE_IMPORT_STAGING_CONTAINER = 'invoice-import-staging-container';
 export const INVOICE_IMPORT_SUMMARY_LINE = 'invoice-import-summary-line';
 export const INVOICE_IMPORT_COMMIT_BUTTON = 'invoice-import-commit-button';
 export const INVOICE_IMPORT_LINE = 'invoice-import-line';
 export const INVOICE_IMPORT_LINE_CATEGORY_SELECT = 'invoice-import-line-category-select';
+export const INVOICE_IMPORT_LINE_LOCATION_SELECT = 'invoice-import-line-location-select';
+export const INVOICE_IMPORT_LINE_QTY_INPUT = 'invoice-import-line-qty-input';
+export const INVOICE_IMPORT_LINE_REVIEWED_CHECKBOX = 'invoice-import-line-reviewed-checkbox';
+
+// Stage 4 (React client barcode/crop/invoice-import) — new fields/controls. Buttons with
+// unique, fixed accessible text (Cancel, Use this, Skip this line, Restore) are targeted via
+// getByRole/getByText, matching the existing convention.
+export const BARCODE_SCAN_BUTTON = 'barcode-scan-button';
+export const BARCODE_SCANNER_MODAL = 'barcode-scanner-modal';
+export const BARCODE_SCANNER_READER = 'barcode-scanner-reader';
+export const SNAP_LABEL_BUTTON = 'snap-label-button';
+export const SNAP_LABEL_FILE_INPUT = 'snap-label-file-input';
+export const CROP_MODAL = 'crop-modal';
+export const CROP_IMAGE = 'crop-image';
+export const CROP_CONFIRM_BUTTON = 'crop-confirm-button';
+export const LOCATION_SUGGEST_BLOCK = 'location-suggest-block';
+export const LOCATION_SUGGEST_SELECT = 'location-suggest-select';
+export const LOCATION_SUGGEST_CUSTOM_INPUT = 'location-suggest-custom-input';

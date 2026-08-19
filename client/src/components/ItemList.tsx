@@ -20,6 +20,8 @@ import { Header } from './Header';
 import { ItemFormModal } from './ItemFormModal';
 import { DeductModal } from './DeductModal';
 import { QtyModal } from './QtyModal';
+import { InvoiceImportModal, ACTIVE_IMPORT_KEY } from './InvoiceImportModal';
+import { Toast } from './Toast';
 
 export function ItemList() {
   const [items, setItems] = useState<Item[]>([]);
@@ -35,11 +37,21 @@ export function ItemList() {
   const [deductOpen, setDeductOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [qtyModalItem, setQtyModalItem] = useState<Item | null>(null);
+  const [invoiceImportOpen, setInvoiceImportOpen] = useState(false);
 
   useEffect(() => {
     getItems().then(setItems).catch(() => {});
     getLocations().then(setLocations).catch(() => {});
     getCategories().then(setCategories).catch(() => {});
+  }, []);
+
+  // Ports resumeActiveInvoiceImport(): if the tab closed or the app restarted mid-review, land
+  // straight back on the same review screen on next load rather than requiring the user to
+  // remember an import was in progress and re-open it manually. InvoiceImportModal's own mount
+  // effect does the actual fetch/validation (and clears the key if the import turns out to
+  // already be committed) — this just decides whether to mount it in the first place.
+  useEffect(() => {
+    if (localStorage.getItem(ACTIVE_IMPORT_KEY)) setInvoiceImportOpen(true);
   }, []);
 
   // All three events carry empty or ignored payloads by design (confirmed in server.js's
@@ -119,7 +131,7 @@ export function ItemList() {
 
   return (
     <div className="flex flex-col">
-      <Header onOpenAdd={() => setAddOpen(true)} onOpenDeduct={() => setDeductOpen(true)} />
+      <Header onOpenAdd={() => setAddOpen(true)} onOpenDeduct={() => setDeductOpen(true)} onOpenInvoiceImport={() => setInvoiceImportOpen(true)} />
       <TabBar locations={locations} activeTab={tab} onSelect={setTab} />
       <div className="p-4 flex flex-col gap-3">
         <SearchInput value={search} onChange={setSearch} />
@@ -163,6 +175,18 @@ export function ItemList() {
       )}
       {deductOpen && <DeductModal items={items} onClose={() => setDeductOpen(false)} />}
       {qtyModalItem && <QtyModal item={qtyModalItem} onClose={() => setQtyModalItem(null)} />}
+      {invoiceImportOpen && (
+        <InvoiceImportModal
+          categories={categories}
+          locations={locations}
+          onClose={() => setInvoiceImportOpen(false)}
+          onCommitted={() => {
+            setInvoiceImportOpen(false);
+            getItems().then(setItems).catch(() => {});
+          }}
+        />
+      )}
+      <Toast />
     </div>
   );
 }

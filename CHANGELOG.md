@@ -4,6 +4,124 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.24 - 2026-08-20
+
+### React client stage 4 — barcode scanning, label-scan crop, invoice import
+
+Confirmed against `public/index.html` and `server.js` directly via `repository-reader`
+(three parallel passes) plus live-DB and dead-code checks before writing any code:
+
+**Barcode scanning.** `html5-qrcode`, used two ways: in the add/edit form, scanning just
+fills the barcode text input (no lookup) — the existing stage-3 `matchItem` dup-check on
+submit already handles the rest. In deduct, scanning calls `GET /api/items/barcode/:barcode`
+directly and selects the item into the deduct flow on a 200, or shows an error on 404
+(`Barcode not found in database.`) — it never auto-deducts. Camera teardown on close/cancel.
+Port: a `BarcodeScannerModal` wrapping the npm `html5-qrcode` package (legacy loads it from a
+CDN global; the client bundles it as a real dependency instead — the two are equivalent for
+this project since neither carries React-specific bindings). To keep the existing e2e
+seam-stubbing convention (`barcode-scan.spec.js` overrides `window.Html5Qrcode` before the
+page loads), the component resolves its constructor as `window.Html5Qrcode ?? (the imported
+class)`, so the same stubbing technique from legacy's tests works unchanged for `/v2`.
+
+**Image cropping — divergence from the task's own premise, confirmed not assumed.** Legacy's
+crop flow (Cropper.js) is *not* "crop an item photo, then save it" — there is no such feature
+in this codebase. It crops a label photo, POSTs the cropped blob to `/api/parse-label-llm`
+(the vision LLM), and uses the JSON response to prefill the add/edit form's name, container
+details, and category/location (with a fuzzy-match suggestion picker when nothing matches
+exactly). Confirmed two ways: grepping `public/index.html` for any caller of
+`/api/upload-image` found none (dead route, present in `server.js` but never invoked from the
+front end), and a live read-only DB check found `image_path IS NULL` on all 52 live items.
+This stage ports the real feature (crop → LLM label parse → form prefill), not the assumed
+one; item-photo capture/display is out of scope since it doesn't exist to have parity with.
+Port: a `CropModal` wrapping the npm `cropperjs` package the same way — a plain ref-based
+DOM library, no React wrapper needed, same reasoning as `html5-qrcode` above. A generic
+`SuggestBlock` component replaces `renderSuggestBlock`/`applySuggestion`, reused for both
+category and location (legacy's own `SUGGEST_KINDS` map already treats them identically) —
+this also gives location suggestion a testid contract for the first time (legacy's
+`locationSuggestBlock` has an `id` but no `data-testid`; only category was ever covered by
+`label-scan-suggestion.spec.js`). Legacy itself is unmodified.
+
+**Invoice import.** Two *separate* legacy flows exist under this name: a plain LLM
+upload+commit flow (`/api/invoices/parse` + `/api/invoices/commit`, client-side-only staging,
+no per-line category assignment) and a deterministic Coles/Woolworths parser flow
+(`/api/invoices/import`, server-side staging in the `invoice_imports`/`invoice_import_lines`
+tables, full per-line review: category, location, quantity, barcode rescan, reviewed/skipped
+status, crash-safe resume via `localStorage['tb_active_import_id']`). The task description
+("staging list of parsed line items, per-line category assignment, commit to inventory") and
+the pre-existing `test-e2e/testids.js` contract (`INVOICE_IMPORT_LINE_CATEGORY_SELECT`,
+`INVOICE_IMPORT_SUMMARY_LINE`, etc. — added before this stage, matching only the deterministic
+flow's shape) both point at the deterministic flow. This stage ports that one only; the plain
+LLM upload+commit flow is out of scope (flagged here, not silently dropped). `CLAUDE.md`'s
+"There are no invoice or vendor tables" line was stale — `invoice_imports` and
+`invoice_import_lines` exist (currently empty on the live DB, 0 rows each) — corrected as part
+of this stage since it was simply wrong, not a design decision that needed a call.
+
+**DEFAULT-vs-NULL fields checked for this stage:** `image_path` (100% NULL live, see above —
+not rendered, matching current legacy reachability). `barcode` (51/52 NULL live — already
+`string | null` from stage 3, reused as-is by the scan/lookup flow). Invoice line fields
+(`matched_item_id`, `suggested_category_id`, `suggested_location_id`, `final_category_id`,
+`final_location_id`, `barcode_scanned`, `qty_confirmed`) are all nullable with no live rows to
+sample; typed `number | null` / `string | null` and resolved with the same `??` fallback
+chains legacy already uses (`final_category_id ?? suggested_category_id`, etc.), which are
+null-safe by construction.
+
+**Scope guard confirmed:** no `server.js`, schema, or `public/index.html` changes. Price
+history stays out of scope, per the task.
+
+**Tests:** unit tests for the new framework-free `lib/labelScan.ts` (suggestion-picker
+branching) and `lib/invoiceImportLine.ts` (value resolution, commit-enabled gate, summary-line
+formatting) using constructed objects, not fixtures — 16 new cases. New e2e specs mirroring the
+existing legacy ones but targeting `/v2`: barcode add/deduct/not-found (`v2-barcode-scan.spec.js`),
+a real end-to-end label-scan (`v2-label-scan.spec.js` — real file input + real Cropper.js UI on
+a fixture jpg, mocked `/api/parse-label-llm` response; more thorough than legacy's own test,
+which bypasses the crop UI entirely), and invoice import (`v2-invoice-import.spec.js`) using the
+same `test/fixtures/invoices/*.pdf` fixtures as the legacy suite, including the
+crash-safe-resume-after-reload case.
+
+**Independent review (Step 6.5) found four issues, all fixed before merge:**
+1. Camera-start failure (permission denied, no camera) was silently swallowed — legacy shows a
+   blocking `alert()` with the error and closes the scanner; `BarcodeScannerModal` now shows a
+   non-blocking error toast and closes instead, matching the rest of this stage's error UI.
+2. Legacy proactively resumes an in-progress invoice import on every page load
+   (`resumeActiveInvoiceImport()`); the initial port only resumed if the user re-opened the
+   modal manually. Fixed: `ItemList` now checks `localStorage['tb_active_import_id']` on mount
+   and auto-opens `InvoiceImportModal` if set, which then does the real fetch/validation —
+   restoring the actual "crash-safe" behaviour the flow is meant to have. (This changed the
+   crash-safety and commit e2e tests: they no longer need to click the invoice-import button
+   again after a reload, since the modal is already open by then.)
+3. No loading indicator during the label-scan LLM parse (legacy shows `#loadingOverlay` for the
+   duration of that request); added a small "Reading label…" indicator in `ItemFormModal`.
+4. The review agent's own probe (`page.locator('.cropper-crop-box')` in the new e2e spec, to
+   wait for Cropper.js's async init) violated `test/e2e-selector-guard.test.js`'s ban on raw CSS
+   selectors in `test-e2e/`. Fixed properly rather than just satisfying the guard:
+   `CropModal`'s confirm button now stays disabled until Cropper.js has actually initialised
+   (it silently no-op'd on an early click before), which is both a real robustness fix and gives
+   the e2e spec a testid-based signal (`toBeEnabled()`) to wait on instead.
+
+**Shared e2e mutation-rate-limit budget (see `v2-item-detail.spec.js`'s original diagnosis in
+0.22):** this stage's three new spec files pushed the full-suite run over the shared
+90-mutations/60s budget again, intermittently 429ing both new and pre-existing specs
+non-deterministically depending on run timing. The previous stage's fix (probe headers, wait if
+low) turned out not fully reliable under this stage's heavier load — a probe reporting 5
+requests of headroom still 429'd on the very next request a few milliseconds later. Replaced
+with `test-e2e/rateLimitWait.js`, two helpers: `requestWithRateLimitRetry` retries a mutation
+fired through Playwright's `request` fixture against the server's own `RateLimit-Reset` header
+after an *actual* 429 (used for the invoice line PATCH loop and category creation), and
+`waitForMutationBudget` pre-emptively waits out the window before a UI-driven mutation that
+can't be retried after the fact (file uploads, button clicks) — now deliberately conservative
+(defaults to requiring 25 of 90 free rather than the smaller margins tried first). Also
+surfaced and fixed a second, unrelated flake in the pre-existing `v2-inventory.spec.js`
+`locations_updated` test: it fired its mutation as soon as `page.goto()` resolved, but
+Socket.IO connects asynchronously after page load — under a full-suite run's heavier load that
+gap was wide enough to occasionally fire the mutation before the socket had finished
+connecting, missing the broadcast entirely. Fixed by waiting on `App`'s own
+`data-socket-connected` attribute before firing the mutation, rather than lengthening the
+assertion timeout (tried first; didn't fix the actual race). Confirmed stable across 6
+consecutive full `npm run test:e2e` runs after these fixes.
+
+**Tests:** `npm test` — backend 201/201, client unit 48/48 (16 new). `npm run test:e2e` —
+46/46 (4 new specs), stable across 6 consecutive full runs.
+
 ## 0.23 - 2026-08-19
 
 ### Fix: reorder-threshold step in the React item-edit form

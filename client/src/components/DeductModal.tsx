@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { deductItem } from '../lib/api';
+import { deductItem, getItemByBarcode } from '../lib/api';
 import type { Item } from '../lib/api';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { showToast } from '../lib/toast';
 
 // Ports openDeductModal()/filterDeductItems()/submitDeduct() from public/index.html: search
 // the already-loaded item list client-side (no extra API call), then deduct from a single
@@ -10,6 +12,19 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
   const [selected, setSelected] = useState<Item | null>(null);
   const [locationId, setLocationId] = useState('');
   const [amount, setAmount] = useState('1');
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // Ports handleDeductScan(): a barcode lookup only selects the item into the deduct form —
+  // it never deducts on its own, and a 404 just shows an error toast rather than throwing.
+  async function handleScan(barcode: string) {
+    setScannerOpen(false);
+    const found = await getItemByBarcode(barcode).catch(() => null);
+    if (!found) {
+      showToast('Barcode not found in database.', 'error');
+      return;
+    }
+    selectItem(found);
+  }
 
   const query = search.toLowerCase();
   const results = query
@@ -46,6 +61,14 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
 
         {!selected ? (
           <div>
+            <button
+              type="button"
+              data-testid="barcode-scan-button"
+              onClick={() => setScannerOpen(true)}
+              className="touch-target w-full bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold mb-2"
+            >
+              Scan Barcode
+            </button>
             <input
               type="text"
               data-testid="deduct-search-input"
@@ -102,6 +125,7 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
           </button>
         </div>
       </div>
+      {scannerOpen && <BarcodeScannerModal onScan={handleScan} onClose={() => setScannerOpen(false)} />}
     </div>
   );
 }

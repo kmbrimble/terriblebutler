@@ -1,4 +1,12 @@
-export function Header({ onOpenAdd, onOpenDeduct }: { onOpenAdd: () => void; onOpenDeduct: () => void }) {
+export function Header({
+  onOpenAdd,
+  onOpenDeduct,
+  onOpenInvoiceImport,
+}: {
+  onOpenAdd: () => void;
+  onOpenDeduct: () => void;
+  onOpenInvoiceImport: () => void;
+}) {
   return (
     <header className="bg-rimmy-purple text-white p-4 sticky top-0 z-10 flex justify-between items-center gap-2 border-b border-rimmy-purpleHover">
       <div className="leading-[1] text-rimmy-orange" style={{ fontFamily: "'Lobster Two', cursive" }}>
@@ -6,6 +14,14 @@ export function Header({ onOpenAdd, onOpenDeduct }: { onOpenAdd: () => void; onO
         <div className="text-[1.3rem] -mt-1">Butler</div>
       </div>
       <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onOpenInvoiceImport}
+          data-testid="invoice-import-open-button"
+          className="touch-target w-11 h-11 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-white rounded font-bold text-lg"
+        >
+          #
+        </button>
         <button
           type="button"
           onClick={onOpenDeduct}

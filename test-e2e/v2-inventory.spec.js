@@ -8,7 +8,9 @@ import {
   SORT_DIR_BUTTON,
   VIEW_MODE_TOGGLE,
   LOCATION_TAB_BUTTON,
+  APP_ROOT,
 } from './testids.js';
+import { requestWithRateLimitRetry } from './rateLimitWait.js';
 
 // server.js applies real rate limiters shared across the WHOLE e2e run — a mutationRateLimiter
 // (90 POST/PUT/PATCH/DELETE per 60s per IP) and a generalApiRateLimiter (240 /api requests per
@@ -238,14 +240,25 @@ test('locations_updated: a location added via the API in one context appears as 
   browser,
   request,
 }) => {
+  test.setTimeout(60_000);
   const context2 = await browser.newContext({ storageState: await context.storageState() });
   const page2 = await context2.newPage();
 
   await page.goto('/v2/');
   await page2.goto('/v2/');
 
+  // Socket.IO connects asynchronously after the page loads (App.tsx's connectSocket() runs in
+  // a useEffect gated on the auth check resolving) — firing the mutation before both sockets
+  // have actually finished connecting means the server broadcast has nothing to reach on that
+  // page, and the assertion below would then wait forever for an event that already happened.
+  // Under a full-suite run's shared server load this gap is wide enough to hit intermittently;
+  // waiting for App's own data-socket-connected flag closes it properly instead of guessing at
+  // a longer timeout.
+  await expect(page.getByTestId(APP_ROOT)).toHaveAttribute('data-socket-connected', 'true');
+  await expect(page2.getByTestId(APP_ROOT)).toHaveAttribute('data-socket-connected', 'true');
+
   const locationName = `${prefix} LiveLoc`;
-  const res = await request.post('/api/locations', { data: { name: locationName } });
+  const res = await requestWithRateLimitRetry(() => request.post('/api/locations', { data: { name: locationName } }));
   expect(res.ok()).toBeTruthy();
 
   await expect(page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locationName })).toHaveCount(1);

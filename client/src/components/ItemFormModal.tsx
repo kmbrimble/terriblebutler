@@ -1,6 +1,10 @@
-import { useState } from 'react';
-import { createItem, updateItem, updateItemQuantity, matchItem } from '../lib/api';
+import { useRef, useState } from 'react';
+import { createItem, updateItem, updateItemQuantity, matchItem, parseLabelImage, createCategory, createLocation } from '../lib/api';
 import type { Item, Location, Category, ItemPayload, MatchResult } from '../lib/api';
+import { deriveLabelScanUpdate } from '../lib/labelScan';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { CropModal } from './CropModal';
+import { SuggestBlock } from './SuggestBlock';
 
 // Ports openEditModal()/buildItemPayload()/handleItemSubmit() from public/index.html.
 // category_id can be genuinely NULL on live rows despite category_name being set (a category
@@ -40,6 +44,12 @@ export function ItemFormModal({
   const [purchaseDate, setPurchaseDate] = useState('');
   const [dupMatch, setDupMatch] = useState<MatchResult | null>(null);
   const [pendingPayload, setPendingPayload] = useState<ItemPayload | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [categorySuggestion, setCategorySuggestion] = useState<ReturnType<typeof deriveLabelScanUpdate>['categorySuggestion']>(null);
+  const [locationSuggestion, setLocationSuggestion] = useState<ReturnType<typeof deriveLabelScanUpdate>['locationSuggestion']>(null);
+  const [parsingLabel, setParsingLabel] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function buildPayload(): ItemPayload {
     const payload: ItemPayload = {
@@ -103,14 +113,75 @@ export function ItemFormModal({
   const typeLabel = (type: MatchResult['type']) =>
     type === 'barcode' ? 'barcode match' : type === 'exact_name' ? 'exact name match' : 'fuzzy match';
 
+  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setCropImageSrc(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function cancelCrop() {
+    setCropImageSrc(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function confirmCrop(blob: Blob) {
+    setCropImageSrc(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setParsingLabel(true);
+    const data = await parseLabelImage(blob).catch(() => null);
+    setParsingLabel(false);
+    if (!data) return;
+    const update = deriveLabelScanUpdate(data);
+    if (update.name !== undefined) setName(update.name);
+    if (update.container_details !== undefined) setContainerDetails(update.container_details);
+    if (update.category_id !== undefined) setCategoryId(String(update.category_id));
+    if (update.location_id !== undefined) setLocationId(String(update.location_id));
+    setCategorySuggestion(update.categorySuggestion);
+    setLocationSuggestion(update.locationSuggestion);
+  }
+
   return (
     <div data-testid="add-modal" className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
         <h2 className="text-xl font-bold mb-4 text-rimmy-orange">{mode === 'add' ? 'Add Item' : 'Edit Item'}</h2>
+
+        <div className="mb-4">
+          <button
+            type="button"
+            data-testid="snap-label-button"
+            onClick={() => fileInputRef.current?.click()}
+            className="touch-target w-full bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold"
+          >
+            Snap Label with LLM
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            data-testid="snap-label-file-input"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileSelected}
+          />
+          {parsingLabel && <p data-testid="label-parsing-indicator" className="text-xs text-rimmy-textMuted mt-1">Reading label…</p>}
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-bold mb-1 text-rimmy-text">Barcode</label>
-            <input data-testid="item-barcode-input" value={barcode} onChange={(e) => setBarcode(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
+            <div className="flex gap-2">
+              <input data-testid="item-barcode-input" value={barcode} onChange={(e) => setBarcode(e.target.value)} className="flex-1 bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
+              <button
+                type="button"
+                data-testid="barcode-scan-button"
+                onClick={() => setScannerOpen(true)}
+                className="touch-target w-12 flex items-center justify-center bg-rimmy-charcoal border border-rimmy-border hover:border-rimmy-orange text-rimmy-text rounded"
+              >
+                #
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-bold mb-1 text-rimmy-text">Name *</label>
@@ -128,6 +199,20 @@ export function ItemFormModal({
                     </option>
                   ))}
                 </select>
+                {locationSuggestion && (
+                  <div className="mt-2">
+                    <SuggestBlock
+                      kind="location"
+                      suggestion={locationSuggestion}
+                      items={locations}
+                      onCreate={createLocation}
+                      onApply={(id) => {
+                        setLocationId(String(id));
+                        setLocationSuggestion(null);
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             )}
             <div className="flex-1">
@@ -140,6 +225,20 @@ export function ItemFormModal({
                   </option>
                 ))}
               </select>
+              {categorySuggestion && (
+                <div className="mt-2">
+                  <SuggestBlock
+                    kind="category"
+                    suggestion={categorySuggestion}
+                    items={categories}
+                    onCreate={createCategory}
+                    onApply={(id) => {
+                      setCategoryId(String(id));
+                      setCategorySuggestion(null);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
           <div>
@@ -209,6 +308,16 @@ export function ItemFormModal({
           </div>
         </form>
       </div>
+      {scannerOpen && (
+        <BarcodeScannerModal
+          onScan={(text) => {
+            setBarcode(text);
+            setScannerOpen(false);
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
+      {cropImageSrc && <CropModal imageSrc={cropImageSrc} onConfirm={confirmCrop} onCancel={cancelCrop} />}
     </div>
   );
 }

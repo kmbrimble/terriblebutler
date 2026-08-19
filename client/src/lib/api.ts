@@ -116,6 +116,123 @@ export async function createLocation(name: string): Promise<Location> {
   return data;
 }
 
+export async function createCategory(name: string): Promise<Category> {
+  const res = await authorizedFetch('/api/categories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create category.');
+  return data;
+}
+
+export async function getItemByBarcode(barcode: string): Promise<Item | null> {
+  const res = await authorizedFetch(`/api/items/barcode/${encodeURIComponent(barcode)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Failed to look up barcode.');
+  return res.json();
+}
+
+// Mirrors applyLabelScanResult()'s server contract exactly — category_id/location_id are
+// direct matches (or null), suggested_*_name/similar_* drive the fuzzy-match suggestion picker.
+export interface LabelScanResult {
+  name: string;
+  container_details: string;
+  category_id: number | null;
+  location_id: number | null;
+  suggested_category_name: string | null;
+  similar_category: { id: number; name: string } | null;
+  suggested_location_name: string | null;
+  similar_location: { id: number; name: string } | null;
+}
+
+export async function parseLabelImage(blob: Blob): Promise<LabelScanResult> {
+  const formData = new FormData();
+  formData.append('image', blob, 'cropped_label.jpg');
+  const res = await authorizedFetch('/api/parse-label-llm', { method: 'POST', body: formData });
+  if (!res.ok) throw new Error('Failed to parse label image.');
+  return res.json();
+}
+
+// Shapes mirror server.js's getImportWithLines() and the invoice_import_lines schema exactly —
+// all suggestion/final/scan fields are genuinely nullable, no live rows exist yet to sample.
+export interface InvoiceImport {
+  id: number;
+  retailer: string | null;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  status: string;
+}
+
+export interface InvoiceImportLine {
+  id: number;
+  import_id: number;
+  raw_name: string;
+  qty_ordered: number | null;
+  qty_supplied: number | null;
+  unit_price: number | null;
+  line_total: number | null;
+  gst_applicable: number;
+  matched_item_id: number | null;
+  suggested_category_id: number | null;
+  suggested_location_id: number | null;
+  final_category_id: number | null;
+  final_location_id: number | null;
+  barcode_scanned: string | null;
+  qty_confirmed: number | null;
+  line_status: 'pending' | 'reviewed' | 'skipped';
+}
+
+export interface InvoiceImportState {
+  import: InvoiceImport;
+  lines: InvoiceImportLine[];
+}
+
+export async function startInvoiceImport(file: File): Promise<InvoiceImportState> {
+  const formData = new FormData();
+  formData.append('invoice', file);
+  const res = await authorizedFetch('/api/invoices/import', { method: 'POST', body: formData });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to import invoice.');
+  return data;
+}
+
+export async function getInvoiceImport(id: number): Promise<InvoiceImportState | null> {
+  const res = await authorizedFetch(`/api/invoices/import/${id}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Failed to fetch invoice import.');
+  return res.json();
+}
+
+export async function patchInvoiceImportLine(
+  importId: number,
+  lineId: number,
+  fields: Partial<Pick<InvoiceImportLine, 'final_category_id' | 'final_location_id' | 'qty_confirmed' | 'barcode_scanned' | 'line_status'>>
+): Promise<InvoiceImportLine> {
+  const res = await authorizedFetch(`/api/invoices/import/${importId}/lines/${lineId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update the invoice line.');
+  return data;
+}
+
+export interface InvoiceCommitSummary {
+  items_added: number;
+  items_matched: number;
+  total_value: number;
+}
+
+export async function commitInvoiceImport(importId: number): Promise<InvoiceCommitSummary> {
+  const res = await authorizedFetch(`/api/invoices/import/${importId}/commit`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to commit the invoice import.');
+  return data;
+}
+
 // Shared add/edit payload shape — mirrors buildItemPayload() in public/index.html exactly.
 // location_id/quantity are add-only (stock is per-location; editing them here would be
 // ambiguous for a multi-location item). price/vendor/date represent a NEW purchase record,
