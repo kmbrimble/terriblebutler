@@ -17,7 +17,7 @@ const bcrypt = require('bcryptjs');
 const { logAction } = require('./logger');
 const { scheduleNightlyBackup } = require('./backup');
 // Initialise App and Server
-const APP_VERSION = '0.17';
+const APP_VERSION = '0.19';
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -45,6 +45,14 @@ const io = new Server(server, {
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// v2: the incrementally-built React client (stage 1 of the front-end rewrite), served
+// alongside the legacy front end at /. Both mounts are scoped entirely under /v2, so
+// neither can shadow /api or /uploads regardless of registration order.
+app.use('/v2', express.static(path.join(__dirname, 'client/dist')));
+app.get(['/v2', '/v2/*'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+});
 
 // Verbose action logging (#14): every mutating /api/* call, request + response body.
 app.use('/api', (req, res, next) => {

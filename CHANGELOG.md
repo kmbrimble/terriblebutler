@@ -4,7 +4,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: React client stage 1 — scaffold + auth path at /v2
+## 0.19 - 2026-08-19
+
+### React client stage 1 — scaffold + auth path at /v2
 
 Scaffold a Vite + React + TypeScript client under `client/`, served at `/v2` alongside the
 existing `public/index.html` front end (which stays untouched and keeps serving `/`). This
@@ -29,9 +31,13 @@ only — no inventory UI.
   shadow `/api` or `/uploads`. `APP_VERSION` bumped to match this changelog entry, resolving
   the drift a prior task's scope guard left behind.
 - `Dockerfile`: new `client-builder` stage (its own `npm install`, since the existing builder
-  stage's `npm install --production` never installs the client's Vite/TS devDependencies);
-  only the built `client/dist` is copied into the runtime stage, not the client's source or
-  `node_modules`. `.dockerignore` updated accordingly.
+  stage's `npm install --production` never installs the client's Vite/TS devDependencies) whose
+  built `client/dist` is explicitly copied into the runtime stage. The client's
+  `node_modules`/devDependencies never reach the runtime image (`.dockerignore` excludes them
+  from the build context entirely); the runtime stage's pre-existing blanket `COPY . .` does
+  still sweep in the client's small source/config files alongside everything else not
+  `.dockerignore`d — a known, deliberately-left minor inefficiency, not the devDependency bloat
+  the plan was actually guarding against.
 - Root `package.json`: `pretest:e2e` builds the client before every `npm run test:e2e` run, so
   a missing or stale `client/dist` fails the npm script chain loudly instead of 404ing quietly
   into a passing suite.
@@ -41,6 +47,14 @@ only — no inventory UI.
   `waitForSelector`/`$`/`$$`), while still explicitly allowing bare tag selectors like
   `header` (a stable HTML landmark, not implementation-detail wiring).
 - Not the 1.0 milestone — that's reserved for shipping the React Native app.
+
+**Tests:** `npm test` 186/186 (backend suite unaffected). `npm run test:e2e` 27/27 — the
+existing 24 (front end at `/` still fully green) plus 3 new `/v2` login specs. Docker image
+built locally and verified directly (CI only builds/pushes the image, it does not run tests):
+`/v2/` and SPA-fallback deep links return 200 with the built client, `/v2/assets/*` serves the
+real JS/CSS, `/` still serves the legacy front end, `/api/health` reports version `0.19`,
+`/api/items` still 401s unauthenticated, `/uploads` is still reachable — confirming `/v2`
+cannot shadow `/api` or `/uploads`.
 
 ## 0.18 - 2026-08-18
 

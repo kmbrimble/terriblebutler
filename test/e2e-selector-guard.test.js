@@ -23,8 +23,20 @@ describe('e2e selector guard', () => {
     });
 
     test(`${file} does not use a raw #id or .class CSS selector`, () => {
-      const violations =
-        content.match(/\.(?:locator|fill|click|dblclick|selectOption|textContent)\(\s*[`'"][.#]/g) || [];
+      // Captures the selector-string argument of every locator-creating call, then checks
+      // for an id/class token anywhere inside it — not just at the start, so `div#foo` and
+      // `button.active` are caught, not only `#foo`/`.foo`. `${...}` interpolations are
+      // stripped first so a dynamic value like `option[value="${existing.id}"]` (an
+      // attribute selector, explicitly allowed — see stage-0's CHANGELOG entry) doesn't
+      // false-positive on the `.id` property access inside the interpolation.
+      // Bare tag selectors (e.g. 'header') are intentionally allowed: they're stable HTML
+      // landmarks, not the implementation-detail wiring (ids/classes/onclick) this guard bans.
+      const calls = [
+        ...content.matchAll(
+          /\.(?:locator|fill|click|dblclick|selectOption|textContent|waitForSelector|\$\$|\$)\(\s*[`'"]([^`'"]*)[`'"]/g,
+        ),
+      ].map((m) => m[1]);
+      const violations = calls.filter((selector) => /[.#][A-Za-z_-]/.test(selector.replace(/\$\{[^}]*\}/g, '')));
       expect(violations).toEqual([]);
     });
 

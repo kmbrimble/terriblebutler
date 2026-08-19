@@ -16,6 +16,19 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install --production
 
+FROM node:20-slim AS client-builder
+
+WORKDIR /app/client
+
+# Separate stage: the client has its own package.json (Vite/React/TypeScript
+# devDependencies) that `npm install --production` in the builder stage above never
+# installs. Building it here keeps those devDependencies out of the runtime image.
+COPY client/package.json client/package-lock.json ./
+RUN npm install
+
+COPY client/ ./
+RUN npm run build
+
 FROM node:20-slim
 
 WORKDIR /app
@@ -26,6 +39,10 @@ COPY --from=builder /app/package.json /app/package-lock.json ./
 
 # Copy application source
 COPY . .
+
+# Copy the built React client (stage 1 of the front-end rewrite) — only the built output,
+# not the client's source or devDependencies
+COPY --from=client-builder /app/client/dist ./client/dist
 
 # Expose app port
 EXPOSE 2626

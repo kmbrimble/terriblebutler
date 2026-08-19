@@ -1,5 +1,7 @@
 .git
 node_modules
+client/node_modules
+client/dist
 /inventory.db
 /inventory.db-shm
 /inventory.db-wal

@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ported verbatim from public/index.html's <style> block — keep both in sync until
+   index.html is retired. */
+:root {
+  --color-bg: #F4F4F9;
+  --color-card: #FFFFFF;
+  --color-header: #5B0998;
+  --color-header-hover: #4a077a;
+  --color-accent: #E65100;
+  --color-accent-hover: #b33e00;
+  --color-text: #1A1A1A;
+  --color-text-muted: #666666;
+  --color-border: #cccccc;
+}
+
+.dark {
+  --color-bg: #0D0D0D;
+  --color-card: #1A1A1A;
+  --color-header: #6A0DAD;
+  --color-header-hover: #7B1FA2;
+  --color-accent: #FF6F00;
+  --color-accent-hover: #FF8C00;
+  --color-text: #E0E0E0;
+  --color-text-muted: #9ca3af;
+  --color-border: #374151;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
