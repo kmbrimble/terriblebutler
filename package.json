@@ -5,11 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:client",
+    "test:client": "npm --prefix client install && npm --prefix client run test",
     "build:client": "npm --prefix client install && npm --prefix client run build",
     "pretest:e2e": "npm run build:client",
     "test:e2e": "playwright test",
-    "test:all": "vitest run && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

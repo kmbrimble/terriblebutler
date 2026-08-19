@@ -4,6 +4,43 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Plan: React client stage 2 — inventory list, tabs, sort/filter/view-mode
+
+Ports `public/index.html`'s browsing UI (tabs, search, sort, view-mode, item cards) into the
+`/v2` React client, matching its exact filter/sort/search behaviour — the single-fetch
+architecture (`GET /api/items` once, all filtering/sorting/search done client-side, including
+Grocery/Ignored tabs) confirmed by reading `renderItems()`/`renderTabs()`/`fetchItems()`
+directly, not assumed. No add/edit/deduct/scan/modal UI this stage — item cards are read-only.
+
+- New `test-e2e/v2-inventory.spec.js`: tab filtering (all/location/grocery/ignored), search
+  combined with the active tab, all six sort keys in both directions verified against real
+  fixture ordering, sort/view-mode persistence across reload (same `tb_sort_by`/`tb_sort_dir`/
+  `tb_view_mode` localStorage keys as the legacy app), and two-browser-context live-update
+  tests for `inventory_updated`/`locations_updated`/`categories_updated` (all three carry
+  empty-or-ignored payloads by design — client always refetches, never reads the payload).
+  Committed failing (undefined UI) first.
+- `client/src/lib/`: `filterItems.ts` and `sortItems.ts` as pure, non-mutating functions
+  (`(items, tab, search, sortBy, sortDir) → Item[]`), porting `renderItems()`'s switch
+  statements and search predicate faithfully, including the exact tie-break (stable sort,
+  `return 0` on equal keys). `preferences.ts` wraps the three localStorage keys. `api.ts`
+  gains typed `getItems`/`getLocations`/`getCategories`/`getGroceryList`/
+  `getOutOfStockIgnored`/`createLocation`, with `Item`/`Location`/`Category` types read from
+  `parseItemLocations`/the SQL column list in server.js, not guessed.
+- `client/src/components/`: `TabBar`, `ItemCard` (compact/expanded), `SortControl`,
+  `ViewModeToggle`, `SearchInput`, `ItemList` (owns items/locations/categories state, the
+  socket refetch subscriptions, and renders the empty state).
+- `client/vitest.config.ts` + colocated `*.test.ts` files: unit tests for the pure filter/sort
+  functions, wired into the root `npm test` via a new `test:client` script — plain TypeScript,
+  no DOM/React needed to test them, and reusable as-is by the eventual React Native app.
+- New testids in `test-e2e/testids.js`: `search-input`, `sort-select`, `sort-dir-button`,
+  `view-mode-toggle`, `item-list`, `empty-state`. `item-card` gets a `data-view-mode` attribute
+  so the two layouts are distinguishable in tests without relying on incidental class names.
+- Deliberate minor divergence: barcode search is lowercased on both sides (case-insensitive),
+  where the legacy code lowercases only the search term. Harmless for real data (barcodes are
+  digits only, so case doesn't arise) and matches this stage's own test spec explicitly asking
+  for case-insensitive barcode search.
+- Not the 1.0 milestone.
+
 ## 0.19 - 2026-08-19
 
 ### React client stage 1 — scaffold + auth path at /v2

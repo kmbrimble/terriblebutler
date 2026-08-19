@@ -16,6 +16,12 @@ export const ADD_OPEN_BUTTON = 'add-open-button';
 export const LOCATION_TAB_BUTTON = 'location-tab-button';
 
 export const ITEM_CARD = 'item-card';
+export const ITEM_LIST = 'item-list';
+export const EMPTY_STATE = 'empty-state';
+export const SEARCH_INPUT = 'search-input';
+export const SORT_SELECT = 'sort-select';
+export const SORT_DIR_BUTTON = 'sort-dir-button';
+export const VIEW_MODE_TOGGLE = 'view-mode-toggle';
 
 export const ITEM_BARCODE_INPUT = 'item-barcode-input';
 export const ITEM_NAME_INPUT = 'item-name-input';
