@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LoginScreen } from './components/LoginScreen';
+import { ItemList } from './components/ItemList';
 import { getToken } from './lib/api';
 import { connectSocket, disconnectSocket } from './lib/socket';
 
@@ -29,12 +30,8 @@ export function App() {
   }
 
   return (
-    <div
-      data-testid="app-root"
-      data-socket-connected={socketConnected}
-      className="min-h-screen bg-rimmy-black text-rimmy-text flex items-center justify-center"
-    >
-      <p>Logged in. Live updates: {socketConnected ? 'connected' : 'connecting…'}</p>
+    <div data-testid="app-root" data-socket-connected={socketConnected} className="min-h-screen bg-rimmy-black text-rimmy-text">
+      <ItemList />
     </div>
   );
 }

@@ -4,7 +4,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: React client stage 2 — inventory list, tabs, sort/filter/view-mode
+## 0.20 - 2026-08-19
+
+### React client stage 2 — inventory list, tabs, sort/filter/view-mode
 
 Ports `public/index.html`'s browsing UI (tabs, search, sort, view-mode, item cards) into the
 `/v2` React client, matching its exact filter/sort/search behaviour — the single-fetch
@@ -13,25 +15,27 @@ Grocery/Ignored tabs) confirmed by reading `renderItems()`/`renderTabs()`/`fetch
 directly, not assumed. No add/edit/deduct/scan/modal UI this stage — item cards are read-only.
 
 - New `test-e2e/v2-inventory.spec.js`: tab filtering (all/location/grocery/ignored), search
-  combined with the active tab, all six sort keys in both directions verified against real
-  fixture ordering, sort/view-mode persistence across reload (same `tb_sort_by`/`tb_sort_dir`/
-  `tb_view_mode` localStorage keys as the legacy app), and two-browser-context live-update
-  tests for `inventory_updated`/`locations_updated`/`categories_updated` (all three carry
-  empty-or-ignored payloads by design — client always refetches, never reads the payload).
+  combined with the active tab (not replacing it), all four non-timestamp sort keys (name,
+  quantity, category, location) in both directions plus `created_at`/`updated_at` verified
+  against real, deliberately-delayed timestamps (proving they're independent of each other),
+  sort/view-mode persistence across reload (same `tb_sort_by`/`tb_sort_dir`/`tb_view_mode`
+  localStorage keys as the legacy app), an empty-state check, and two-browser-context
+  live-update tests for `inventory_updated`/`locations_updated` (both carry empty or
+  client-ignored payloads by design — the client always refetches, never reads the payload).
   Committed failing (undefined UI) first.
 - `client/src/lib/`: `filterItems.ts` and `sortItems.ts` as pure, non-mutating functions
   (`(items, tab, search, sortBy, sortDir) → Item[]`), porting `renderItems()`'s switch
   statements and search predicate faithfully, including the exact tie-break (stable sort,
-  `return 0` on equal keys). `preferences.ts` wraps the three localStorage keys. `api.ts`
-  gains typed `getItems`/`getLocations`/`getCategories`/`getGroceryList`/
-  `getOutOfStockIgnored`/`createLocation`, with `Item`/`Location`/`Category` types read from
-  `parseItemLocations`/the SQL column list in server.js, not guessed.
+  `return 0` on equal keys), with their own unit test suite. `preferences.ts` wraps the three
+  localStorage keys. `api.ts` gains typed `getItems`/`getLocations`/`getCategories`/
+  `getGroceryList`/`getOutOfStockIgnored`/`createLocation`, with `Item`/`Location`/`Category`
+  types read from `parseItemLocations`/the SQL column list in server.js, not guessed.
 - `client/src/components/`: `TabBar`, `ItemCard` (compact/expanded), `SortControl`,
   `ViewModeToggle`, `SearchInput`, `ItemList` (owns items/locations/categories state, the
   socket refetch subscriptions, and renders the empty state).
-- `client/vitest.config.ts` + colocated `*.test.ts` files: unit tests for the pure filter/sort
-  functions, wired into the root `npm test` via a new `test:client` script — plain TypeScript,
-  no DOM/React needed to test them, and reusable as-is by the eventual React Native app.
+- `client/vitest.config.ts` + colocated `*.test.ts` files: 16 unit tests for the pure
+  filter/sort functions, wired into the root `npm test` via a new `test:client` script — plain
+  TypeScript, no DOM/React needed to test them, reusable as-is by the eventual React Native app.
 - New testids in `test-e2e/testids.js`: `search-input`, `sort-select`, `sort-dir-button`,
   `view-mode-toggle`, `item-list`, `empty-state`. `item-card` gets a `data-view-mode` attribute
   so the two layouts are distinguishable in tests without relying on incidental class names.
@@ -39,9 +43,23 @@ directly, not assumed. No add/edit/deduct/scan/modal UI this stage — item card
   where the legacy code lowercases only the search term. Harmless for real data (barcodes are
   digits only, so case doesn't arise) and matches this stage's own test spec explicitly asking
   for case-insensitive barcode search.
+- Empty state: a filtered/sorted/searched view with zero results renders a
+  `data-testid="empty-state"` "No items found." message (ported verbatim from the legacy
+  app's own `renderItems()` fallback) rather than an empty container or an error — verified for
+  a location tab with no matching items, per this stage's explicit "Done when" requirement.
+- **Rate-limiter discovery mid-implementation:** `server.js` already applies a
+  `mutationRateLimiter` (90 POST/PUT/PATCH/DELETE/60s/IP) and `generalApiRateLimiter` (240
+  `/api` requests including GETs/60s/IP) — a real, pre-existing production safety feature, out
+  of this stage's scope to change. The legacy 24-spec suite alone consumes 69 of the mutation
+  budget. `v2-inventory.spec.js` was iterated to fit comfortably within what's left: fixtures
+  are created once in `beforeAll` and heavily multi-purposed (one item/location pair proves
+  four different sort keys simultaneously), and independent read-only assertions are merged
+  into a single `page.goto()` rather than one per scenario, since every page load costs three
+  GETs. Final suite run: zero HTTP 429s.
 - Not the 1.0 milestone.
 
-## 0.19 - 2026-08-19
+**Tests:** `npm test` — backend 189/189, client unit 16/16. `npm run test:e2e` — 33/33 (24
+legacy + 3 `v2-login` + 6 `v2-inventory`, all fully green, zero rate-limit errors).
 
 ### React client stage 1 — scaffold + auth path at /v2
 

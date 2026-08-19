@@ -18,3 +18,7 @@ export function connectSocket(): Socket {
 export function disconnectSocket(): void {
   socket?.disconnect();
 }
+
+export function getSocket(): Socket | undefined {
+  return socket;
+}
