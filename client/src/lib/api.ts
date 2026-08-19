@@ -45,8 +45,8 @@ export interface Item {
   reorder_threshold: number;
   is_ignored_grocery: number;
   image_path: string | null;
-  last_price: number;
-  lowest_price: number;
+  last_price: number | null;
+  lowest_price: number | null;
   created_at: string;
   updated_at: string;
   location_name: string | null;

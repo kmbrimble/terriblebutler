@@ -38,7 +38,7 @@ export function ItemCard({ item, viewMode }: { item: Item; viewMode: ViewMode })
         </p>
         <p className="text-sm text-rimmy-textMuted truncate">{item.container_details}</p>
         <p className="text-sm text-rimmy-text font-semibold mt-1">
-          Last Price: ${item.last_price.toFixed(2)} | Lowest: ${item.lowest_price.toFixed(2)}
+          Last Price: ${(item.last_price || 0).toFixed(2)} | Lowest: ${(item.lowest_price || 0).toFixed(2)}
         </p>
       </div>
       <div className="shrink-0 text-rimmy-text font-bold text-lg">{item.quantity}</div>

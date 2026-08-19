@@ -4,7 +4,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: fix ItemCard crash on null last_price/lowest_price
+## 0.21 - 2026-08-19
+
+### Fix: ItemCard crash on null last_price/lowest_price
 
 Root cause confirmed (not assumed): `items.last_price`/`lowest_price` are `REAL DEFAULT 0`
 columns, but that `DEFAULT` was added later via `ALTER TABLE`, so pre-existing live rows are
@@ -27,6 +29,9 @@ uses `(item.last_price || 0).toFixed(2)` — that's the convention to match, not
   `Item` object directly is the accurate way to cover it, not an API-driven e2e fixture.
 - `client/vitest.config.ts`: widen `include` to pick up `.test.tsx` files.
 - Scope: null-handling only. No other ItemCard/stage-2 behaviour change, server.js untouched.
+
+**Tests:** `npm test` — backend 189/189, client unit 20/20 (4 new, added by this fix). `npm run
+test:e2e` — 33/33, unaffected (confirms the fix doesn't touch stage-2 behaviour).
 
 ## 0.20 - 2026-08-19
 
