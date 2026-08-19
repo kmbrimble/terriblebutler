@@ -4,7 +4,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: React client stage 3 — item detail and editing
+## 0.22 - 2026-08-19
+
+### React client stage 3 — item detail and editing
 
 Brings `/v2` to parity with `public/index.html` for: add item, edit item, quantity
 adjustment (+/- and manual set), deduct, and ignore/restore from the grocery list.
@@ -56,6 +58,33 @@ case, ignore/restore); new `client/src/lib/cardQuantity.test.ts`; new
 null-guarded edit-prefill fields — barcode/category_id/container_details/reorder_threshold
 — since neither e2e fixtures nor the live API can produce a fresh NULL for a
 DEFAULT-backed column, matching the precedent from the last fix).
+
+Two real issues surfaced and fixed while getting the new e2e spec green (both in the test
+file, not the app code):
+- **Shared mutation-rate-limit budget**: measured that the legacy + stage-1/2 v2 specs
+  already consume 87 of the shared `mutationRateLimiter`'s 90-requests/60s budget (the whole
+  suite completes well inside one window), leaving ~3 mutations of headroom before this
+  file's own fixtures even start — nowhere near enough regardless of fixture consolidation.
+  Fixed by having this file's `beforeAll` read the `RateLimit-Remaining`/`RateLimit-Reset`
+  headers server.js already returns on every mutation response, and waiting out the rest of
+  the window when the shared budget is nearly exhausted — a conditional wait driven by the
+  server's own state, not a blind sleep, so an isolated run of just this file never waits.
+  server.js's rate limiter itself is untouched, per this stage's scope guard.
+- **Fuzzy-match false positive**: `GET /api/items/match` uses Fuse.js (threshold 0.3)
+  against every existing item's name. This file's own fixtures all share an
+  `E2E Detail <timestamp> ...` prefix; a new "add" fixture that also started with that
+  pattern intermittently (timestamp-digit-dependent) scored inside the fuzzy threshold
+  against a sibling fixture, wrongly surfacing the duplicate-check panel. Root-caused by
+  reproducing the failure in isolation with zero rate-limit pressure and looping it ~10
+  times with response/console listeners attached before finding the cause. Fixed by giving
+  that one fixture a name sharing zero words with the others.
+
+Verified stable: full suite (`npm test` + `npm run test:e2e`) run twice back-to-back,
+36/36 e2e and 192+31 unit tests green both times, zero 429s.
+
+**Tests:** `npm test` — backend 192/192, client unit 31/31 (11 new: 4 `cardQuantity`, 7
+`ItemFormModal`). `npm run test:e2e` — 36/36 (3 new specs), confirmed stable across two
+consecutive full runs.
 
 ## 0.21 - 2026-08-19
 

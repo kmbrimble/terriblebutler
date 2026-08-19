@@ -32,28 +32,31 @@ function makeItem(overrides: Partial<Item> = {}): Item {
   };
 }
 
+const noop = () => {};
+const cardProps = { tab: { type: 'all' as const, id: null }, onEdit: noop, onAdjust: noop, onOpenQtyModal: noop, onToggleIgnore: noop };
+
 describe('ItemCard', () => {
   it('expanded view renders without throwing when last_price and lowest_price are null', () => {
     const item = makeItem({ last_price: null, lowest_price: null });
-    expect(() => renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" />)).not.toThrow();
+    expect(() => renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" {...cardProps} />)).not.toThrow();
   });
 
   it('expanded view falls back to $0.00 for null prices, matching public/index.html\'s convention', () => {
     const item = makeItem({ last_price: null, lowest_price: null });
-    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" />);
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" {...cardProps} />);
     expect(html).toContain('Last Price: $0.00');
     expect(html).toContain('Lowest: $0.00');
   });
 
   it('expanded view still renders real prices correctly', () => {
     const item = makeItem({ last_price: 4.5, lowest_price: 3.99 });
-    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" />);
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" {...cardProps} />);
     expect(html).toContain('Last Price: $4.50');
     expect(html).toContain('Lowest: $3.99');
   });
 
   it('compact view renders without throwing when prices are null (defensive; it never reads them)', () => {
     const item = makeItem({ last_price: null, lowest_price: null });
-    expect(() => renderToStaticMarkup(<ItemCard item={item} viewMode="compact" />)).not.toThrow();
+    expect(() => renderToStaticMarkup(<ItemCard item={item} viewMode="compact" {...cardProps} />)).not.toThrow();
   });
 });

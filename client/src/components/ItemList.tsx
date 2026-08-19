@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getItems, getLocations, getCategories, type Item, type Location, type Category } from '../lib/api';
+import { getItems, getLocations, getCategories, updateItemQuantity, setIgnoreGrocery, type Item, type Location, type Category } from '../lib/api';
 import { connectSocket } from '../lib/socket';
 import {
   getViewMode,
@@ -16,16 +16,25 @@ import { SearchInput } from './SearchInput';
 import { SortControl } from './SortControl';
 import { ViewModeToggle } from './ViewModeToggle';
 import { ItemCard } from './ItemCard';
+import { Header } from './Header';
+import { ItemFormModal } from './ItemFormModal';
+import { DeductModal } from './DeductModal';
+import { QtyModal } from './QtyModal';
 
 export function ItemList() {
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [tab, setTab] = useState<Tab>({ type: 'all', id: null });
   const [search, setSearch] = useState('');
   const [sortBy, setSortByState] = useState(getSortBy);
   const [sortDir, setSortDirState] = useState(getSortDir);
   const [viewMode, setViewModeState] = useState(getViewMode);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [deductOpen, setDeductOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
+  const [qtyModalItem, setQtyModalItem] = useState<Item | null>(null);
 
   useEffect(() => {
     getItems().then(setItems).catch(() => {});
@@ -88,8 +97,29 @@ export function ItemList() {
     persistViewMode(next);
   }
 
+  // Ports quickAdjustQty(): a location tab targets that location directly (the whole point of
+  // filtering to one); otherwise it's only unambiguous when the item has at most one location —
+  // a multi-location item viewed outside a location tab opens the set-quantity modal's location
+  // picker instead of guessing which location to adjust.
+  function handleQuickAdjust(item: Item, action: 'add' | 'subtract') {
+    if (tab.type === 'location') {
+      updateItemQuantity(item.id, 1, action, tab.id).catch(() => {});
+      return;
+    }
+    if (item.locations.length > 1) {
+      setQtyModalItem(item);
+      return;
+    }
+    updateItemQuantity(item.id, 1, action).catch(() => {});
+  }
+
+  function handleToggleIgnore(item: Item, status: 0 | 1) {
+    setIgnoreGrocery(item.id, status).catch(() => {});
+  }
+
   return (
     <div className="flex flex-col">
+      <Header onOpenAdd={() => setAddOpen(true)} onOpenDeduct={() => setDeductOpen(true)} />
       <TabBar locations={locations} activeTab={tab} onSelect={setTab} />
       <div className="p-4 flex flex-col gap-3">
         <SearchInput value={search} onChange={setSearch} />
@@ -104,9 +134,35 @@ export function ItemList() {
             No items found.
           </p>
         ) : (
-          visibleItems.map((item) => <ItemCard key={item.id} item={item} viewMode={viewMode} />)
+          visibleItems.map((item) => (
+            <ItemCard
+              key={item.id}
+              item={item}
+              viewMode={viewMode}
+              tab={tab}
+              onEdit={setEditingItem}
+              onAdjust={handleQuickAdjust}
+              onOpenQtyModal={setQtyModalItem}
+              onToggleIgnore={handleToggleIgnore}
+            />
+          ))
         )}
       </main>
+
+      {(addOpen || editingItem) && (
+        <ItemFormModal
+          mode={editingItem ? 'edit' : 'add'}
+          item={editingItem ?? undefined}
+          locations={locations}
+          categories={categories}
+          onClose={() => {
+            setAddOpen(false);
+            setEditingItem(null);
+          }}
+        />
+      )}
+      {deductOpen && <DeductModal items={items} onClose={() => setDeductOpen(false)} />}
+      {qtyModalItem && <QtyModal item={qtyModalItem} onClose={() => setQtyModalItem(null)} />}
     </div>
   );
 }
