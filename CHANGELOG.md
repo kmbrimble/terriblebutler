@@ -4,6 +4,30 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Plan: fix ItemCard crash on null last_price/lowest_price
+
+Root cause confirmed (not assumed): `items.last_price`/`lowest_price` are `REAL DEFAULT 0`
+columns, but that `DEFAULT` was added later via `ALTER TABLE`, so pre-existing live rows are
+genuinely `NULL` (fresh rows via `POST /api/items` always get 0, which is why neither the e2e
+fixtures nor the unit-test `makeItem()` helpers ever hit this). `client/src/components/
+ItemCard.tsx`'s expanded view calls `item.last_price.toFixed(2)` / `item.lowest_price.toFixed(2)`
+with no null guard, crashing the whole page. `public/index.html`'s equivalent (working) code
+uses `(item.last_price || 0).toFixed(2)` — that's the convention to match, not invent a new one.
+
+- `client/src/lib/api.ts`: widen `Item.last_price`/`lowest_price` to `number | null`, matching
+  the real (nullable) response shape.
+- `client/src/components/ItemCard.tsx`: guard both `.toFixed()` calls with `|| 0`, matching
+  `public/index.html` exactly.
+- New `client/src/components/ItemCard.test.tsx`: renders `ItemCard` via `react-dom/server`'s
+  `renderToStaticMarkup` (already a dependency, no new test infra needed) with a fixture item
+  that has `last_price`/`lowest_price: null`, asserting expanded view renders without throwing
+  and falls back to `$0.00`. A true e2e fixture can't reproduce this: `POST`/`PUT /api/items`
+  and `recalculateItemPrices()` always write `|| 0`, never `NULL` — the null state only exists
+  on old rows from before the schema's `DEFAULT 0` was added, so a unit test constructing the
+  `Item` object directly is the accurate way to cover it, not an API-driven e2e fixture.
+- `client/vitest.config.ts`: widen `include` to pick up `.test.tsx` files.
+- Scope: null-handling only. No other ItemCard/stage-2 behaviour change, server.js untouched.
+
 ## 0.20 - 2026-08-19
 
 ### React client stage 2 — inventory list, tabs, sort/filter/view-mode
