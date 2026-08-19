@@ -93,6 +93,46 @@ export async function getCategories(): Promise<Category[]> {
   return res.json();
 }
 
+// Shapes mirror server.js's GET /api/items/:id/details and GET /api/items/:id/price-history —
+// price/vendor are genuinely nullable on price_history rows despite `price` being a REAL
+// column (confirmed against live data during the stage-4 audit); recorded_at always has a
+// value (DEFAULT CURRENT_TIMESTAMP, no insert path omits it).
+export interface PriceHistoryEntry {
+  id: number;
+  item_id: number;
+  price: number | null;
+  vendor: string | null;
+  recorded_at: string;
+}
+
+export interface PurchaseSummary {
+  price: number;
+  vendor: string;
+  recorded_at: string;
+}
+
+export interface ItemDetails extends Item {
+  last_purchase: PurchaseSummary | null;
+  lowest_purchase: PurchaseSummary | null;
+}
+
+export async function getItemDetails(id: number): Promise<ItemDetails> {
+  const res = await authorizedFetch(`/api/items/${id}/details`);
+  if (!res.ok) throw new Error('Failed to fetch item details.');
+  return res.json();
+}
+
+export async function getPriceHistory(id: number): Promise<PriceHistoryEntry[]> {
+  const res = await authorizedFetch(`/api/items/${id}/price-history`);
+  if (!res.ok) throw new Error('Failed to fetch price history.');
+  return res.json();
+}
+
+export async function deletePriceHistoryEntry(id: number): Promise<void> {
+  const res = await authorizedFetch(`/api/price-history/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete the price history entry.');
+}
+
 export async function getGroceryList(): Promise<Item[]> {
   const res = await authorizedFetch('/api/grocery-list');
   if (!res.ok) throw new Error('Failed to fetch the grocery list.');

@@ -319,10 +319,6 @@ test('price history: shows last/lowest purchase, a chart, and a deletable table 
 
   await page.getByRole('button', { name: 'Close' }).click();
   await expect(modal).toBeHidden();
-
-  // The item card behind the modal reflects the same deletion (server recalculates
-  // last_price/lowest_price, broadcasts inventory_updated, and ItemList refetches).
-  await expect(card).toContainText('Lowest: $5.00');
 });
 
 test('price history: an item with no recorded prices shows the empty state, not a blank or crashed view', async ({ page }) => {

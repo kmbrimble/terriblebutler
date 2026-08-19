@@ -20,6 +20,7 @@ import { Header } from './Header';
 import { ItemFormModal } from './ItemFormModal';
 import { DeductModal } from './DeductModal';
 import { QtyModal } from './QtyModal';
+import { PriceHistoryModal } from './PriceHistoryModal';
 import { InvoiceImportModal, ACTIVE_IMPORT_KEY } from './InvoiceImportModal';
 import { Toast } from './Toast';
 
@@ -37,6 +38,7 @@ export function ItemList() {
   const [deductOpen, setDeductOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [qtyModalItem, setQtyModalItem] = useState<Item | null>(null);
+  const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [invoiceImportOpen, setInvoiceImportOpen] = useState(false);
 
   useEffect(() => {
@@ -153,6 +155,7 @@ export function ItemList() {
               viewMode={viewMode}
               tab={tab}
               onEdit={setEditingItem}
+              onViewHistory={setHistoryItem}
               onAdjust={handleQuickAdjust}
               onOpenQtyModal={setQtyModalItem}
               onToggleIgnore={handleToggleIgnore}
@@ -175,6 +178,7 @@ export function ItemList() {
       )}
       {deductOpen && <DeductModal items={items} onClose={() => setDeductOpen(false)} />}
       {qtyModalItem && <QtyModal item={qtyModalItem} onClose={() => setQtyModalItem(null)} />}
+      {historyItem && <PriceHistoryModal item={historyItem} onClose={() => setHistoryItem(null)} />}
       {invoiceImportOpen && (
         <InvoiceImportModal
           categories={categories}

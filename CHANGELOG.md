@@ -4,7 +4,7 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### React client stage 5 — price history (plan)
+### React client stage 5 — price history
 
 Confirmed via `repository-reader` before writing code: legacy's price history lives in the
 "details modal" (`openDetailsModal`, `public/index.html` ~L2111-2250), reached by a
@@ -14,21 +14,30 @@ oldest→newest) plus a table of every record (date/price/vendor/delete), and a 
 purchase summary sourced from `GET /api/items/:id/details`. Read-only except per-row delete
 (`DELETE /api/price-history/:id`, `confirm()`-gated) — history rows are only ever created via
 item add/edit or invoice commit, never from this view. All three routes and the schema already
-support this; no server.js/schema changes needed for this stage.
+supported this; no server.js/schema changes were needed or made for this stage.
 
-Plan: add a "View history" button to `ItemCard` (parallel to the existing edit button — a
-plain click on the card body does nothing in the React client today, unlike legacy, so no
-double-tap gesture is needed to disambiguate from editing) opening a new `PriceHistoryModal`.
-Scope is price history specifically, per this stage's title: last/lowest purchase summary +
-chart + table + delete, reusing the `DETAILS_MODAL`/`DETAILS_TITLE` testids stage 3 already
-reserved. The legacy details modal's other fields (category, container, barcode, stock-by-
-location breakdown) are a different, out-of-scope feature — not built here. Chart rendering
-is a small inline SVG line chart in a framework-free `client/src/lib/priceHistoryChart.ts`
-(sort/filter helpers, unit-tested) rather than adding `chart.js`/`react-chartjs-2` as a new
-dependency — same visual information, no new package for what a few lines of SVG cover.
-`client/src/lib/api.ts` gains `getItemDetails`, `getPriceHistory`, `deletePriceHistoryEntry`.
-E2E coverage extends `test-e2e/v2-item-detail.spec.js` (populated history + delete, and the
-empty-history state). Legacy (`/`) untouched.
+Added a "View history" button to `ItemCard` (parallel to the existing edit button — a plain
+click on the card body does nothing in the React client today, unlike legacy, so no double-tap
+gesture was needed to disambiguate from editing) opening a new `PriceHistoryModal`. Scope is
+price history specifically, per this stage's title: last/lowest purchase summary + chart +
+table + delete, reusing the `DETAILS_MODAL`/`DETAILS_TITLE` testids stage 3 already reserved.
+The legacy details modal's other fields (category, container, barcode, stock-by-location
+breakdown) are a different, out-of-scope feature — not built here. Chart rendering is a small
+inline SVG line chart, built from a framework-free `client/src/lib/priceHistoryChart.ts`
+(`chartPoints`/`priceExtremes` sort/filter/highlight helpers, unit-tested) rather than adding
+`chart.js`/`react-chartjs-2` as a new dependency — same visual information (orange line/area,
+purple point markers, red/green max/min row highlighting), no new package for what the SVG
+covers directly. `client/src/lib/api.ts` gains `getItemDetails`, `getPriceHistory`,
+`deletePriceHistoryEntry`, typed per the live-shaped nullability already established in stage
+4's audit: `price_history.price`/`vendor` are typed `number | null`/`string | null` (a REAL
+column can genuinely hold NULL on this project's ad-hoc schema history), `recorded_at` is
+typed non-null (`DEFAULT CURRENT_TIMESTAMP`, no insert path omits it). E2E coverage extends
+`test-e2e/v2-item-detail.spec.js`: one item with three price records (verifies last/lowest
+purchase, the chart, all three table rows, and that deleting a row live-updates the modal's
+figures) and one item with none (verifies the "No history available" / "N/A" empty state,
+not a blank or crashed view). Legacy (`/`) untouched — full suite (`npm test`, 201 backend +
+54 client unit tests; `npm run test:e2e`, 48 Playwright tests including every legacy spec)
+green.
 
 ## 0.24 - 2026-08-20
 

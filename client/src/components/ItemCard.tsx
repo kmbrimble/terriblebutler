@@ -9,11 +9,18 @@ const EDIT_ICON = (
   </svg>
 );
 
+const HISTORY_ICON = (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l5-5 3 3 6-7m0 0h-4m4 0v4" />
+  </svg>
+);
+
 export function ItemCard({
   item,
   viewMode,
   tab,
   onEdit,
+  onViewHistory,
   onAdjust,
   onOpenQtyModal,
   onToggleIgnore,
@@ -22,6 +29,7 @@ export function ItemCard({
   viewMode: ViewMode;
   tab: Tab;
   onEdit: (item: Item) => void;
+  onViewHistory: (item: Item) => void;
   onAdjust: (item: Item, action: 'add' | 'subtract') => void;
   onOpenQtyModal: (item: Item) => void;
   onToggleIgnore: (item: Item, status: 0 | 1) => void;
@@ -87,6 +95,21 @@ export function ItemCard({
     </button>
   );
 
+  const historyButton = (
+    <button
+      type="button"
+      data-testid="view-history-button"
+      aria-label="Price history"
+      onClick={(e) => {
+        e.stopPropagation();
+        onViewHistory(item);
+      }}
+      className="w-8 h-full flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange touch-target rounded border border-rimmy-border bg-rimmy-black"
+    >
+      {HISTORY_ICON}
+    </button>
+  );
+
   const ignoreButton = (isGrocery || isIgnored) && (
     <button
       type="button"
@@ -117,6 +140,7 @@ export function ItemCard({
           </p>
         </div>
         <div className="flex items-center shrink-0 h-[30px] gap-1">
+          {historyButton}
           {editButton}
           {qtyControls}
         </div>
@@ -143,6 +167,7 @@ export function ItemCard({
         {ignoreButton}
       </div>
       <div className="flex w-full sm:w-auto justify-end gap-2">
+        {historyButton}
         {editButton}
         {qtyControls}
       </div>
