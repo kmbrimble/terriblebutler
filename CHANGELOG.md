@@ -4,7 +4,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: Fix reorder-threshold step in the React item-edit form
+## 0.23 - 2026-08-19
+
+### Fix: reorder-threshold step in the React item-edit form
 
 Bug 1 confirmed real (contrary to the initial report's premise): `public/index.html`'s
 `itemThreshold` input also uses `step="0.1"` (confirmed by direct inspection, not assumed) —
@@ -29,6 +31,17 @@ Fixing the step to 1 resolves both.
 
 **Fix:** `client/src/components/ItemFormModal.tsx` — `step="0.1"` → `step="1"` on the
 reorder-threshold input only. No other field, `server.js`, or `public/index.html` change.
+
+**Tests:** new `ItemFormModal.test.tsx` case asserting `step="1"` in both add and edit mode.
+`v2-item-detail.spec.js`'s edit scenario now drives the threshold via keyboard ArrowUp/Down
+(the same native stepping the spinner buttons use) instead of `.fill()`, asserting the
+intermediate value after 5 presses is exactly `"5"` and after one more `ArrowDown` is `"4"` —
+proving the step size itself, not just that a typed final value saves correctly — then
+continues into the existing Grocery-List-tab-appearance assertion unchanged. Confirmed red
+against the pre-fix code (5 presses produced `"0.5"`) before applying the fix.
+
+**Tests:** `npm test` — backend 192/192, client unit 32/32 (1 new). `npm run test:e2e` —
+36/36, confirmed stable across two consecutive full runs.
 
 ## 0.22 - 2026-08-19
 

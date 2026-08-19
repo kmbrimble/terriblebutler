@@ -155,7 +155,7 @@ export function ItemFormModal({
             )}
             <div className="flex-1">
               <label className="block text-sm font-bold mb-1 text-rimmy-text">Reorder Threshold</label>
-              <input type="number" step="0.1" data-testid="item-threshold-input" value={threshold} onChange={(e) => setThreshold(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
+              <input type="number" step="1" data-testid="item-threshold-input" value={threshold} onChange={(e) => setThreshold(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
             </div>
           </div>
           {mode === 'edit' && <p className="text-xs text-rimmy-textMuted -mt-2">Use the qty +/- controls or item details to adjust stock per location.</p>}
