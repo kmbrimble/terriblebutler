@@ -4,6 +4,41 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Plan: React client hamburger/settings menu (fixes a post-cutover functional regression)
+
+The 0.27 cutover made the React client the default front end, but no stage ever ported
+legacy's hamburger/settings drawer (`public/index.html` L138-198) — it fell outside every
+stage's scope (tabs, cards, modals). Investigation via `repository-reader` found this is a
+genuine functional regression, not cosmetic: **Manage Categories** (rename/delete), **Manage
+Locations** (rename/delete), **Toggle Full Screen**, and a **Dark Mode** switch are completely
+unreachable in the React client today (the theme itself persists via `tb_theme`, but there's no
+UI control for it). Sort By/Sort Direction/Expanded View are also in legacy's drawer but already
+exist inline in the React client (`ItemList.tsx`) — per user decision, these are NOT duplicated
+into the new drawer, to avoid two controls for the same state. Legacy's "Upload Invoice" item
+(the plain-LLM `/api/invoices/parse`+`/api/invoices/commit` flow) was explicitly deferred out of
+React scope in an earlier stage (see 0.26 note on invoice import) and, per explicit user
+instruction, is disregarded permanently — not ported, not flagged again. "Import
+Coles/Woolworths" reuses the existing `InvoiceImportModal`. Legacy has no logout button, so none
+is added.
+
+Plan:
+- `client/src/lib/api.ts`: add `updateCategory`/`deleteCategory`/`updateLocation`/
+  `deleteLocation`, mirroring the existing `createCategory`/`createLocation` pattern against the
+  already-live `PUT`/`DELETE /api/{categories,locations}/:id` backend routes.
+- `client/src/lib/theme.ts` (new): `getTheme`/`setTheme`, mirroring `preferences.ts`'s style,
+  same `tb_theme` key `client/index.html` already reads pre-paint.
+- `client/src/components/MenuDrawer.tsx` (new): hamburger button + slide-in drawer, porting
+  legacy's `toggleDrawer()`/`toggleFullScreen()`/`applyTheme()` behaviour exactly.
+- `client/src/components/ManageCategoriesModal.tsx` / `ManageLocationsModal.tsx` (new): list +
+  add + edit (`window.prompt`) + delete (`window.confirm`), porting `editCategory`/
+  `deleteCategory`/`editLocation`/`deleteLocation` from `public/index.html` L864-967 exactly,
+  including the same non-blocking delete-while-in-use behaviour and confirmation copy.
+- `client/src/components/Header.tsx` / `ItemList.tsx`: wire the hamburger button and new modals
+  in following the existing modal-state pattern.
+- `test-e2e/testids.js` + new `test-e2e/v2-menu.spec.js`: failing-first e2e coverage for the
+  menu button, each drawer item, and the two manage-modals' add/edit/delete flows (legacy itself
+  has no test coverage for any of this — confirmed via `repository-reader`).
+
 ## 0.27 - 2026-08-20
 
 ### React client cutover — default front end moves to `/`

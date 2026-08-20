@@ -114,3 +114,23 @@ export const CROP_CONFIRM_BUTTON = 'crop-confirm-button';
 export const LOCATION_SUGGEST_BLOCK = 'location-suggest-block';
 export const LOCATION_SUGGEST_SELECT = 'location-suggest-select';
 export const LOCATION_SUGGEST_CUSTOM_INPUT = 'location-suggest-custom-input';
+
+// Hamburger/settings menu (fixes a post-cutover functional regression — see CHANGELOG). Buttons
+// with unique, fixed accessible text ("Import Coles/Woolworths Invoice", "Toggle Full Screen",
+// "Manage Categories", "Manage Locations", "Add") are targeted via getByRole/getByText, matching
+// the existing convention; testids are only added where text isn't unique or reliable (rows,
+// toggles, per-row edit/delete buttons scoped by a data attribute like INVOICE_IMPORT_LINE's
+// data-line-id).
+export const MENU_OPEN_BUTTON = 'menu-open-button';
+export const MENU_DRAWER = 'menu-drawer';
+export const MENU_DARK_MODE_TOGGLE = 'menu-dark-mode-toggle';
+export const MANAGE_CATEGORIES_MODAL = 'manage-categories-modal';
+export const MANAGE_CATEGORIES_NEW_INPUT = 'manage-categories-new-input';
+export const MANAGE_CATEGORY_ROW = 'manage-category-row';
+export const MANAGE_CATEGORY_EDIT_BUTTON = 'manage-category-edit-button';
+export const MANAGE_CATEGORY_DELETE_BUTTON = 'manage-category-delete-button';
+export const MANAGE_LOCATIONS_MODAL = 'manage-locations-modal';
+export const MANAGE_LOCATIONS_NEW_INPUT = 'manage-locations-new-input';
+export const MANAGE_LOCATION_ROW = 'manage-location-row';
+export const MANAGE_LOCATION_EDIT_BUTTON = 'manage-location-edit-button';
+export const MANAGE_LOCATION_DELETE_BUTTON = 'manage-location-delete-button';
