@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Html5Qrcode as ImportedHtml5Qrcode } from 'html5-qrcode';
 import { showToast } from '../lib/toast';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openBarcodeScanner()/closeBarcodeScanner() from public/index.html. Legacy loads
 // html5-qrcode from a CDN <script>, so its e2e tests stub the scanner by overriding the
@@ -22,6 +23,7 @@ function resolveHtml5QrcodeCtor(): Html5QrcodeCtor {
 }
 
 export function BarcodeScannerModal({ onScan, onClose }: { onScan: (barcode: string) => void; onClose: () => void }) {
+  useLockBodyScroll();
   const readerId = 'barcode-scanner-reader';
   const scannerRef = useRef<InstanceType<Html5QrcodeCtor> | null>(null);
   const onScanRef = useRef(onScan);

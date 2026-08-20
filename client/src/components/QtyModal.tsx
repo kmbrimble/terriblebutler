@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { updateItemQuantity } from '../lib/api';
 import type { Item } from '../lib/api';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openQtyModal()/submitManualQty() from public/index.html: always sets an absolute
 // quantity (never a delta), with a location picker only when the item has stock in more than
 // one location.
 export function QtyModal({ item, onClose }: { item: Item; onClose: () => void }) {
+  useLockBodyScroll();
   const multiLocation = item.locations.length > 1;
   const [locationId, setLocationId] = useState(() => String(item.locations[0]?.location_id ?? ''));
   const [amount, setAmount] = useState(() => {

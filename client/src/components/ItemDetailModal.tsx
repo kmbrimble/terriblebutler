@@ -3,6 +3,7 @@ import { getItemDetails, getPriceHistory, deletePriceHistoryEntry } from '../lib
 import type { Item, ItemDetails, PriceHistoryEntry, PurchaseSummary } from '../lib/api';
 import { chartPoints, priceExtremes } from '../lib/priceHistoryChart';
 import { showToast } from '../lib/toast';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Renamed from PriceHistoryModal (stage 5) to ItemDetailModal (stage 6): the whole card is now
 // the trigger (tap-anywhere, see ItemCard's pointer handling), and this view combines stage 5's
@@ -20,6 +21,7 @@ function formatPurchase(p: PurchaseSummary | null): string {
 }
 
 export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => void }) {
+  useLockBodyScroll();
   const [details, setDetails] = useState<ItemDetails | null>(null);
   const [history, setHistory] = useState<PriceHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);

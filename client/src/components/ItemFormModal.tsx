@@ -5,6 +5,7 @@ import { deriveLabelScanUpdate } from '../lib/labelScan';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CropModal } from './CropModal';
 import { SuggestBlock } from './SuggestBlock';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openEditModal()/buildItemPayload()/handleItemSubmit() from public/index.html.
 // category_id can be genuinely NULL on live rows despite category_name being set (a category
@@ -32,6 +33,7 @@ export function ItemFormModal({
   categories: Category[];
   onClose: () => void;
 }) {
+  useLockBodyScroll();
   const [barcode, setBarcode] = useState(() => item?.barcode ?? '');
   const [name, setName] = useState(() => item?.name ?? '');
   const [locationId, setLocationId] = useState('');

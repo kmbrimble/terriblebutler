@@ -4,6 +4,24 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Modals lock background scroll while open (fixes #22)
+
+Investigated the reported "opening the add-item modal returns to a previous scroll location"
+bug: every modal is conditionally mounted (`{state && <Modal/>}`), so each open is a fresh
+mount and any internal `overflow-y-auto` container already starts at scrollTop 0 — the
+modal's own content was never the problem. The real cause is that nothing stopped the page
+underneath a `fixed inset-0` overlay from still being scrollable: a touch-scroll starting on
+the overlay's background scrolls the body behind it, so reopening (or closing) a modal can
+visibly jump to whatever scroll position that left behind. Added a shared
+`useLockBodyScroll()` hook (`client/src/lib/useLockBodyScroll.ts`) that sets
+`document.body.style.overflow = 'hidden'` for as long as a modal is mounted and restores the
+previous value on unmount, and called it from all 9 modal components (including the two,
+`BarcodeScannerModal`/`CropModal`, that nest inside `ItemFormModal`/`DeductModal` — each
+hook instance captures and restores its own mount-time value, so nesting composes correctly).
+Not unit-testable (`useEffect`/DOM only, and the client's vitest config runs in a `node`
+environment with no DOM) — covered instead by a new Playwright e2e test asserting
+`document.body`'s computed `overflow` is `hidden` while a modal is open and reverts on close.
+
 ### Location label picks the stocked location, not just the first entry (fixes #21)
 
 `ItemCard`'s single-location label picked `item.locations[0]` unconditionally, so an item

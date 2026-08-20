@@ -3,11 +3,13 @@ import { deductItem, getItemByBarcode } from '../lib/api';
 import type { Item } from '../lib/api';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { showToast } from '../lib/toast';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openDeductModal()/filterDeductItems()/submitDeduct() from public/index.html: search
 // the already-loaded item list client-side (no extra API call), then deduct from a single
 // location directly or via a picker when the item has stock in more than one.
 export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => void }) {
+  useLockBodyScroll();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Item | null>(null);
   const [locationId, setLocationId] = useState('');

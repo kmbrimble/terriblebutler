@@ -11,6 +11,7 @@ import {
 } from '../lib/api';
 import { resolveLineCategoryValue, resolveLineLocationValue, isCommitEnabled, matchLabel, formatSummaryLine } from '../lib/invoiceImportLine';
 import { showToast } from '../lib/toast';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 export const ACTIVE_IMPORT_KEY = 'tb_active_import_id';
@@ -33,6 +34,7 @@ export function InvoiceImportModal({
   onClose: () => void;
   onCommitted: () => void;
 }) {
+  useLockBodyScroll();
   const [state, setState] = useState<InvoiceImportState | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanningLineId, setScanningLineId] = useState<number | null>(null);

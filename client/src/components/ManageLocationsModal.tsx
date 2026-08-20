@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { createLocation, updateLocation, deleteLocation, type Location } from '../lib/api';
 import { showToast } from '../lib/toast';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openManageLocations()/renderManageLocations()/addLocation()/editLocation()/
 // deleteLocation() from public/index.html L917-967 — same shape as ManageCategoriesModal.
 export function ManageLocationsModal({ locations, onClose }: { locations: Location[]; onClose: () => void }) {
+  useLockBodyScroll();
   const [newName, setNewName] = useState('');
 
   async function handleAdd() {

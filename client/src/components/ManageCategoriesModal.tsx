@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createCategory, updateCategory, deleteCategory, type Category } from '../lib/api';
 import { showToast } from '../lib/toast';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openManageCategories()/renderManageCategories()/addCategory()/editCategory()/
 // deleteCategory() from public/index.html L864-914 — same prompt()-based rename and
@@ -8,6 +9,7 @@ import { showToast } from '../lib/toast';
 // it from items server-side; no client-side guard). `categories` is kept current via
 // ItemList.tsx's existing categories_updated socket listener, same as legacy's global array.
 export function ManageCategoriesModal({ categories, onClose }: { categories: Category[]; onClose: () => void }) {
+  useLockBodyScroll();
   const [newName, setNewName] = useState('');
 
   async function handleAdd() {

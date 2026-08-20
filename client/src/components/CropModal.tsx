@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ImportedCropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
+import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports handleImageSelection()/confirmCrop()/cancelCrop() from public/index.html (Cropper.js
 // 1.5.13 — the actual CDN version legacy loads; the npm equivalent is pinned to the same 1.x
@@ -19,6 +20,7 @@ function resolveCropperCtor(): CropperCtor {
 }
 
 export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string; onConfirm: (blob: Blob) => void; onCancel: () => void }) {
+  useLockBodyScroll();
   const imgRef = useRef<HTMLImageElement>(null);
   const cropperRef = useRef<InstanceType<CropperCtor> | null>(null);
   // Cropper.js initialises 50ms after mount (matching legacy's own setTimeout); the confirm
