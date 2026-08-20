@@ -1,7 +1,9 @@
+import { useRef } from 'react';
 import type { Item } from '../lib/api';
 import type { ViewMode } from '../lib/preferences';
 import type { Tab } from '../lib/filterItems';
 import { cardQuantity } from '../lib/cardQuantity';
+import { isTap } from '../lib/tapGesture';
 
 const EDIT_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -9,18 +11,20 @@ const EDIT_ICON = (
   </svg>
 );
 
-const HISTORY_ICON = (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l5-5 3 3 6-7m0 0h-4m4 0v4" />
-  </svg>
-);
+// Stops a drag/scroll gesture that starts on a nested button from ever reaching the card's own
+// tap-vs-scroll detection below: since the card only starts tracking a gesture on its own
+// pointerdown, suppressing that event's bubbling here means the card never records a start
+// point, so a later pointerup — even if it bubbles up — has nothing to compare against.
+function stopPointerDown(e: React.PointerEvent) {
+  e.stopPropagation();
+}
 
 export function ItemCard({
   item,
   viewMode,
   tab,
   onEdit,
-  onViewHistory,
+  onOpenDetail,
   onAdjust,
   onOpenQtyModal,
   onToggleIgnore,
@@ -29,11 +33,48 @@ export function ItemCard({
   viewMode: ViewMode;
   tab: Tab;
   onEdit: (item: Item) => void;
-  onViewHistory: (item: Item) => void;
+  onOpenDetail: (item: Item) => void;
   onAdjust: (item: Item, action: 'add' | 'subtract') => void;
   onOpenQtyModal: (item: Item) => void;
   onToggleIgnore: (item: Item, status: 0 | 1) => void;
 }) {
+  // Ref, not state — the pointerdown/pointerup pair happens well within one gesture and never
+  // needs to trigger a re-render.
+  const tapStart = useRef<{ x: number; y: number; time: number; pointerId: number } | null>(null);
+
+  function handleCardPointerDown(e: React.PointerEvent) {
+    tapStart.current = { x: e.clientX, y: e.clientY, time: Date.now(), pointerId: e.pointerId };
+  }
+
+  function handleCardPointerUp(e: React.PointerEvent) {
+    const start = tapStart.current;
+    tapStart.current = null;
+    if (!start || start.pointerId !== e.pointerId) return;
+    if (isTap(e.clientX - start.x, e.clientY - start.y, Date.now() - start.time)) {
+      onOpenDetail(item);
+    }
+  }
+
+  function handleCardPointerCancel() {
+    tapStart.current = null;
+  }
+
+  function handleCardKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpenDetail(item);
+    }
+  }
+
+  const cardInteractionProps = {
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-label': `View details for ${item.name}`,
+    onPointerDown: handleCardPointerDown,
+    onPointerUp: handleCardPointerUp,
+    onPointerCancel: handleCardPointerCancel,
+    onKeyDown: handleCardKeyDown,
+  };
   const locLabel = item.locations.length > 1 ? `${item.locations.length} locations` : item.locations[0]?.location_name || '';
   const qty = cardQuantity(item, tab);
   // Button visibility mirrors public/index.html exactly: driven by which tab is active, not by
@@ -47,6 +88,7 @@ export function ItemCard({
       <button
         type="button"
         data-testid="qty-minus-button"
+        onPointerDown={stopPointerDown}
         onClick={(e) => {
           e.stopPropagation();
           onAdjust(item, 'subtract');
@@ -58,6 +100,7 @@ export function ItemCard({
       <button
         type="button"
         data-testid="qty-display-button"
+        onPointerDown={stopPointerDown}
         onClick={(e) => {
           e.stopPropagation();
           onOpenQtyModal(item);
@@ -69,6 +112,7 @@ export function ItemCard({
       <button
         type="button"
         data-testid="qty-plus-button"
+        onPointerDown={stopPointerDown}
         onClick={(e) => {
           e.stopPropagation();
           onAdjust(item, 'add');
@@ -85,6 +129,7 @@ export function ItemCard({
       type="button"
       data-testid="edit-item-button"
       aria-label="Edit"
+      onPointerDown={stopPointerDown}
       onClick={(e) => {
         e.stopPropagation();
         onEdit(item);
@@ -95,25 +140,11 @@ export function ItemCard({
     </button>
   );
 
-  const historyButton = (
-    <button
-      type="button"
-      data-testid="view-history-button"
-      aria-label="Price history"
-      onClick={(e) => {
-        e.stopPropagation();
-        onViewHistory(item);
-      }}
-      className="w-8 h-full flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange touch-target rounded border border-rimmy-border bg-rimmy-black"
-    >
-      {HISTORY_ICON}
-    </button>
-  );
-
   const ignoreButton = (isGrocery || isIgnored) && (
     <button
       type="button"
       data-testid="ignore-toggle-button"
+      onPointerDown={stopPointerDown}
       onClick={(e) => {
         e.stopPropagation();
         onToggleIgnore(item, isGrocery ? 1 : 0);
@@ -127,6 +158,7 @@ export function ItemCard({
   if (viewMode === 'compact') {
     return (
       <div
+        {...cardInteractionProps}
         data-testid="item-card"
         data-view-mode="compact"
         className="bg-rimmy-charcoal rounded border border-rimmy-border flex justify-between items-center px-3 py-1 h-[44px] shadow-sm"
@@ -140,7 +172,6 @@ export function ItemCard({
           </p>
         </div>
         <div className="flex items-center shrink-0 h-[30px] gap-1">
-          {historyButton}
           {editButton}
           {qtyControls}
         </div>
@@ -150,6 +181,7 @@ export function ItemCard({
 
   return (
     <div
+      {...cardInteractionProps}
       data-testid="item-card"
       data-view-mode="expanded"
       className="bg-rimmy-charcoal rounded-lg shadow-lg border border-rimmy-border p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center"
@@ -167,7 +199,6 @@ export function ItemCard({
         {ignoreButton}
       </div>
       <div className="flex w-full sm:w-auto justify-end gap-2">
-        {historyButton}
         {editButton}
         {qtyControls}
       </div>

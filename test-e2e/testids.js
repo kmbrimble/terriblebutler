@@ -82,13 +82,23 @@ export const INVOICE_IMPORT_LINE_REVIEWED_CHECKBOX = 'invoice-import-line-review
 // Stage 5 (React client price history) — new fields/controls. DETAILS_MODAL/DETAILS_TITLE
 // above were reserved in stage 3 for this exact view. The modal's Close button has unique,
 // fixed accessible text and is targeted via getByRole, matching the existing convention.
-export const VIEW_HISTORY_BUTTON = 'view-history-button';
+// VIEW_HISTORY_BUTTON was removed in stage 6 — the whole card is the trigger now (see below).
 export const DETAILS_LAST_PURCHASE = 'details-last-purchase';
 export const DETAILS_LOWEST_PURCHASE = 'details-lowest-purchase';
 export const PRICE_CHART = 'price-chart';
 export const PRICE_HISTORY_TABLE_BODY = 'price-history-table-body';
 export const PRICE_HISTORY_ROW = 'price-history-row';
 export const PRICE_HISTORY_DELETE_BUTTON = 'price-history-delete-button';
+
+// Stage 6 (React client unified item-detail view) — the item card itself (ITEM_CARD, already
+// exported above) is now the open-detail trigger via tap; these are the additional fields the
+// unified view surfaces beyond stage 5's price history.
+export const DETAILS_CATEGORY = 'details-category';
+export const DETAILS_CONTAINER = 'details-container';
+export const DETAILS_BARCODE = 'details-barcode';
+export const DETAILS_TOTAL_STOCK = 'details-total-stock';
+export const DETAILS_LOCATIONS_BREAKDOWN = 'details-locations-breakdown';
+export const DETAILS_LOCATIONS_ROW = 'details-locations-row';
 
 // Stage 4 (React client barcode/crop/invoice-import) — new fields/controls. Buttons with
 // unique, fixed accessible text (Cancel, Use this, Skip this line, Restore) are targeted via

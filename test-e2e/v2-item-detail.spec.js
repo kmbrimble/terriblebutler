@@ -11,6 +11,7 @@ import {
   ADD_MODAL,
   DUP_CHECK_PANEL,
   EDIT_ITEM_BUTTON,
+  QTY_MINUS_BUTTON,
   QTY_PLUS_BUTTON,
   QTY_DISPLAY_BUTTON,
   QTY_MODAL,
@@ -25,9 +26,14 @@ import {
   DEDUCT_QUANTITY_INPUT,
   DEDUCT_RESET_BUTTON,
   DEDUCT_SUBMIT_BUTTON,
-  VIEW_HISTORY_BUTTON,
   DETAILS_MODAL,
   DETAILS_TITLE,
+  DETAILS_CATEGORY,
+  DETAILS_CONTAINER,
+  DETAILS_BARCODE,
+  DETAILS_TOTAL_STOCK,
+  DETAILS_LOCATIONS_BREAKDOWN,
+  DETAILS_LOCATIONS_ROW,
   DETAILS_LAST_PURCHASE,
   DETAILS_LOWEST_PURCHASE,
   PRICE_CHART,
@@ -35,6 +41,31 @@ import {
   PRICE_HISTORY_ROW,
   PRICE_HISTORY_DELETE_BUTTON,
 } from './testids.js';
+
+// Stage 6: the card itself is the open-detail trigger (tap-anywhere), not a dedicated button —
+// clicking a locator's centre risks landing on a nested button, so this clicks a fixed offset
+// near the card's top-left corner, where only the item name/location text sits in both view
+// modes. A plain Playwright .click() here IS a tap: mousedown/mouseup land at the same point
+// with no intervening movement, well inside ItemCard's ~10px/500ms tap thresholds.
+async function tapCard(card) {
+  await card.click({ position: { x: 10, y: 10 } });
+}
+
+// Drags the mouse from `from` to `from` offset by (dx, dy) — mousedown/move/up all dispatch
+// through the same Pointer Events pipeline ItemCard listens on regardless of input device, so
+// this exercises the exact tap-vs-scroll code path a touch drag would hit, without needing
+// CDP-level touch event injection for a single extra assertion.
+async function dragFrom(page, from, dx, dy) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + dx, from.y + dy, { steps: 8 });
+  await page.mouse.up();
+}
+
+async function centreOf(locator) {
+  const box = await locator.boundingBox();
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
 
 // Shares the mutationRateLimiter (90/60s)/generalApiRateLimiter (240/60s, GETs included)
 // budget with every other spec in the run — see v2-inventory.spec.js's header. Measured: the
@@ -63,6 +94,7 @@ let qtySingle, qtyMulti;
 let deductSingle, deductMulti;
 let ignoreItem;
 let historyItem, noHistoryItem;
+let category, fieldsItem;
 
 test.beforeAll(async ({ request }) => {
   // Default hook timeout (30s) isn't enough if the wait below is needed — the reset can be up
@@ -85,7 +117,7 @@ test.beforeAll(async ({ request }) => {
     return res.json();
   }
 
-  const NEEDED_HEADROOM = 32; // this file's total fixture + UI-driven mutation count, generously rounded
+  const NEEDED_HEADROOM = 36; // this file's total fixture + UI-driven mutation count, generously rounded
   const probeRes = await request.post('/api/locations', { data: { name: `${prefix} Loc A` } });
   expect(probeRes.ok()).toBeTruthy();
   locA = await probeRes.json();
@@ -128,6 +160,17 @@ test.beforeAll(async ({ request }) => {
   });
 
   noHistoryItem = await post('/api/items', { name: `${prefix} NoHistory`, quantity: 1, location_id: locA.id, reorder_threshold: 0 });
+
+  // Stage 6 unified-detail-view fixture: category, container, barcode, two locations, and one
+  // price record so a single test can assert every surfaced field together, matching the actual
+  // interaction (tap once, see everything, not several separately-fetched views).
+  category = await post('/api/categories', { name: `${prefix} Category` });
+  fieldsItem = await post('/api/items', {
+    name: `${prefix} Fields`, quantity: 2, location_id: locA.id, category_id: category.id,
+    container_details: 'Pantry shelf 2', barcode: '9312345678901', reorder_threshold: 0,
+    price: 4, vendor: 'Vendor F', purchase_date: '2026-04-01',
+  });
+  await patch(`/api/items/${fieldsItem.id}/quantity`, { amount: 3, action: 'add', location_id: locB.id });
 });
 
 test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
@@ -292,7 +335,7 @@ test('price history: shows last/lowest purchase, a chart, and a deletable table 
 
   await page.goto('/v2/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: historyItem.name });
-  await card.getByTestId(VIEW_HISTORY_BUTTON).click();
+  await tapCard(card);
 
   const modal = page.getByTestId(DETAILS_MODAL);
   await expect(modal).toBeVisible();
@@ -324,7 +367,7 @@ test('price history: shows last/lowest purchase, a chart, and a deletable table 
 test('price history: an item with no recorded prices shows the empty state, not a blank or crashed view', async ({ page }) => {
   await page.goto('/v2/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: noHistoryItem.name });
-  await card.getByTestId(VIEW_HISTORY_BUTTON).click();
+  await tapCard(card);
 
   const modal = page.getByTestId(DETAILS_MODAL);
   await expect(modal).toBeVisible();
@@ -336,4 +379,69 @@ test('price history: an item with no recorded prices shows the empty state, not 
 
   await page.getByRole('button', { name: 'Close' }).click();
   await expect(modal).toBeHidden();
+});
+
+test('unified detail view: tapping the card shows category, container, barcode and stock-by-location together with price history, in one place', async ({ page }) => {
+  await page.goto('/v2/');
+  const card = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
+  await tapCard(card);
+
+  const modal = page.getByTestId(DETAILS_MODAL);
+  await expect(modal).toBeVisible();
+  await expect(modal.getByTestId(DETAILS_TITLE)).toHaveText(fieldsItem.name);
+  await expect(modal.getByTestId(DETAILS_CATEGORY)).toHaveText(category.name);
+  await expect(modal.getByTestId(DETAILS_CONTAINER)).toHaveText('Pantry shelf 2');
+  await expect(modal.getByTestId(DETAILS_BARCODE)).toHaveText('9312345678901');
+  await expect(modal.getByTestId(DETAILS_TOTAL_STOCK)).toContainText('5');
+  await expect(modal.getByTestId(DETAILS_TOTAL_STOCK)).toContainText('2 locations');
+
+  const breakdownRows = modal.getByTestId(DETAILS_LOCATIONS_BREAKDOWN).getByTestId(DETAILS_LOCATIONS_ROW);
+  await expect(breakdownRows).toHaveCount(2);
+  await expect(breakdownRows.filter({ hasText: locA.name })).toContainText('2');
+  await expect(breakdownRows.filter({ hasText: locB.name })).toContainText('3');
+
+  // Same view, same tap — price history sits alongside the fields above, not behind a second trigger.
+  await expect(modal.getByTestId(DETAILS_LAST_PURCHASE)).toContainText('$4.00');
+  await expect(modal.getByTestId(DETAILS_LAST_PURCHASE)).toContainText('Vendor F');
+  await expect(modal.getByTestId(PRICE_CHART)).toBeVisible();
+  await expect(modal.getByTestId(PRICE_HISTORY_TABLE_BODY).getByTestId(PRICE_HISTORY_ROW)).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(modal).toBeHidden();
+});
+
+test('a scroll gesture that drags across the card does not open the detail view', async ({ page }) => {
+  await page.goto('/v2/');
+  const card = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
+  const box = await card.boundingBox();
+
+  // Starts and ends on the card body (not on any nested button) but moves well past the ~10px
+  // tap threshold — the exact ambiguity a plain click/touchend handler can't resolve.
+  await dragFrom(page, { x: box.x + 10, y: box.y + 10 }, 0, 80);
+
+  await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
+});
+
+test('a drag starting on any in-card button does not misfire the card tap detection', async ({ page }) => {
+  await page.goto('/v2/');
+  const card = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
+
+  // Unrolled rather than looped over an array of testids: test/e2e-selector-guard.test.js
+  // statically requires every getByTestId(...) argument to be a literal exported identifier,
+  // so it can verify the whole suite only ever names testids that actually exist.
+  await dragFrom(page, await centreOf(card.getByTestId(QTY_MINUS_BUTTON)), 0, 80);
+  await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
+  await dragFrom(page, await centreOf(card.getByTestId(QTY_DISPLAY_BUTTON)), 0, 80);
+  await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
+  await dragFrom(page, await centreOf(card.getByTestId(QTY_PLUS_BUTTON)), 0, 80);
+  await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
+  await dragFrom(page, await centreOf(card.getByTestId(EDIT_ITEM_BUTTON)), 0, 80);
+  await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
+
+  // The ignore/restore toggle only renders in the Grocery/Ignored tabs, so it's covered
+  // separately from the always-visible buttons above.
+  await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Grocery List' }).click();
+  const groceryCard = page.getByTestId(ITEM_CARD).filter({ hasText: ignoreItem.name });
+  await dragFrom(page, await centreOf(groceryCard.getByTestId(IGNORE_TOGGLE_BUTTON)), 0, 80);
+  await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
 });

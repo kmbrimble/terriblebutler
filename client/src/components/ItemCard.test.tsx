@@ -33,7 +33,7 @@ function makeItem(overrides: Partial<Item> = {}): Item {
 }
 
 const noop = () => {};
-const cardProps = { tab: { type: 'all' as const, id: null }, onEdit: noop, onViewHistory: noop, onAdjust: noop, onOpenQtyModal: noop, onToggleIgnore: noop };
+const cardProps = { tab: { type: 'all' as const, id: null }, onEdit: noop, onOpenDetail: noop, onAdjust: noop, onOpenQtyModal: noop, onToggleIgnore: noop };
 
 describe('ItemCard', () => {
   it('expanded view renders without throwing when last_price and lowest_price are null', () => {

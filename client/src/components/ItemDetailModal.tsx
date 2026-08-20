@@ -4,12 +4,12 @@ import type { Item, ItemDetails, PriceHistoryEntry, PurchaseSummary } from '../l
 import { chartPoints, priceExtremes } from '../lib/priceHistoryChart';
 import { showToast } from '../lib/toast';
 
-// Ports openDetailsModal()/loadDetailsAndHistory()/renderChart()/renderHistoryTable() from
-// public/index.html, scoped to price history only (this stage's title) — the legacy details
-// modal's other fields (category, container, barcode, stock-by-location breakdown) are a
-// different, out-of-scope feature. The Chart.js line chart is replaced with a small inline SVG
-// built from the same sorted/filtered points (see lib/priceHistoryChart.ts): equivalent visual
-// information, no new chart dependency.
+// Renamed from PriceHistoryModal (stage 5) to ItemDetailModal (stage 6): the whole card is now
+// the trigger (tap-anywhere, see ItemCard's pointer handling), and this view combines stage 5's
+// price history with the rest of legacy's details modal (openDetailsModal(), public/index.html
+// ~L2117-2156) — category, container, barcode, and stock-by-location breakdown — in one place
+// rather than two separate views. The Chart.js line chart stays ported to a small inline SVG
+// (see lib/priceHistoryChart.ts), unchanged from stage 5.
 const CHART_WIDTH = 300;
 const CHART_HEIGHT = 140;
 const CHART_PADDING = 20;
@@ -19,7 +19,7 @@ function formatPurchase(p: PurchaseSummary | null): string {
   return `$${p.price.toFixed(2)} at ${p.vendor} on ${new Date(p.recorded_at).toLocaleDateString()}`;
 }
 
-export function PriceHistoryModal({ item, onClose }: { item: Item; onClose: () => void }) {
+export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => void }) {
   const [details, setDetails] = useState<ItemDetails | null>(null);
   const [history, setHistory] = useState<PriceHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +31,7 @@ export function PriceHistoryModal({ item, onClose }: { item: Item; onClose: () =
       setDetails(d);
       setHistory(h);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to load price history.', 'error');
+      showToast(err instanceof Error ? err.message : 'Failed to load item details.', 'error');
     } finally {
       setLoading(false);
     }
@@ -63,19 +63,64 @@ export function PriceHistoryModal({ item, onClose }: { item: Item; onClose: () =
           {item.name}
         </h2>
 
-        {!loading && (
+        {!loading && details && (
           <>
+            <div className="grid grid-cols-2 gap-3 mb-4 bg-rimmy-black p-4 rounded border border-rimmy-border text-sm">
+              <div>
+                <p className="text-xs text-rimmy-textMuted uppercase font-bold">Category</p>
+                <p data-testid="details-category" className="text-rimmy-text">
+                  {details.category_name || '-'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-rimmy-textMuted uppercase font-bold">Total Stock</p>
+                <p data-testid="details-total-stock" className="text-rimmy-text">
+                  {details.quantity} across {details.locations.length} location{details.locations.length === 1 ? '' : 's'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-rimmy-textMuted uppercase font-bold">Details</p>
+                <p data-testid="details-container" className="text-rimmy-text">
+                  {details.container_details || '-'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-rimmy-textMuted uppercase font-bold">Barcode</p>
+                <p data-testid="details-barcode" className="text-rimmy-text">
+                  {details.barcode || '-'}
+                </p>
+              </div>
+            </div>
+
+            <h3 className="font-bold text-sm text-rimmy-orange mb-2 uppercase">Stock by Location</h3>
+            <ul data-testid="details-locations-breakdown" className="mb-6 text-sm">
+              {details.locations.length === 0 ? (
+                <li className="text-rimmy-textMuted">No stock recorded.</li>
+              ) : (
+                details.locations.map((l) => (
+                  <li
+                    key={l.location_id ?? 'unassigned'}
+                    data-testid="details-locations-row"
+                    className="flex justify-between border-b border-rimmy-border pb-1 mb-1 text-rimmy-text"
+                  >
+                    <span>{l.location_name || 'Unassigned'}</span>
+                    <span className="font-bold">{l.quantity}</span>
+                  </li>
+                ))
+              )}
+            </ul>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 bg-rimmy-black p-4 rounded border border-rimmy-border">
               <div>
                 <p className="text-xs text-rimmy-textMuted uppercase font-bold">Last Purchase</p>
                 <p data-testid="details-last-purchase" className="text-rimmy-text">
-                  {formatPurchase(details?.last_purchase ?? null)}
+                  {formatPurchase(details.last_purchase)}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-rimmy-textMuted uppercase font-bold">Lowest Purchase</p>
                 <p data-testid="details-lowest-purchase" className="text-rimmy-text">
-                  {formatPurchase(details?.lowest_purchase ?? null)}
+                  {formatPurchase(details.lowest_purchase)}
                 </p>
               </div>
             </div>

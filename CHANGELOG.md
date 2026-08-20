@@ -4,6 +4,72 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### React client stage 6 — unified item-detail view
+
+Closes gap #3 of the accumulated legacy/v2 divergence list. Gaps #1 (reorder-threshold step)
+and #2 (second invoice-import flow) remain intentionally unaddressed — not reopened here.
+
+Confirmed via `repository-reader` before writing code: legacy's details modal
+(`openDetailsModal`/`loadDetailsModal`, `public/index.html` ~L2117-2156) shows category, a
+"quantity across N locations" total, container details, barcode, and a stock-by-location
+breakdown list, on top of the last/lowest-purchase summary stage 5 already ported. Legacy's
+double-tap detection (`handleCardTap`, ~L1000-1018) turned out to be a plain 400ms
+same-target-click timer, not touch-coordinate tracking — there was no existing
+touchstart/touchend-style gesture code anywhere in the codebase to reuse, and no gesture
+library in `client/package.json`.
+
+Replaced `ItemCard`'s standalone "View history" button with a tap-anywhere-on-card
+interaction opening a single unified `ItemDetailModal` (renamed from `PriceHistoryModal`) that
+combines those legacy fields with stage 5's chart/table/delete, all in one view. Chose native
+Pointer Events over a new dependency: `client/src/lib/tapGesture.ts` (framework-free) is one
+pure function, `isTap(dx, dy, durationMs)`, true only within ~10px and ~500ms of the
+pointerdown start — Pointer Events already unify mouse/touch/pen, so no gesture library earns
+its place over a native platform feature plus a few lines. `ItemCard`'s outer element becomes a
+`role="button"` div (no existing div-as-button pattern was found in the client, so this is the
+first one) wired to `onPointerDown`/`onPointerUp`/`onPointerCancel` (tracks the start point in a
+ref, decides via `isTap` on release) and `onKeyDown` (Enter/Space) for keyboard access — a real
+`<button>` can't nest the existing qty/edit/ignore buttons. Every nested button gained an
+`onPointerDown` guard (`e.stopPropagation()`) alongside its existing `onClick` guard: the card
+only starts tracking a gesture on its own pointerdown, so stopping that from bubbling means a
+drag that starts on a button never gives the card a start point to compare against, even if the
+eventual pointerup bubbles up.
+
+`ItemDetailModal.tsx` adds a category/container/barcode/total-stock grid and a stock-by-location
+list ahead of the existing last/lowest-purchase summary, chart, and history table. New testids:
+`details-category`, `details-container`, `details-barcode`, `details-total-stock`,
+`details-locations-breakdown`, `details-locations-row`. `view-history-button` is removed —
+intentional, unlike stage 0's add-only guarantee for markup — and `test-e2e/testids.js` /
+`v2-item-detail.spec.js` updated accordingly.
+
+**DEFAULT-vs-NULL fields checked for the newly surfaced data:** reused stage 3's live-DB audit
+(already recorded in this changelog) rather than re-querying the live database, per this
+project's never-touch-live-DB rule. `category_id`/`category_name` (50/51 live rows NULL) and
+`barcode` (49/51 NULL) both fall back to `'-'`, matching legacy's own fallback exactly.
+`container_details` (clean live: 0/51 NULL) also falls back to `'-'` for parity with legacy,
+though it's a no-op on current live data. `item_locations.quantity` is `REAL NOT NULL DEFAULT 0`
+and the breakdown array itself defaults to `[]` server-side (`parseItemLocations`) — never null.
+
+**E2E coverage** (`test-e2e/v2-item-detail.spec.js`): the two existing price-history tests now
+tap the card instead of clicking the removed button; new tests cover the unified view showing
+category/container/barcode/location-breakdown together with price history in one tap, a
+mouse-drag scroll gesture across the card NOT opening the detail view, and a drag starting on
+each in-card button (qty −/display/+, edit, ignore/restore) not misfiring the card's tap
+detection either. The scroll/drag simulation uses Playwright's mouse API rather than CDP-level
+touch injection — mouse down/move/up dispatch through the same Pointer Events pipeline the card
+listens on regardless of input device, exercising the exact code path a touch drag would hit.
+
+No server.js/schema/auth changes — `GET /api/items/:id/details` already returned everything the
+unified view needed. Full suite green: `npm test` (201 backend + 59 client unit tests, up from
+54 with `tapGesture`'s 5 new cases), `npm run test:e2e` (51 Playwright tests, up from 48, every
+legacy spec including `card-double-tap.spec.js` still passing unchanged), `npm run build`
+(`tsc` clean).
+
+Process note: this stage's branch checkpoint (feature skill Step 4) was created late — after
+tests and implementation were already written, not before — because the implementation work
+started directly on `main`. No commit had been made to `main` at that point, so `main`'s history
+is unaffected; the branch was created retroactively before the first commit, preserving the
+guarantee that `main` stays untouched until this stage's own merge.
+
 ## 0.25 - 2026-08-20
 
 ### React client stage 5 — price history
