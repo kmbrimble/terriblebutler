@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.26 - 2026-08-20
+
 ### React client stage 6 — unified item-detail view
 
 Closes gap #3 of the accumulated legacy/v2 divergence list. Gaps #1 (reorder-threshold step)
