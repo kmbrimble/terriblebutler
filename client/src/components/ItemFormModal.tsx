@@ -81,12 +81,23 @@ export function ItemFormModal({
     onClose();
   }
 
+  async function mergeQuantityInto(existingId: number, payload: ItemPayload) {
+    await updateItemQuantity(existingId, payload.quantity || 0, 'add', payload.location_id || null);
+    onClose();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const payload = buildPayload();
 
     if (mode === 'add') {
       const match = await matchItem(payload.name, payload.barcode || undefined);
+      // An exact case-insensitive name match is unambiguous, so it auto-merges without asking
+      // — unlike barcode/fuzzy matches, which can't be that certain and still show the panel.
+      if (match && match.type === 'exact_name' && match.candidates.length === 1) {
+        await mergeQuantityInto(match.candidates[0].id, payload);
+        return;
+      }
       if (match && match.type) {
         setPendingPayload(payload);
         setDupMatch(match);
@@ -98,8 +109,7 @@ export function ItemFormModal({
 
   async function useExisting(existingId: number) {
     if (!pendingPayload) return;
-    await updateItemQuantity(existingId, pendingPayload.quantity || 0, 'add', pendingPayload.location_id || null);
-    onClose();
+    await mergeQuantityInto(existingId, pendingPayload);
   }
 
   async function proceedAsNew() {

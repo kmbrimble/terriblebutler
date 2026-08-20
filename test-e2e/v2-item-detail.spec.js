@@ -133,7 +133,10 @@ test.beforeAll(async ({ request }) => {
   locB = await post('/api/locations', { name: `${prefix} Loc B` });
 
   dupExisting = await post('/api/items', { name: `${prefix} Dup`, quantity: 2 });
-  overrideExisting = await post('/api/items', { name: `${prefix} Override`, quantity: 1 });
+  // Deliberately NOT sharing this file's "E2E Detail <ts>" prefix (see the addName comment
+  // below) — needs a name close enough to fuzzy-match a typo'd variant (Beanz/Beans) without
+  // also fuzzy-matching every other same-prefix fixture in this file.
+  overrideExisting = await post('/api/items', { name: `Baked Beanz ${Date.now()}`, quantity: 1 });
   editOriginal = await post('/api/items', { name: `${prefix} Edit`, quantity: 2, location_id: locA.id });
 
   qtySingle = await post('/api/items', { name: `${prefix} QtySingle`, quantity: 3, location_id: locA.id });
@@ -197,29 +200,31 @@ test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
   const addedCard = page.getByTestId(ITEM_CARD).filter({ hasText: addName });
   await expect(addedCard.getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('3');
 
-  // Duplicate detection: an exact-name match (pre-created in beforeAll) offers to reuse the
-  // existing item, merging the new quantity into it rather than creating a second row.
+  // Duplicate detection: an exact case-insensitive name match (pre-created in beforeAll) is
+  // unambiguous, so it auto-merges the new quantity into the existing item immediately — no
+  // confirmation panel — rather than creating a second row.
   await page.getByTestId(ADD_OPEN_BUTTON).click();
-  await page.getByTestId(ITEM_NAME_INPUT).fill(dupExisting.name);
+  await page.getByTestId(ITEM_NAME_INPUT).fill(dupExisting.name.toLowerCase());
   await page.getByTestId(ITEM_QUANTITY_INPUT).fill('3');
   await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
-  let dupPanel = page.getByTestId(DUP_CHECK_PANEL);
-  await expect(dupPanel).toBeVisible();
-  await expect(dupPanel).toContainText('exact name match');
-  await dupPanel.getByRole('button', { name: 'Use this' }).click();
   await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
+  await expect(page.getByTestId(DUP_CHECK_PANEL)).toBeHidden();
   await expect(page.getByTestId(ITEM_CARD).filter({ hasText: dupExisting.name }).getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('5');
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: dupExisting.name })).toHaveCount(1);
 
-  // Duplicate override: "Add as new item anyway" creates a second item regardless of the match.
+  // Fuzzy match (a typo'd near-miss, not an exact match): still shows the confirmation panel,
+  // and "Add as new item anyway" creates a second item regardless of the match.
+  const overrideTypo = overrideExisting.name.replace('Beanz', 'Beans');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
-  await page.getByTestId(ITEM_NAME_INPUT).fill(overrideExisting.name);
+  await page.getByTestId(ITEM_NAME_INPUT).fill(overrideTypo);
   await page.getByTestId(ITEM_QUANTITY_INPUT).fill('1');
   await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
-  dupPanel = page.getByTestId(DUP_CHECK_PANEL);
+  const dupPanel = page.getByTestId(DUP_CHECK_PANEL);
   await expect(dupPanel).toBeVisible();
+  await expect(dupPanel).toContainText('fuzzy match');
   await dupPanel.getByText('Add as new item anyway').click();
   await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
-  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: overrideExisting.name })).toHaveCount(2);
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: overrideTypo })).toHaveCount(1);
 
   // Edit: location/quantity fields are hidden, and name/category/threshold changes are saved.
   // A reorder_threshold change is verified indirectly via the Grocery List tab (raising the

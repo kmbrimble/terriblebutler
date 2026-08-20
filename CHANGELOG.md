@@ -4,6 +4,19 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Auto-add on exact name match (fixes #20)
+
+`ItemFormModal`'s add flow showed the duplicate-check confirmation panel for every match type
+returned by `/api/items/match` (barcode, exact_name, fuzzy). An exact case-insensitive name
+match is unambiguous, so it now merges into the existing item immediately on submit — same
+`updateItemQuantity(..., 'add', ...)` behaviour as clicking "Use this" — with no confirmation
+step. Barcode and fuzzy matches are unchanged and still show the panel. Extracted the merge
+logic (`mergeQuantityInto`) so both paths share it. Updated the React-client dup-detection
+e2e coverage in `test-e2e/v2-item-detail.spec.js` to match (exact-name fixture now auto-merges
+without a panel; added a distinct near-but-not-exact name fixture to keep the panel/override
+flow covered via a fuzzy match instead). `test-e2e/duplicate-detection.spec.js` targets the
+legacy `/legacy/` front end, which is unchanged, so it's left as-is.
+
 ### Modal close (X) buttons (fixes #19)
 
 `ItemFormModal`, `ItemDetailModal`, `QtyModal`, and `DeductModal` were the only modals in the
