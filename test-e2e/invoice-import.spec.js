@@ -26,7 +26,7 @@ function lineRow(page, lineId) {
 }
 
 test('invoice import: uploading a Woolworths PDF renders the review checklist with the correct line count', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.evaluate(() => window.openInvoiceImportModal());
   await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
 
@@ -37,7 +37,7 @@ test('invoice import: uploading a Woolworths PDF renders the review checklist wi
 });
 
 test('invoice import: a category change on one line persists across a page reload (crash-safety)', async ({ page, request }) => {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.evaluate(() => window.openInvoiceImportModal());
 
   const [importRes] = await Promise.all([
@@ -65,7 +65,7 @@ test('invoice import: a category change on one line persists across a page reloa
 });
 
 test('invoice import: completing a review and committing shows a summary and creates the expected items', async ({ page, request }) => {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.evaluate(() => window.openInvoiceImportModal());
 
   const [importRes] = await Promise.all([

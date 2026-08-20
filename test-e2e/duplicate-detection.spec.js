@@ -7,7 +7,7 @@ test('manual add: an exact-name match offers to reuse the existing item instead 
   expect(created.ok()).toBeTruthy();
   const existing = await created.json();
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
   await page.getByTestId(ITEM_NAME_INPUT).fill(name);
   await page.getByTestId(ITEM_QUANTITY_INPUT).fill('3');
@@ -32,7 +32,7 @@ test('manual add: "Add as new item anyway" overrides a detected match', async ({
   const name = `E2E Dup Override ${Date.now()}`;
   await request.post('/api/items', { data: { name, quantity: 1 } });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
   await page.getByTestId(ITEM_NAME_INPUT).fill(name);
   await page.getByTestId(ITEM_QUANTITY_INPUT).fill('1');

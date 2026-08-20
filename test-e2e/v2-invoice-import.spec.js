@@ -31,7 +31,7 @@ test('v2: uploading a Woolworths PDF renders the review checklist with the corre
   const probe = await request.post('/api/locations', { data: { name: `E2E V2 Invoice Probe ${Date.now()}` } });
   await waitForMutationBudget(probe);
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
   await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
 
@@ -46,7 +46,7 @@ test('v2: a category change on one line persists across a page reload (crash-saf
   const probe = await request.post('/api/locations', { data: { name: `E2E V2 Invoice Probe ${Date.now()}` } });
   await waitForMutationBudget(probe);
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
 
   const [importRes] = await Promise.all([
@@ -81,7 +81,7 @@ test('v2: completing a review and committing shows a summary and creates the exp
   const probe = await request.post('/api/locations', { data: { name: `E2E V2 Invoice Probe ${Date.now()}` } });
   await waitForMutationBudget(probe, 50);
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
 
   const [importRes] = await Promise.all([

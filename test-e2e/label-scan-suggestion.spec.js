@@ -10,7 +10,7 @@ import { ADD_OPEN_BUTTON, CATEGORY_SUGGEST_BLOCK, CATEGORY_SUGGEST_SELECT, CATEG
 test('label scan: no match offers to add the scanned category as new, and applies it', async ({ page, request }) => {
   const categoryName = `E2E Scanned Category ${Date.now()}`;
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
 
   await page.evaluate((name) => window.applyLabelScanResult({
@@ -42,7 +42,7 @@ test('label scan: a close existing category is pre-selected and does not create 
   const created = await request.post('/api/categories', { data: { name: existingName } });
   const existing = await created.json();
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
   // The category list is fetched asynchronously on page load; wait for it to actually
   // land before the suggestion picker (built from that same in-memory list) is rendered.
@@ -73,7 +73,7 @@ test('label scan: a close existing category is pre-selected and does not create 
 test('label scan: user can override the suggestion and type a different new category name', async ({ page, request }) => {
   const customName = `E2E Custom Category ${Date.now()}`;
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
 
   await page.evaluate(() => window.applyLabelScanResult({
@@ -105,7 +105,7 @@ test('label scan: an exact category/location match populates the form directly, 
   const created = await request.post('/api/categories', { data: { name: `E2E Direct Category ${Date.now()}` } });
   const existing = await created.json();
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ADD_OPEN_BUTTON).click();
   // The category list is fetched asynchronously on page load; wait for it to actually
   // land in the <select> before relying on its option being present.

@@ -12,7 +12,7 @@ test('a failed request shows an error toast, not a blocking alert dialog', async
     await dialog.dismiss();
   });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
   await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(name);
   await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: name }).click();
@@ -35,7 +35,7 @@ test('a successful request still shows the (green) success toast', async ({ page
   const name = `E2E Deduct Success ${Date.now()}`;
   await request.post('/api/items', { data: { name, quantity: 5 } });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
   await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(name);
   await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: name }).click();

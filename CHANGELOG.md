@@ -4,30 +4,38 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: React client cutover — default front end moves to `/`
+## 0.27 - 2026-08-20
 
-All 6 React rewrite stages are complete; the three known legacy/v2 behavioural gaps are each
-resolved or deliberately not ported. Pure routing swap, no behavioural change to either front
-end.
+### React client cutover — default front end moves to `/`
 
-- `server.js`: swap the `express.static` mounts — `client/dist` moves from `/v2` to `/`
-  (root), `public/` moves from `/` to `/legacy`. The React client's SPA catch-all
-  (currently scoped to `['/v2', '/v2/*']`) becomes a genuine `app.get('*', ...)` wildcard once
-  mounted at root, so it must move to the very end of the route table (after every `/api`
-  route, `/healthz`, `/uploads`, `/legacy`) or it would shadow them.
+All 6 React rewrite stages are complete and merged; the three known legacy/v2 behavioural gaps
+are each resolved or deliberately not ported (see 0.26). This is the point the React client
+becomes the default front end — a pure routing swap, no behavioural change to either front end.
+
+- `server.js`: swapped the `express.static` mounts — `client/dist` moves from `/v2` to `/`
+  (root), `public/` moves from `/` to `/legacy`. The React client's SPA catch-all is now a
+  genuine `app.get('*', ...)` wildcard (it was scoped to `['/v2', '/v2/*']` before), so it was
+  moved to the very end of the route table, after every `/api` route, `/healthz`, `/uploads`
+  and `/legacy`, so it can't shadow them. One accepted side effect of a root-mounted SPA
+  catch-all: a request to a genuinely non-existent path under `/api/*` (a typo, not a real
+  endpoint) now falls through to the React client's `index.html` with a 200 instead of a plain
+  404 — no existing route or test relies on that default 404, so this doesn't change any
+  tested behaviour, but it's a known trade-off of this pattern.
 - `client/vite.config.ts`: `base: '/v2/'` → `base: '/'`.
-- `client/src` has no hardcoded `/v2` in routing/API code (confirmed via search — the app has
-  no client-side router, only two source comments mention `/v2`); update those comments for
-  accuracy.
-- `test-e2e/`: retarget existing spec navigation rather than duplicating files — the 6
+- `client/src`: no hardcoded `/v2` in routing/API code (confirmed via search — the app has no
+  client-side router; two stale source comments mentioning `/v2` were reworded for accuracy).
+- `test-e2e/`: retargeted existing spec navigation rather than duplicating files — the 6
   `v2-*.spec.js` files' `page.goto('/v2/')` → `page.goto('/')`; the 10 legacy-testing spec
   files' `page.goto('/')` → `page.goto('/legacy/')`. Legacy and v2 specs already share the same
-  `data-testid` contract (`test-e2e/testids.js`), so this is a path-only change, no assertion
-  rewrites. `playwright.config.js` needs no change (uses a `baseURL` variable, not hardcoded
+  `data-testid` contract (`test-e2e/testids.js`), so this was a path-only change, no assertion
+  rewrites. `playwright.config.js` needed no change (uses a `baseURL` variable, not hardcoded
   paths).
 - localStorage keys (`tb_token`, `tb_sort_by`, `tb_sort_dir`, `tb_view_mode`) are already
-  identical between both front ends — confirmed by inspection, no code change needed.
-- `/legacy` stays live and unchanged for a one-week manual rollback window (no auto-removal).
+  identical between both front ends — confirmed by inspection and by the full e2e suite passing
+  the login/session flow at both `/` and `/legacy`.
+- `/legacy` stays live and unchanged as a one-week manual rollback window (no auto-removal
+  logic) — a future task will remove it once the cutover is confirmed stable.
+- Bumped `APP_VERSION` in `server.js` (exposed via `/healthz` and `/api/health`) to match.
 
 ## 0.26 - 2026-08-20
 

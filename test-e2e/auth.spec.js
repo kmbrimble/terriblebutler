@@ -5,7 +5,7 @@ import { LOGIN_SCREEN, APP_ROOT, LOGIN_USERNAME_INPUT, LOGIN_PASSWORD_INPUT, LOG
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test('shows the login screen when logged out, and the app after logging in', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   await expect(page.getByTestId(LOGIN_SCREEN)).toBeVisible();
   await expect(page.getByTestId(APP_ROOT)).toBeHidden();
@@ -20,7 +20,7 @@ test('shows the login screen when logged out, and the app after logging in', asy
 });
 
 test('shows an error and stays logged out on bad credentials', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   await page.getByTestId(LOGIN_USERNAME_INPUT).fill(AUTH_USERNAME);
   await page.getByTestId(LOGIN_PASSWORD_INPUT).fill('wrong-password');

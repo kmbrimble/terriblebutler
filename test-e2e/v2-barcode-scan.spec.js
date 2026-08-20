@@ -28,7 +28,7 @@ async function stubScanner(page) {
 
 test('v2: scanning a barcode in the add form populates the barcode field', async ({ page }) => {
   await stubScanner(page);
-  await page.goto('/v2/');
+  await page.goto('/');
 
   await page.getByTestId(ADD_OPEN_BUTTON).click();
   await page.getByTestId(BARCODE_SCAN_BUTTON).click();
@@ -54,7 +54,7 @@ test('v2: scanning a barcode in the deduct form selects the matched item without
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 42, name: 'Test Item', quantity: 4 }) });
   });
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
   await page.getByTestId(BARCODE_SCAN_BUTTON).click();
   await page.waitForFunction(() => window.__scanSuccess !== null);
@@ -69,7 +69,7 @@ test('v2: scanning an unknown barcode in the deduct form shows an error toast an
   await stubScanner(page);
   await page.route('**/api/items/barcode/**', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Item not found' }) }));
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
   await page.getByTestId(BARCODE_SCAN_BUTTON).click();
   await page.waitForFunction(() => window.__scanSuccess !== null);

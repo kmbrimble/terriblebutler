@@ -9,7 +9,7 @@ test('All Inventory shows the total quantity plus an "elsewhere" note; a locatio
   const created = await (await request.post('/api/items', { data: { name, location_id: locA.id, quantity: 3 } })).json();
   await request.patch(`/api/items/${created.id}/quantity`, { data: { amount: 2, action: 'add', location_id: locB.id } });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   const allCard = page.getByTestId(ITEM_CARD).filter({ hasText: name });
   await expect(allCard).toContainText('5');
@@ -31,7 +31,7 @@ test('deduct shows a location picker only when the item has stock in more than o
   const multiItem = await (await request.post('/api/items', { data: { name: multiName, location_id: locB.id, quantity: 4 } })).json();
   await request.patch(`/api/items/${multiItem.id}/quantity`, { data: { amount: 3, action: 'add', location_id: locC.id } });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
 
   await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(singleName);

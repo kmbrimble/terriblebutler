@@ -6,7 +6,7 @@ import { showToast } from '../lib/toast';
 // html5-qrcode from a CDN <script>, so its e2e tests stub the scanner by overriding the
 // window.Html5Qrcode global before the page loads. The client bundles the same library as a
 // real npm dependency instead, but resolving the constructor as `window.Html5Qrcode ?? (the
-// imported class)` keeps that exact stubbing seam working unchanged for /v2's own e2e specs.
+// imported class)` keeps that exact stubbing seam working unchanged for the client's own e2e specs.
 type Html5QrcodeCtor = new (elementId: string) => {
   start: (
     camera: unknown,

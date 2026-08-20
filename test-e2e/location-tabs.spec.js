@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { LOCATION_TAB_BUTTON, ITEM_CARD } from './testids.js';
 
 test('the three special tabs are always present', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/legacy/');
   const tabs = page.getByTestId(LOCATION_TAB_BUTTON);
   await expect(tabs.filter({ hasText: 'All Inventory' })).toHaveCount(1);
   await expect(tabs.filter({ hasText: 'Grocery List' })).toHaveCount(1);
@@ -31,7 +31,7 @@ test('a newly seeded location gets its own tab and filters items to that locatio
   });
   expect(outsideItemRes.ok()).toBeTruthy();
 
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   const tabButton = page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locationName });
   await expect(tabButton).toHaveCount(1);
@@ -52,7 +52,7 @@ test('renaming a location updates its tab label and deleting it falls back to Al
   const locRes = await request.post('/api/locations', { data: { name: originalName } });
   const location = await locRes.json();
 
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   const originalTab = page.getByRole('button', { name: originalName, exact: true });
   await expect(originalTab).toHaveCount(1);

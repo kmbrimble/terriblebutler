@@ -174,7 +174,7 @@ test.beforeAll(async ({ request }) => {
 });
 
 test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
 
   // Add: creates a new item with location, quantity, and reorder threshold. Deliberately
   // shares NO words at all with this file's other fixture names: /api/items/match uses
@@ -256,7 +256,7 @@ test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
 });
 
 test('quantity: quick +/- adjusts directly, targets the active location tab, opens the set-quantity modal when ambiguous, and the display button always opens it directly', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
 
   // Single-location item, viewed outside any location tab: +/- adjusts directly.
   const singleCard = page.getByTestId(ITEM_CARD).filter({ hasText: qtySingle.name });
@@ -297,7 +297,7 @@ test('quantity: quick +/- adjusts directly, targets the active location tab, ope
 });
 
 test('deduct requires a location picker only for multi-location items, and ignore/restore moves an item between the Grocery and Ignored tabs', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
 
   await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
   await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(deductSingle.name);
@@ -333,7 +333,7 @@ test('deduct requires a location picker only for multi-location items, and ignor
 test('price history: shows last/lowest purchase, a chart, and a deletable table for an item with recorded prices', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept());
 
-  await page.goto('/v2/');
+  await page.goto('/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: historyItem.name });
   await tapCard(card);
 
@@ -365,7 +365,7 @@ test('price history: shows last/lowest purchase, a chart, and a deletable table 
 });
 
 test('price history: an item with no recorded prices shows the empty state, not a blank or crashed view', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: noHistoryItem.name });
   await tapCard(card);
 
@@ -382,7 +382,7 @@ test('price history: an item with no recorded prices shows the empty state, not 
 });
 
 test('unified detail view: tapping the card shows category, container, barcode and stock-by-location together with price history, in one place', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
   await tapCard(card);
 
@@ -411,7 +411,7 @@ test('unified detail view: tapping the card shows category, container, barcode a
 });
 
 test('a scroll gesture that drags across the card does not open the detail view', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
   const box = await card.boundingBox();
 
@@ -423,7 +423,7 @@ test('a scroll gesture that drags across the card does not open the detail view'
 });
 
 test('a drag starting on any in-card button does not misfire the card tap detection', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
   const card = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
 
   // Unrolled rather than looped over an array of testids: test/e2e-selector-guard.test.js

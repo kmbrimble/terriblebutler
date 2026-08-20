@@ -62,7 +62,7 @@ test('v2: label scan applies an exact category/location match directly, no sugge
     })
   );
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await snapAndCrop(page);
 
   await expect(page.getByTestId(ITEM_NAME_INPUT)).toHaveValue('Some Product');
@@ -90,7 +90,7 @@ test('v2: label scan with no category match offers to add the scanned name as ne
     })
   );
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await snapAndCrop(page);
 
   const panel = page.getByTestId(CATEGORY_SUGGEST_BLOCK);
@@ -128,7 +128,7 @@ test('v2: label scan suggestion picker lets the user type a different custom cat
     })
   );
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await snapAndCrop(page);
 
   const panel = page.getByTestId(CATEGORY_SUGGEST_BLOCK);
@@ -164,7 +164,7 @@ test('v2: label scan surfaces category and location suggestions independently', 
     })
   );
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await snapAndCrop(page);
 
   await expect(page.getByTestId(CATEGORY_SUGGEST_BLOCK)).toBeVisible();

@@ -17,7 +17,7 @@ async function stubScanner(page) {
 
 test('scanning a barcode in Add context populates the barcode field', async ({ page }) => {
   await stubScanner(page);
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   await page.evaluate(() => window.openAddModal());
   await page.evaluate(() => window.openBarcodeScanner('add'));
@@ -44,7 +44,7 @@ test('scanning a barcode in Deduct context selects the item without immediately 
     });
   });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
 
   await page.evaluate(() => window.openDeductModal());
   await page.evaluate(() => window.openBarcodeScanner('deduct'));

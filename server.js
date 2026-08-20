@@ -17,7 +17,7 @@ const bcrypt = require('bcryptjs');
 const { logAction } = require('./logger');
 const { scheduleNightlyBackup } = require('./backup');
 // Initialise App and Server
-const APP_VERSION = '0.19';
+const APP_VERSION = '0.27';
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -43,16 +43,15 @@ const io = new Server(server, {
 });
 // Middleware setup
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// The React client is now the default front end, served at /.
+app.use(express.static(path.join(__dirname, 'client/dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// v2: the incrementally-built React client (stage 1 of the front-end rewrite), served
-// alongside the legacy front end at /. Both mounts are scoped entirely under /v2, so
-// neither can shadow /api or /uploads regardless of registration order.
-app.use('/v2', express.static(path.join(__dirname, 'client/dist')));
-app.get(['/v2', '/v2/*'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'client/dist/index.html'));
-});
+// legacy: the original front end, kept live at /legacy as a one-week rollback safety net
+// after the cutover to the React client (see CHANGELOG). Scoped entirely under /legacy, so
+// it can't shadow /api or /uploads regardless of registration order.
+app.use('/legacy', express.static(path.join(__dirname, 'public')));
 
 // Verbose action logging (#14): every mutating /api/* call, request + response body.
 app.use('/api', (req, res, next) => {
@@ -1320,6 +1319,13 @@ app.post('/api/invoices/import/:id/commit', (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Failed to commit invoice import: ' + err.message });
   }
+});
+
+// React client SPA fallback. Registered after every /api route (and /uploads, /legacy above)
+// so this wildcard can't shadow them — any request that fell through all of those is a
+// client-side route or a hard refresh/deep link into the React app.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client/dist/index.html'));
 });
 
 // Return controlled errors for uploads and malformed JSON.

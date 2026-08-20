@@ -5,7 +5,7 @@ test('a single click on an item card does not open the details modal', async ({ 
   const name = `E2E Single Click ${Date.now()}`;
   await request.post('/api/items', { data: { name, quantity: 1 } });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ITEM_CARD).filter({ hasText: name }).click();
 
   await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
@@ -15,7 +15,7 @@ test('a double click on an item card opens the details modal', async ({ page, re
   const name = `E2E Double Click ${Date.now()}`;
   await request.post('/api/items', { data: { name, quantity: 1 } });
 
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.getByTestId(ITEM_CARD).filter({ hasText: name }).dblclick();
 
   await expect(page.getByTestId(DETAILS_MODAL)).toBeVisible();

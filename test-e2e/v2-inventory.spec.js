@@ -66,7 +66,7 @@ test.beforeAll(async ({ request }) => {
 // see the file-header comment). Playwright still reports the exact failing line within the
 // test if one assertion breaks.
 test('tab filtering, search, view-mode, and the empty state', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
 
   // All Inventory shows every matching item.
   await page.getByTestId(SEARCH_INPUT).fill(`${prefix} AllTag`);
@@ -129,7 +129,7 @@ test('sorting by name, quantity, category, and location all order correctly in b
   // multiTagItem ("...A") and sortTagZ ("...Z") were deliberately given a matching A < Z
   // relative order across all four fields (name, quantity 2 < 10, category A-Cat < Z-Cat,
   // location A-Loc < Z-Loc) so this one fixture pair proves all four sort keys.
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(SEARCH_INPUT).fill('SortTag');
   const cards = page.getByTestId(ITEM_CARD);
 
@@ -160,7 +160,7 @@ test('sorting by created_at and updated_at order by real timestamps, independent
   expect(secondRes.ok()).toBeTruthy();
   const second = await secondRes.json();
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(SEARCH_INPUT).fill(timePrefix);
   await page.getByTestId(SORT_SELECT).selectOption('created_at');
 
@@ -190,7 +190,7 @@ test('sorting by created_at and updated_at order by real timestamps, independent
 });
 
 test('sort choice and direction persist across a reload', async ({ page }) => {
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(SORT_SELECT).selectOption('quantity');
   await page.getByTestId(SORT_DIR_BUTTON).click();
 
@@ -218,9 +218,9 @@ test('inventory_updated: a quantity change made via the API in one context is re
   const context2 = await browser.newContext({ storageState: await context.storageState() });
   const page2 = await context2.newPage();
 
-  await page.goto('/v2/');
+  await page.goto('/');
   await page.getByTestId(SEARCH_INPUT).fill(`${prefix} LiveQty`);
-  await page2.goto('/v2/');
+  await page2.goto('/');
   await page2.getByTestId(SEARCH_INPUT).fill(`${prefix} LiveQty`);
 
   await expect(page.getByTestId(ITEM_CARD).first()).toContainText('5');
@@ -244,8 +244,8 @@ test('locations_updated: a location added via the API in one context appears as 
   const context2 = await browser.newContext({ storageState: await context.storageState() });
   const page2 = await context2.newPage();
 
-  await page.goto('/v2/');
-  await page2.goto('/v2/');
+  await page.goto('/');
+  await page2.goto('/');
 
   // Socket.IO connects asynchronously after the page loads (App.tsx's connectSocket() runs in
   // a useEffect gated on the auth check resolving) — firing the mutation before both sockets

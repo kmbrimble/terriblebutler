@@ -1,6 +1,6 @@
 // Plain TypeScript, no React or DOM-library imports — same reasoning as api.ts. Wraps the
-// SAME localStorage keys the legacy front end uses, so switching between / and /v2 during the
-// rewrite doesn't reset a user's preference.
+// SAME localStorage keys the legacy front end uses, so switching between / and /legacy
+// doesn't reset a user's preference.
 
 export type ViewMode = 'compact' | 'expanded';
 export type SortBy = 'name' | 'created_at' | 'updated_at' | 'quantity' | 'category' | 'location';

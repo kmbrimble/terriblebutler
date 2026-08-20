@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Built and served at /v2 by server.js, alongside the legacy front end at /.
+// Built and served at / by server.js — the default front end. The legacy front end is
+// served alongside it at /legacy.
 export default defineConfig({
-  base: '/v2/',
+  base: '/',
   plugins: [react()],
 });
