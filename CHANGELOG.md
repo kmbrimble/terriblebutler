@@ -4,6 +4,20 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Edit quantity per location from the item-detail view (fixes #26)
+
+`ItemDetailModal`'s "Stock by Location" breakdown was read-only. Added a small edit (✎)
+button to each row that opens the existing `QtyModal` — the same "set an absolute quantity"
+flow already used by the main card's qty display button — pre-scoped to that row's location.
+`QtyModal` gained an optional `initialLocationId` prop for this (defaults to the first
+location when omitted, so the main card's existing usage is unchanged); since `ItemDetails`
+already `extends Item`, the already-fetched `details` object is passed straight through with
+no new type or API call needed. Closing the qty modal (save or cancel) re-runs the detail
+view's existing `load()`, so the breakdown and the total-stock summary reflect the change
+immediately. New unit test in `QtyModal.test.tsx` (new file) covering `initialLocationId`
+selection, and an e2e addition to `test-e2e/v2-item-detail.spec.js` proving editing one
+location's quantity from the detail view updates only that row and the total.
+
 ### Reorder threshold floored at 0 (fixes #25)
 
 `ItemFormModal`'s Reorder Threshold input had no `min` attribute, so the stepper arrows could

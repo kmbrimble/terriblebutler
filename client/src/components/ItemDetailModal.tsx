@@ -4,6 +4,7 @@ import type { Item, ItemDetails, PriceHistoryEntry, PurchaseSummary } from '../l
 import { chartPoints, priceExtremes } from '../lib/priceHistoryChart';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { QtyModal } from './QtyModal';
 
 // Renamed from PriceHistoryModal (stage 5) to ItemDetailModal (stage 6): the whole card is now
 // the trigger (tap-anywhere, see ItemCard's pointer handling), and this view combines stage 5's
@@ -25,6 +26,8 @@ export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => 
   const [details, setDetails] = useState<ItemDetails | null>(null);
   const [history, setHistory] = useState<PriceHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // undefined = qty-edit modal closed; null = editing the unassigned (no-location) row.
+  const [qtyEditLocationId, setQtyEditLocationId] = useState<number | null | undefined>(undefined);
 
   async function load() {
     setLoading(true);
@@ -108,10 +111,21 @@ export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => 
                   <li
                     key={l.location_id ?? 'unassigned'}
                     data-testid="details-locations-row"
-                    className="flex justify-between border-b border-rimmy-border pb-1 mb-1 text-rimmy-text"
+                    className="flex justify-between items-center border-b border-rimmy-border pb-1 mb-1 text-rimmy-text"
                   >
                     <span>{l.location_name || 'Unassigned'}</span>
-                    <span className="font-bold">{l.quantity}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-bold">{l.quantity}</span>
+                      <button
+                        type="button"
+                        data-testid="details-location-edit-button"
+                        aria-label={`Edit quantity for ${l.location_name || 'Unassigned'}`}
+                        onClick={() => setQtyEditLocationId(l.location_id)}
+                        className="text-rimmy-textMuted hover:text-rimmy-orange touch-target px-1"
+                      >
+                        ✎
+                      </button>
+                    </span>
                   </li>
                 ))
               )}
@@ -222,6 +236,16 @@ export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => 
           </button>
         </div>
       </div>
+      {qtyEditLocationId !== undefined && details && (
+        <QtyModal
+          item={details}
+          initialLocationId={qtyEditLocationId}
+          onClose={() => {
+            setQtyEditLocationId(undefined);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -102,6 +102,7 @@ export const DETAILS_BARCODE = 'details-barcode';
 export const DETAILS_TOTAL_STOCK = 'details-total-stock';
 export const DETAILS_LOCATIONS_BREAKDOWN = 'details-locations-breakdown';
 export const DETAILS_LOCATIONS_ROW = 'details-locations-row';
+export const DETAILS_LOCATION_EDIT_BUTTON = 'details-location-edit-button';
 
 // Stage 4 (React client barcode/crop/invoice-import) — new fields/controls. Buttons with
 // unique, fixed accessible text (Cancel, Use this, Skip this line, Restore) are targeted via

@@ -5,13 +5,17 @@ import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports openQtyModal()/submitManualQty() from public/index.html: always sets an absolute
 // quantity (never a delta), with a location picker only when the item has stock in more than
-// one location.
-export function QtyModal({ item, onClose }: { item: Item; onClose: () => void }) {
+// one location. `initialLocationId` lets a caller (the item-detail view's per-location "edit"
+// button) pre-select a specific row instead of defaulting to the first location.
+export function QtyModal({ item, initialLocationId, onClose }: { item: Item; initialLocationId?: number | null; onClose: () => void }) {
   useLockBodyScroll();
   const multiLocation = item.locations.length > 1;
-  const [locationId, setLocationId] = useState(() => String(item.locations[0]?.location_id ?? ''));
+  const initialLocation =
+    (multiLocation && initialLocationId !== undefined && item.locations.find((l) => l.location_id === initialLocationId)) ||
+    item.locations[0];
+  const [locationId, setLocationId] = useState(() => String(initialLocation?.location_id ?? ''));
   const [amount, setAmount] = useState(() => {
-    if (multiLocation) return String(item.locations[0]?.quantity ?? 0);
+    if (multiLocation) return String(initialLocation?.quantity ?? 0);
     return String(item.quantity);
   });
 

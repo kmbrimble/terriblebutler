@@ -35,6 +35,7 @@ import {
   DETAILS_TOTAL_STOCK,
   DETAILS_LOCATIONS_BREAKDOWN,
   DETAILS_LOCATIONS_ROW,
+  DETAILS_LOCATION_EDIT_BUTTON,
   DETAILS_LAST_PURCHASE,
   DETAILS_LOWEST_PURCHASE,
   PRICE_CHART,
@@ -470,6 +471,19 @@ test('unified detail view: tapping the card shows category, container, barcode a
   await expect(modal.getByTestId(DETAILS_LAST_PURCHASE)).toContainText('Vendor F');
   await expect(modal.getByTestId(PRICE_CHART)).toBeVisible();
   await expect(modal.getByTestId(PRICE_HISTORY_TABLE_BODY).getByTestId(PRICE_HISTORY_ROW)).toHaveCount(1);
+
+  // Editing one location's quantity from the breakdown updates only that row and the total —
+  // the other location's row and the price history above are untouched.
+  await breakdownRows.filter({ hasText: locB.name }).getByTestId(DETAILS_LOCATION_EDIT_BUTTON).click();
+  await expect(page.getByTestId(QTY_MODAL)).toBeVisible();
+  await expect(page.getByTestId(QTY_MODAL_AMOUNT_INPUT)).toHaveValue('3');
+  await page.getByTestId(QTY_MODAL_AMOUNT_INPUT).fill('6');
+  await page.getByTestId(QTY_MODAL_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(QTY_MODAL)).toBeHidden();
+
+  await expect(breakdownRows.filter({ hasText: locB.name })).toContainText('6');
+  await expect(breakdownRows.filter({ hasText: locA.name })).toContainText('2');
+  await expect(modal.getByTestId(DETAILS_TOTAL_STOCK)).toContainText('8');
 
   await page.getByRole('button', { name: 'Close' }).click();
   await expect(modal).toBeHidden();
