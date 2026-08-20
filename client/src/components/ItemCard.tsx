@@ -3,6 +3,7 @@ import type { Item } from '../lib/api';
 import type { ViewMode } from '../lib/preferences';
 import type { Tab } from '../lib/filterItems';
 import { cardQuantity } from '../lib/cardQuantity';
+import { locationLabel } from '../lib/locationLabel';
 import { isTap } from '../lib/tapGesture';
 
 const EDIT_ICON = (
@@ -75,7 +76,7 @@ export function ItemCard({
     onPointerCancel: handleCardPointerCancel,
     onKeyDown: handleCardKeyDown,
   };
-  const locLabel = item.locations.length > 1 ? `${item.locations.length} locations` : item.locations[0]?.location_name || '';
+  const locLabel = locationLabel(item);
   const qty = cardQuantity(item, tab);
   // Button visibility mirrors public/index.html exactly: driven by which tab is active, not by
   // reading item.is_ignored_grocery (which can be genuinely NULL on live rows despite its

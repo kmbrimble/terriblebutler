@@ -4,6 +4,17 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Location label picks the stocked location, not just the first entry (fixes #21)
+
+`ItemCard`'s single-location label picked `item.locations[0]` unconditionally, so an item
+whose `locations` array still carries a stale zero-stock entry (stock moved out, row not
+deleted) could show that empty location's name instead of the one that actually has stock.
+Extracted the label logic into a new pure helper, `client/src/lib/locationLabel.ts`: when
+exactly one location entry has `quantity > 0`, show that one; otherwise fall back to the
+original behaviour ("N locations" when there's more than one entry, or the lone entry's name
+— even at 0 stock — when there's only one). New unit tests in `locationLabel.test.ts` cover
+the stale-entry case, the genuinely-multi-location case, and the all-zero case.
+
 ### Auto-add on exact name match (fixes #20)
 
 `ItemFormModal`'s add flow showed the duplicate-check confirmation panel for every match type
