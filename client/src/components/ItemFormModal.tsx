@@ -46,6 +46,7 @@ export function ItemFormModal({
   const [purchaseDate, setPurchaseDate] = useState('');
   const [dupMatch, setDupMatch] = useState<MatchResult | null>(null);
   const [pendingPayload, setPendingPayload] = useState<ItemPayload | null>(null);
+  const [pendingKeepOpen, setPendingKeepOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
   const [categorySuggestion, setCategorySuggestion] = useState<ReturnType<typeof deriveLabelScanUpdate>['categorySuggestion']>(null);
@@ -74,22 +75,48 @@ export function ItemFormModal({
     return payload;
   }
 
-  async function submitPayload(payload: ItemPayload) {
+  // Resets add-mode fields back to blank/default for "Save and Add Another" — mirrors this
+  // component's own initial useState defaults exactly.
+  function resetForm() {
+    setBarcode('');
+    setName('');
+    setLocationId('');
+    setQuantity('1');
+    setCategoryId('');
+    setContainerDetails('');
+    setThreshold('0');
+    setPrice('');
+    setVendor('');
+    setPurchaseDate('');
+    setDupMatch(null);
+    setPendingPayload(null);
+    setPendingKeepOpen(false);
+    setCategorySuggestion(null);
+    setLocationSuggestion(null);
+  }
+
+  async function submitPayload(payload: ItemPayload, keepOpen: boolean) {
     if (item) {
       await updateItem(item.id, payload);
     } else {
       await createItem(payload);
     }
-    onClose();
+    if (keepOpen) resetForm();
+    else onClose();
   }
 
-  async function mergeQuantityInto(existingId: number, payload: ItemPayload) {
+  async function mergeQuantityInto(existingId: number, payload: ItemPayload, keepOpen: boolean) {
     await updateItemQuantity(existingId, payload.quantity || 0, 'add', payload.location_id || null);
-    onClose();
+    if (keepOpen) resetForm();
+    else onClose();
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Both Save and Save-and-Add-Another are type="submit" (so the Name field's native
+    // `required` validation applies to either) — SubmitEvent.submitter tells them apart.
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const addAnother = submitter?.value === 'addAnother';
     const payload = buildPayload();
 
     if (mode === 'add') {
@@ -97,29 +124,31 @@ export function ItemFormModal({
       // An exact case-insensitive name match is unambiguous, so it auto-merges without asking
       // — unlike barcode/fuzzy matches, which can't be that certain and still show the panel.
       if (match && match.type === 'exact_name' && match.candidates.length === 1) {
-        await mergeQuantityInto(match.candidates[0].id, payload);
+        await mergeQuantityInto(match.candidates[0].id, payload, addAnother);
         return;
       }
       if (match && match.type) {
         setPendingPayload(payload);
+        setPendingKeepOpen(addAnother);
         setDupMatch(match);
         return;
       }
     }
-    await submitPayload(payload);
+    await submitPayload(payload, addAnother);
   }
 
   async function useExisting(existingId: number) {
     if (!pendingPayload) return;
-    await mergeQuantityInto(existingId, pendingPayload);
+    await mergeQuantityInto(existingId, pendingPayload, pendingKeepOpen);
   }
 
   async function proceedAsNew() {
     if (!pendingPayload) return;
     const payload = pendingPayload;
+    const keepOpen = pendingKeepOpen;
     setDupMatch(null);
     setPendingPayload(null);
-    await submitPayload(payload);
+    await submitPayload(payload, keepOpen);
   }
 
   const typeLabel = (type: MatchResult['type']) =>
@@ -319,7 +348,18 @@ export function ItemFormModal({
             <button type="button" onClick={onClose} className="touch-target flex-1 bg-gray-600 text-white rounded font-bold">
               Cancel
             </button>
-            <button type="submit" data-testid="item-form-submit-button" className="touch-target flex-1 bg-rimmy-orange text-white rounded font-bold">
+            {mode === 'add' && (
+              <button
+                type="submit"
+                name="intent"
+                value="addAnother"
+                data-testid="item-form-save-add-another-button"
+                className="touch-target flex-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold text-sm"
+              >
+                Save + Add Another
+              </button>
+            )}
+            <button type="submit" name="intent" value="save" data-testid="item-form-submit-button" className="touch-target flex-1 bg-rimmy-orange text-white rounded font-bold">
               Save
             </button>
           </div>

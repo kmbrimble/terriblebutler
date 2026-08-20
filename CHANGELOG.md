@@ -4,6 +4,22 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### "Save and Add Another" on the add-item modal (fixes #23)
+
+Added a third button, `Save + Add Another`, to `ItemFormModal` — add mode only (hidden when
+editing, since "add another" doesn't make sense there). Both it and the existing `Save` button
+are `type="submit"` within the same form (so the Name field's native `required` validation
+applies to either) and are told apart via `SubmitEvent.submitter`. Submitting via either button
+goes through the exact same duplicate-check flow as before (an exact-name match still
+auto-merges per #20; other match types still show the confirm panel) — the only difference is
+what happens after a successful save: `Save` closes the modal as before, `Save + Add Another`
+resets every field back to its add-mode default and keeps the modal open, including when the
+save happened via the duplicate-check panel's "Use this"/"Add as new item anyway" (the intent
+is carried through `pendingKeepOpen` state since that's a separate, later button click). New
+unit tests in `ItemFormModal.test.tsx` (button present in add mode, absent in edit mode) and
+an e2e flow in `test-e2e/v2-item-detail.spec.js` covering the real submit → still-open →
+second-item → plain-Save-closes sequence.
+
 ### Modals lock background scroll while open (fixes #22)
 
 Investigated the reported "opening the add-item modal returns to a previous scroll location"

@@ -86,6 +86,21 @@ describe('ItemFormModal edit-mode prefill null-guards', () => {
   });
 });
 
+describe('ItemFormModal "Save and Add Another" button', () => {
+  it('is present in add mode', () => {
+    const html = renderToStaticMarkup(<ItemFormModal mode="add" locations={[]} categories={categories} onClose={() => {}} />);
+    expect(html).toContain('data-testid="item-form-save-add-another-button"');
+  });
+
+  it('is absent in edit mode ("add another" only makes sense when adding)', () => {
+    const item = makeItem();
+    const html = renderToStaticMarkup(
+      <ItemFormModal mode="edit" item={item} locations={[]} categories={categories} onClose={() => {}} />
+    );
+    expect(html).not.toContain('data-testid="item-form-save-add-another-button"');
+  });
+});
+
 describe('ItemFormModal reorder-threshold step', () => {
   // Regression test: public/index.html's itemThreshold input also uses step="0.1" (confirmed
   // by direct inspection, not assumed) — this is a pre-existing legacy usability bug, not a

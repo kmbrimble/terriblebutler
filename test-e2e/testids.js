@@ -28,6 +28,7 @@ export const ITEM_NAME_INPUT = 'item-name-input';
 export const ITEM_QUANTITY_INPUT = 'item-quantity-input';
 export const ITEM_CATEGORY_SELECT = 'item-category-select';
 export const ITEM_FORM_SUBMIT_BUTTON = 'item-form-submit-button';
+export const ITEM_FORM_SAVE_ADD_ANOTHER_BUTTON = 'item-form-save-add-another-button';
 export const ADD_MODAL = 'add-modal';
 export const DUP_CHECK_PANEL = 'dup-check-panel';
 export const CATEGORY_SUGGEST_BLOCK = 'category-suggest-block';

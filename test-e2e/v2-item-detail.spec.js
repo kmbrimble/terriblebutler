@@ -8,6 +8,7 @@ import {
   ITEM_QUANTITY_INPUT,
   ITEM_THRESHOLD_INPUT,
   ITEM_FORM_SUBMIT_BUTTON,
+  ITEM_FORM_SAVE_ADD_ANOTHER_BUTTON,
   ADD_MODAL,
   DUP_CHECK_PANEL,
   EDIT_ITEM_BUTTON,
@@ -259,6 +260,42 @@ test('add, duplicate-detect/override, and edit', async ({ page, request }) => {
   const edited = items.find((i) => i.name === editNewName);
   expect(edited.reorder_threshold).toBe(4);
   expect(edited.quantity).toBe(2);
+});
+
+test('save and add another: keeps the modal open with blank fields for a second entry, plain Save closes it', async ({ page }) => {
+  await page.goto('/');
+
+  // Deliberately share NO words with each other or with this file's other fixtures — see the
+  // addName comment in the previous test for why that matters (Fuse.js fuzzy matching): two
+  // names built from the same shared phrase would fuzzy-match each other even with different
+  // trailing timestamps, exactly like the "E2E Detail" collision described there.
+  const firstName = `Lighthouse Umbrella ${Date.now()}`;
+  const secondName = `Kangaroo Bicycle ${Date.now()}`;
+
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+  await expect(page.getByTestId(ITEM_FORM_SAVE_ADD_ANOTHER_BUTTON)).toBeVisible();
+  await page.getByTestId(ITEM_NAME_INPUT).fill(firstName);
+  await page.getByTestId(ITEM_LOCATION_SELECT).selectOption(String(locA.id));
+  await page.getByTestId(ITEM_QUANTITY_INPUT).fill('2');
+  await page.getByTestId(ITEM_THRESHOLD_INPUT).fill('1');
+  await page.getByTestId(ITEM_FORM_SAVE_ADD_ANOTHER_BUTTON).click();
+
+  // The item was created, but the modal stays open with every field reset to blank/default.
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: firstName }).getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('2');
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+  await expect(page.getByTestId(ITEM_NAME_INPUT)).toHaveValue('');
+  await expect(page.getByTestId(ITEM_LOCATION_SELECT)).toHaveValue('');
+  await expect(page.getByTestId(ITEM_QUANTITY_INPUT)).toHaveValue('1');
+  await expect(page.getByTestId(ITEM_THRESHOLD_INPUT)).toHaveValue('0');
+
+  // Fill in a second entry and close normally with plain Save.
+  await page.getByTestId(ITEM_NAME_INPUT).fill(secondName);
+  await page.getByTestId(ITEM_LOCATION_SELECT).selectOption(String(locA.id));
+  await page.getByTestId(ITEM_QUANTITY_INPUT).fill('4');
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: secondName }).getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('4');
 });
 
 test('quantity: quick +/- adjusts directly, targets the active location tab, opens the set-quantity modal when ambiguous, and the display button always opens it directly', async ({ page }) => {
