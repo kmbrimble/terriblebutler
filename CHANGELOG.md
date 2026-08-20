@@ -4,6 +4,20 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Reorder threshold floored at 0 (fixes #25)
+
+`ItemFormModal`'s Reorder Threshold input had no `min` attribute, so the stepper arrows could
+step it below 0 and the only guard against a negative value was the server's existing
+`finiteNumber(..., { min: 0 })` validation (server.js, item create/update) — which does the
+right thing but as a raw 400 error, not a client-side UX guard. Added `min="0"` to the input:
+the stepper (and up/down arrow keys) now clamp at 0, and native HTML5 constraint validation
+blocks form submission if a negative value is typed in directly, keeping the modal open
+instead of round-tripping to the server for a 400. No server change needed — its floor was
+already correct and stays as defense in depth for direct API callers. New unit test in
+`ItemFormModal.test.tsx` (the `min="0"` attribute is present in both add and edit mode) and
+an e2e test in `test-e2e/v2-item-detail.spec.js` covering both the stepper-at-0 case and the
+typed-negative-value-blocks-submit case.
+
 ### "Save and Add Another" on the add-item modal (fixes #23)
 
 Added a third button, `Save + Add Another`, to `ItemFormModal` — add mode only (hidden when

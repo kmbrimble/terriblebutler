@@ -124,4 +124,17 @@ describe('ItemFormModal reorder-threshold step', () => {
     );
     expect(thresholdInputTag(editHtml)).toContain('step="1"');
   });
+
+  it('is floored at 0 (min="0") in both add and edit mode, so it can\'t go negative', () => {
+    const addHtml = renderToStaticMarkup(
+      <ItemFormModal mode="add" locations={[]} categories={categories} onClose={() => {}} />
+    );
+    expect(thresholdInputTag(addHtml)).toContain('min="0"');
+
+    const item = makeItem();
+    const editHtml = renderToStaticMarkup(
+      <ItemFormModal mode="edit" item={item} locations={[]} categories={categories} onClose={() => {}} />
+    );
+    expect(thresholdInputTag(editHtml)).toContain('min="0"');
+  });
 });

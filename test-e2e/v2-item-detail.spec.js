@@ -298,6 +298,28 @@ test('save and add another: keeps the modal open with blank fields for a second 
   await expect(page.getByTestId(ITEM_CARD).filter({ hasText: secondName }).getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('4');
 });
 
+test('reorder threshold is floored at 0: stepping down from 0 stays at 0, and typing a negative value blocks submit', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+
+  const thresholdInput = page.getByTestId(ITEM_THRESHOLD_INPUT);
+  await expect(thresholdInput).toHaveValue('0'); // add mode's default
+  await thresholdInput.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(thresholdInput).toHaveValue('0');
+
+  // Typing a negative value directly is still possible (min doesn't restrict free typing),
+  // but the native constraint validation API blocks form submission — the modal stays open
+  // and no request is made, rather than surfacing a server-side 400.
+  await thresholdInput.fill('-5');
+  await page.getByTestId(ITEM_NAME_INPUT).fill(`Negative Threshold Guard ${Date.now()}`);
+  const isValid = await thresholdInput.evaluate((el) => el.checkValidity());
+  expect(isValid).toBe(false);
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+});
+
 test('quantity: quick +/- adjusts directly, targets the active location tab, opens the set-quantity modal when ambiguous, and the display button always opens it directly', async ({ page }) => {
   await page.goto('/');
 
