@@ -30,7 +30,12 @@ export function QtyModal({ item, onClose }: { item: Item; onClose: () => void })
   return (
     <div data-testid="qty-modal" className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-xs p-6 text-center">
-        <h3 className="text-lg font-bold text-rimmy-orange mb-4">Set Quantity</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-rimmy-orange">Set Quantity</h3>
+          <button type="button" data-testid="modal-close-button" onClick={onClose} className="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none">
+            &times;
+          </button>
+        </div>
         <form onSubmit={handleSubmit}>
           {multiLocation && (
             <div className="mb-4 text-left">

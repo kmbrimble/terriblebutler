@@ -4,6 +4,15 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Modal close (X) buttons (fixes #19)
+
+`ItemFormModal`, `ItemDetailModal`, `QtyModal`, and `DeductModal` were the only modals in the
+React client without a top-right X close button (5 others — `BarcodeScannerModal`,
+`CropModal`, `ManageCategoriesModal`, `ManageLocationsModal`, `InvoiceImportModal` — already
+had one). Added the same `&times;` button in a header row for all four, wired to each modal's
+existing `onClose`. Bottom Cancel/Save/Close buttons are unchanged. New shared e2e testid
+`modal-close-button` and a Playwright test covering all four.
+
 ## 0.28 - 2026-08-20
 
 ### React client hamburger/settings menu (fixes a post-cutover functional regression)

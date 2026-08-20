@@ -64,6 +64,8 @@ export const DEDUCT_SUBMIT_BUTTON = 'deduct-submit-button';
 
 export const TOAST_NOTIFICATION = 'toast-notification';
 
+export const MODAL_CLOSE_BUTTON = 'modal-close-button';
+
 export const DETAILS_MODAL = 'details-modal';
 export const DETAILS_TITLE = 'details-title';
 

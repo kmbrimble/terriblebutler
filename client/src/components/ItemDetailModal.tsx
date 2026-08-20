@@ -59,9 +59,14 @@ export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => 
   return (
     <div data-testid="details-modal" className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
-        <h2 data-testid="details-title" className="text-xl font-bold mb-4 text-rimmy-orange">
-          {item.name}
-        </h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 data-testid="details-title" className="text-xl font-bold text-rimmy-orange">
+            {item.name}
+          </h2>
+          <button type="button" data-testid="modal-close-button" onClick={onClose} className="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none">
+            &times;
+          </button>
+        </div>
 
         {!loading && details && (
           <>

@@ -40,6 +40,7 @@ import {
   PRICE_HISTORY_TABLE_BODY,
   PRICE_HISTORY_ROW,
   PRICE_HISTORY_DELETE_BUTTON,
+  MODAL_CLOSE_BUTTON,
 } from './testids.js';
 
 // Stage 6: the card itself is the open-detail trigger (tap-anywhere), not a dedicated button —
@@ -408,6 +409,39 @@ test('unified detail view: tapping the card shows category, container, barcode a
 
   await page.getByRole('button', { name: 'Close' }).click();
   await expect(modal).toBeHidden();
+});
+
+test('every modal (add/edit, quantity, deduct, details) has a top-right X that closes it without saving', async ({ page }) => {
+  await page.goto('/');
+
+  // Add/edit form modal.
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+  await page.getByTestId(MODAL_CLOSE_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
+
+  // Quantity modal, opened via the display button on an already-fixtured item.
+  const qtyCard = page.getByTestId(ITEM_CARD).filter({ hasText: qtySingle.name });
+  const qtyBefore = await qtyCard.getByTestId(QTY_DISPLAY_BUTTON).textContent();
+  await qtyCard.getByTestId(QTY_DISPLAY_BUTTON).click();
+  await expect(page.getByTestId(QTY_MODAL)).toBeVisible();
+  await page.getByTestId(MODAL_CLOSE_BUTTON).click();
+  await expect(page.getByTestId(QTY_MODAL)).toBeHidden();
+  await expect(qtyCard.getByTestId(QTY_DISPLAY_BUTTON)).toHaveText(qtyBefore);
+
+  // Deduct modal.
+  await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
+  await expect(page.getByTestId(DEDUCT_SEARCH_INPUT)).toBeVisible();
+  await page.getByTestId(MODAL_CLOSE_BUTTON).click();
+  await expect(page.getByTestId(DEDUCT_SEARCH_INPUT)).toBeHidden();
+
+  // Item detail modal.
+  const detailCard = page.getByTestId(ITEM_CARD).filter({ hasText: fieldsItem.name });
+  await tapCard(detailCard);
+  const detailsModal = page.getByTestId(DETAILS_MODAL);
+  await expect(detailsModal).toBeVisible();
+  await detailsModal.getByTestId(MODAL_CLOSE_BUTTON).click();
+  await expect(detailsModal).toBeHidden();
 });
 
 test('a scroll gesture that drags across the card does not open the detail view', async ({ page }) => {
