@@ -16,3 +16,4 @@ uploads/
 *.db-shm
 test-results/
 playwright-report/
+logs/

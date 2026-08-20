@@ -71,13 +71,16 @@ test('menu button opens the drawer, and each item that isn\'t reachable elsewher
   await page.getByTestId(MENU_OPEN_BUTTON).click();
   const themeToggle = page.getByTestId(MENU_DARK_MODE_TOGGLE);
   const wasDark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
-  await themeToggle.click();
+  // The checkbox is visually hidden (sr-only) behind a styled toggle track, same pattern as
+  // legacy's #themeToggle — force the click past the intercepting sibling div, same as a real
+  // tap on the visible track would land on the label's underlying input.
+  await themeToggle.click({ force: true });
   await expect
     .poll(() => page.evaluate(() => document.documentElement.classList.contains('dark')))
     .toBe(!wasDark);
   const storedTheme = await page.evaluate(() => localStorage.getItem('tb_theme'));
   expect(storedTheme).toBe(wasDark ? 'light' : 'dark');
-  await themeToggle.click(); // restore, so it doesn't leak into other tests via shared server state assumptions
+  await themeToggle.click({ force: true }); // restore, so it doesn't leak into other tests via shared server state assumptions
 
   // Manage Categories: previously entirely unreachable (create-only elsewhere in the app).
   // Add + edit (prompt) + delete (confirm), matching legacy's editCategory()/deleteCategory().

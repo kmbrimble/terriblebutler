@@ -167,6 +167,38 @@ export async function createCategory(name: string): Promise<Category> {
   return data;
 }
 
+export async function updateLocation(id: number, name: string): Promise<Location> {
+  const res = await authorizedFetch(`/api/locations/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update location.');
+  return data;
+}
+
+export async function deleteLocation(id: number): Promise<void> {
+  const res = await authorizedFetch(`/api/locations/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete location.');
+}
+
+export async function updateCategory(id: number, name: string): Promise<Category> {
+  const res = await authorizedFetch(`/api/categories/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update category.');
+  return data;
+}
+
+export async function deleteCategory(id: number): Promise<void> {
+  const res = await authorizedFetch(`/api/categories/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete category.');
+}
+
 export async function getItemByBarcode(barcode: string): Promise<Item | null> {
   const res = await authorizedFetch(`/api/items/barcode/${encodeURIComponent(barcode)}`);
   if (res.status === 404) return null;

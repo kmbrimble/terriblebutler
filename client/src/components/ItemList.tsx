@@ -22,6 +22,8 @@ import { DeductModal } from './DeductModal';
 import { QtyModal } from './QtyModal';
 import { ItemDetailModal } from './ItemDetailModal';
 import { InvoiceImportModal, ACTIVE_IMPORT_KEY } from './InvoiceImportModal';
+import { ManageCategoriesModal } from './ManageCategoriesModal';
+import { ManageLocationsModal } from './ManageLocationsModal';
 import { Toast } from './Toast';
 
 export function ItemList() {
@@ -40,6 +42,8 @@ export function ItemList() {
   const [qtyModalItem, setQtyModalItem] = useState<Item | null>(null);
   const [detailItem, setDetailItem] = useState<Item | null>(null);
   const [invoiceImportOpen, setInvoiceImportOpen] = useState(false);
+  const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
+  const [manageLocationsOpen, setManageLocationsOpen] = useState(false);
 
   useEffect(() => {
     getItems().then(setItems).catch(() => {});
@@ -133,7 +137,13 @@ export function ItemList() {
 
   return (
     <div className="flex flex-col">
-      <Header onOpenAdd={() => setAddOpen(true)} onOpenDeduct={() => setDeductOpen(true)} onOpenInvoiceImport={() => setInvoiceImportOpen(true)} />
+      <Header
+        onOpenAdd={() => setAddOpen(true)}
+        onOpenDeduct={() => setDeductOpen(true)}
+        onOpenInvoiceImport={() => setInvoiceImportOpen(true)}
+        onOpenManageCategories={() => setManageCategoriesOpen(true)}
+        onOpenManageLocations={() => setManageLocationsOpen(true)}
+      />
       <TabBar locations={locations} activeTab={tab} onSelect={setTab} />
       <div className="p-4 flex flex-col gap-3">
         <SearchInput value={search} onChange={setSearch} />
@@ -190,6 +200,8 @@ export function ItemList() {
           }}
         />
       )}
+      {manageCategoriesOpen && <ManageCategoriesModal categories={categories} onClose={() => setManageCategoriesOpen(false)} />}
+      {manageLocationsOpen && <ManageLocationsModal locations={locations} onClose={() => setManageLocationsOpen(false)} />}
       <Toast />
     </div>
   );

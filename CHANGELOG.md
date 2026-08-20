@@ -4,7 +4,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: React client hamburger/settings menu (fixes a post-cutover functional regression)
+## 0.28 - 2026-08-20
+
+### React client hamburger/settings menu (fixes a post-cutover functional regression)
 
 The 0.27 cutover made the React client the default front end, but no stage ever ported
 legacy's hamburger/settings drawer (`public/index.html` L138-198) — it fell outside every
@@ -21,8 +23,8 @@ instruction, is disregarded permanently — not ported, not flagged again. "Impo
 Coles/Woolworths" reuses the existing `InvoiceImportModal`. Legacy has no logout button, so none
 is added.
 
-Plan:
-- `client/src/lib/api.ts`: add `updateCategory`/`deleteCategory`/`updateLocation`/
+Changed:
+- `client/src/lib/api.ts`: added `updateCategory`/`deleteCategory`/`updateLocation`/
   `deleteLocation`, mirroring the existing `createCategory`/`createLocation` pattern against the
   already-live `PUT`/`DELETE /api/{categories,locations}/:id` backend routes.
 - `client/src/lib/theme.ts` (new): `getTheme`/`setTheme`, mirroring `preferences.ts`'s style,
