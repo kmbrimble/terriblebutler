@@ -4,6 +4,16 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Homemade and Dog Food items excluded from Grocery List / Ignored tabs (fixes #28)
+
+`filterItems()`'s `'grocery'` and `'ignored'` cases now also require
+`item.category_name` not be `'Homemade'` or `'Dog Food'` (exact category name match), on top
+of the existing quantity/threshold/ignored-flag checks. These categories aren't
+grocery-restockable in the normal sense, so items in them are hidden from both tabs regardless
+of stock level — they're unaffected everywhere else (All Inventory, location tabs, search).
+New unit tests in `filterItems.test.ts` covering both tabs and both category names, plus
+confirming an unrelated category is unaffected.
+
 ### Clear button on the search bar (fixes #29)
 
 `SearchInput` gets a small `&times;` clear button on the right, matching the existing modal

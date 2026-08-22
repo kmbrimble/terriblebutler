@@ -56,6 +56,28 @@ describe('filterItems', () => {
     expect(result.map((i) => i.id)).toEqual([1]);
   });
 
+  it('the grocery tab excludes Homemade and Dog Food items regardless of stock level', () => {
+    const lowHomemade = makeItem({ id: 1, quantity: 0, reorder_threshold: 2, category_name: 'Homemade' });
+    const lowDogFood = makeItem({ id: 2, quantity: 0, reorder_threshold: 2, category_name: 'Dog Food' });
+    const lowOther = makeItem({ id: 3, quantity: 0, reorder_threshold: 2, category_name: 'Pantry' });
+    const result = filterItems([lowHomemade, lowDogFood, lowOther], { type: 'grocery', id: null }, '');
+    expect(result.map((i) => i.id)).toEqual([3]);
+  });
+
+  it('the ignored tab excludes Homemade and Dog Food items even when flagged ignored', () => {
+    const homemade = makeItem({ id: 1, is_ignored_grocery: 1, category_name: 'Homemade' });
+    const dogFood = makeItem({ id: 2, is_ignored_grocery: 1, category_name: 'Dog Food' });
+    const other = makeItem({ id: 3, is_ignored_grocery: 1, category_name: 'Pantry' });
+    const result = filterItems([homemade, dogFood, other], { type: 'ignored', id: null }, '');
+    expect(result.map((i) => i.id)).toEqual([3]);
+  });
+
+  it('the "all" tab still shows Homemade and Dog Food items', () => {
+    const homemade = makeItem({ id: 1, category_name: 'Homemade' });
+    const result = filterItems([homemade], { type: 'all', id: null }, '');
+    expect(result.map((i) => i.id)).toEqual([1]);
+  });
+
   it('search matches the item name case-insensitively', () => {
     const items = [makeItem({ id: 1, name: 'Chicken Stock' }), makeItem({ id: 2, name: 'Beef Stock' })];
     const result = filterItems(items, { type: 'all', id: null }, 'CHICKEN');
