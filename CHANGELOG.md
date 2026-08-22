@@ -4,6 +4,21 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Items list splits out-of-stock items under an "Unavailable" subheading (fixes #30)
+
+In the "All Inventory" and per-location tabs, `ItemList` now renders in-stock items first,
+then an "Unavailable" subheading, then out-of-stock items — each section keeping the user's
+chosen sort order rather than the split overriding it. "In stock" is judged per the active
+tab: inside a location tab, that location's own quantity (via the existing `cardQuantity()`
+helper, already used for the qty +/- display so this reuses that exact per-location number,
+not a stale item-wide total); otherwise the item's total across all locations. The Grocery
+List and Ignored Out-of-Stock tabs are unaffected — they already have their own
+threshold/ignored-flag selection logic, and a qty-based split doesn't make sense stacked on
+top of it (every grocery-list item is by definition at or below threshold already).
+New `splitAvailability()` pure function added to `cardQuantity.ts` with unit tests, plus an
+`ItemList` e2e test covering the split, its per-section sort order, and that Grocery/Ignored
+tabs render as one flat list as before.
+
 ### Quantity inputs stepped by 1 and floored at 0 (fixes #27)
 
 The reorder-threshold input was already fixed to `step="1" min="0"` in #25. This closes the
