@@ -18,6 +18,7 @@ export const LOCATION_TAB_BUTTON = 'location-tab-button';
 export const ITEM_CARD = 'item-card';
 export const ITEM_LIST = 'item-list';
 export const EMPTY_STATE = 'empty-state';
+export const UNAVAILABLE_HEADING = 'unavailable-heading';
 export const SEARCH_INPUT = 'search-input';
 export const SEARCH_CLEAR_BUTTON = 'search-clear-button';
 export const SORT_SELECT = 'sort-select';

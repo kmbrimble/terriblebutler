@@ -11,6 +11,7 @@ import {
 } from '../lib/preferences';
 import { filterItems, type Tab } from '../lib/filterItems';
 import { sortItems } from '../lib/sortItems';
+import { splitAvailability } from '../lib/cardQuantity';
 import { TabBar } from './TabBar';
 import { SearchInput } from './SearchInput';
 import { SortControl } from './SortControl';
@@ -97,6 +98,7 @@ export function ItemList() {
   }, [locations, tab]);
 
   const visibleItems = useMemo(() => sortItems(filterItems(items, tab, search), sortBy, sortDir), [items, tab, search, sortBy, sortDir]);
+  const { available, unavailable } = useMemo(() => splitAvailability(visibleItems, tab), [visibleItems, tab]);
 
   function handleSortByChange(next: typeof sortBy) {
     setSortByState(next);
@@ -158,19 +160,41 @@ export function ItemList() {
             No items found.
           </p>
         ) : (
-          visibleItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              viewMode={viewMode}
-              tab={tab}
-              onEdit={setEditingItem}
-              onOpenDetail={setDetailItem}
-              onAdjust={handleQuickAdjust}
-              onOpenQtyModal={setQtyModalItem}
-              onToggleIgnore={handleToggleIgnore}
-            />
-          ))
+          <>
+            {available.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                viewMode={viewMode}
+                tab={tab}
+                onEdit={setEditingItem}
+                onOpenDetail={setDetailItem}
+                onAdjust={handleQuickAdjust}
+                onOpenQtyModal={setQtyModalItem}
+                onToggleIgnore={handleToggleIgnore}
+              />
+            ))}
+            {unavailable.length > 0 && (
+              <>
+                <h2 data-testid="unavailable-heading" className="text-sm font-bold text-rimmy-textMuted uppercase tracking-wide pt-2">
+                  Unavailable
+                </h2>
+                {unavailable.map((item) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    viewMode={viewMode}
+                    tab={tab}
+                    onEdit={setEditingItem}
+                    onOpenDetail={setDetailItem}
+                    onAdjust={handleQuickAdjust}
+                    onOpenQtyModal={setQtyModalItem}
+                    onToggleIgnore={handleToggleIgnore}
+                  />
+                ))}
+              </>
+            )}
+          </>
         )}
       </main>
 

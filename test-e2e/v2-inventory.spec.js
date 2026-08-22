@@ -3,6 +3,7 @@ import {
   ITEM_CARD,
   ITEM_LIST,
   EMPTY_STATE,
+  UNAVAILABLE_HEADING,
   SEARCH_INPUT,
   SEARCH_CLEAR_BUTTON,
   SORT_SELECT,
@@ -28,6 +29,7 @@ let locA, locZ;
 let multiTagItem; // serves the All Inventory, barcode-search, view-mode, and sort/location tests
 let sortTagZ;
 let groceryLow, groceryIgnored;
+let availInStock, availOutOfStock, availZeroHereNonZeroTotal;
 
 test.beforeAll(async ({ request }) => {
   async function post(path, data) {
@@ -58,6 +60,13 @@ test.beforeAll(async ({ request }) => {
   groceryLow = await post('/api/items', { name: `${prefix} GroTag Low`, quantity: 1, reorder_threshold: 2 });
   groceryIgnored = await post('/api/items', { name: `${prefix} GroTag IgnoredLow`, quantity: 0, reorder_threshold: 2 });
   await patch(`/api/items/${groceryIgnored.id}/ignore-grocery`, { is_ignored_grocery: 1 });
+
+  availInStock = await post('/api/items', { name: `${prefix} AvailTag InStock`, quantity: 3, location_id: locA.id });
+  availOutOfStock = await post('/api/items', { name: `${prefix} AvailTag OutOfStock`, quantity: 0, location_id: locA.id });
+  // Zero stock in locA specifically, but nonzero once locZ's stock is added — proves the split
+  // uses the active tab's own quantity (cardQuantity()), not the item's cross-location total.
+  availZeroHereNonZeroTotal = await post('/api/items', { name: `${prefix} AvailTag ZeroHere`, quantity: 0, location_id: locA.id });
+  await patch(`/api/items/${availZeroHereNonZeroTotal.id}/quantity`, { amount: 4, action: 'add', location_id: locZ.id });
 });
 
 // Tab filtering, search (name/barcode/combined-with-tab), view-mode, and the empty state are
@@ -274,4 +283,48 @@ test('locations_updated: a location added via the API in one context appears as 
   await expect(page2.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locationName })).toHaveCount(1);
 
   await context2.close();
+});
+
+test('items list splits in-stock items above an "Unavailable" subheading, per the active tab\'s own quantity', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId(SEARCH_INPUT).fill('AvailTag');
+
+  // "All Inventory": availZeroHereNonZeroTotal has 0 stock in locA but 4 in locZ, so its
+  // cross-location TOTAL is nonzero — it belongs in the available section here.
+  let cards = page.getByTestId(ITEM_CARD);
+  await expect(cards).toHaveCount(3);
+  const heading = page.getByTestId(UNAVAILABLE_HEADING);
+  await expect(heading).toBeVisible();
+  const namesAll = await cards.allTextContents();
+  const availIdxAll = namesAll.findIndex((t) => t.includes(availInStock.name));
+  const zeroHereIdxAll = namesAll.findIndex((t) => t.includes(availZeroHereNonZeroTotal.name));
+  const outIdxAll = namesAll.findIndex((t) => t.includes(availOutOfStock.name));
+  expect(availIdxAll).toBeGreaterThanOrEqual(0);
+  expect(zeroHereIdxAll).toBeGreaterThanOrEqual(0);
+  expect(outIdxAll).toBeGreaterThanOrEqual(0);
+  expect(availIdxAll).toBeLessThan(outIdxAll);
+  expect(zeroHereIdxAll).toBeLessThan(outIdxAll);
+
+  // Inside locA's own tab: availZeroHereNonZeroTotal now flips to unavailable — its total is
+  // nonzero, but locA's own stock (what cardQuantity() reports for this tab) is 0.
+  await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locA.name }).click();
+  cards = page.getByTestId(ITEM_CARD);
+  await expect(cards).toHaveCount(3);
+  const namesLocA = await cards.allTextContents();
+  const availIdxLocA = namesLocA.findIndex((t) => t.includes(availInStock.name));
+  const zeroHereIdxLocA = namesLocA.findIndex((t) => t.includes(availZeroHereNonZeroTotal.name));
+  const outIdxLocA = namesLocA.findIndex((t) => t.includes(availOutOfStock.name));
+  expect(availIdxLocA).toBeLessThan(zeroHereIdxLocA);
+  expect(availIdxLocA).toBeLessThan(outIdxLocA);
+
+  // The Grocery List and Ignored Out-of-Stock tabs keep their existing flat rendering — no
+  // "Unavailable" split imposed on top of their own selection logic.
+  await page.getByTestId(SEARCH_INPUT).fill('GroTag');
+  await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Grocery List' }).click();
+  await expect(page.getByTestId(ITEM_CARD)).toHaveCount(1);
+  await expect(page.getByTestId(UNAVAILABLE_HEADING)).toBeHidden();
+
+  await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: 'Ignored Out-of-Stock' }).click();
+  await expect(page.getByTestId(ITEM_CARD)).toHaveCount(1);
+  await expect(page.getByTestId(UNAVAILABLE_HEADING)).toBeHidden();
 });
