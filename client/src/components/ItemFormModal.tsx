@@ -295,7 +295,7 @@ export function ItemFormModal({
             {mode === 'add' && (
               <div className="flex-1">
                 <label className="block text-sm font-bold mb-1 text-rimmy-text">Quantity</label>
-                <input type="number" step="0.1" data-testid="item-quantity-input" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
+                <input type="number" step="1" min="0" data-testid="item-quantity-input" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
               </div>
             )}
             <div className="flex-1">

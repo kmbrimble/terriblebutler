@@ -100,7 +100,7 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
             <p className="font-bold text-rimmy-text">{selected.name}</p>
             <div>
               <label className="block text-sm font-bold mb-1 text-rimmy-text">Quantity</label>
-              <input type="number" step="0.1" data-testid="deduct-quantity-input" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
+              <input type="number" step="1" min="0" data-testid="deduct-quantity-input" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
             </div>
             {selected.locations.length > 1 && (
               <div>

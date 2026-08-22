@@ -220,7 +220,8 @@ export function InvoiceImportLineRow({
         <label className="text-xs font-bold text-rimmy-textMuted whitespace-nowrap">Qty confirmed:</label>
         <input
           type="number"
-          step="0.1"
+          step="1"
+          min="0"
           data-testid="invoice-import-line-qty-input"
           value={line.qty_confirmed ?? line.qty_supplied ?? 0}
           onChange={(e) => onPatch({ qty_confirmed: e.target.value === '' ? null : Number(e.target.value) })}

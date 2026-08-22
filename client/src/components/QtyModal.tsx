@@ -57,7 +57,8 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
           )}
           <input
             type="number"
-            step="0.1"
+            step="1"
+            min="0"
             data-testid="qty-modal-amount-input"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
