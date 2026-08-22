@@ -11,6 +11,6 @@ describe('SearchInput clear button', () => {
   it('is rendered once there is search text', () => {
     const html = renderToStaticMarkup(<SearchInput value="milk" onChange={() => {}} />);
     expect(html).toContain('data-testid="search-clear-button"');
-    expect(html).toContain('&times;');
+    expect(html).toContain('×');
   });
 });
