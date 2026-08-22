@@ -4,6 +4,15 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Clear button on the search bar (fixes #29)
+
+`SearchInput` gets a small `&times;` clear button on the right, matching the existing modal
+close-button convention (`DeductModal`, `ItemFormModal`, etc). Visible only when there's text
+in the box; clicking it calls `onChange('')`, which resets `ItemList`'s `search` state and
+therefore the filtered list, and refocuses the input. New unit test in a new
+`SearchInput.test.tsx` and an e2e addition covering typing text, the button appearing, and
+clearing it to restore the unfiltered list.
+
 ### Edit quantity per location from the item-detail view (fixes #26)
 
 `ItemDetailModal`'s "Stock by Location" breakdown was read-only. Added a small edit (✎)

@@ -4,6 +4,7 @@ import {
   ITEM_LIST,
   EMPTY_STATE,
   SEARCH_INPUT,
+  SEARCH_CLEAR_BUTTON,
   SORT_SELECT,
   SORT_DIR_BUTTON,
   VIEW_MODE_TOGGLE,
@@ -107,6 +108,14 @@ test('tab filtering, search, view-mode, and the empty state', async ({ page }) =
   cards = page.getByTestId(ITEM_CARD);
   await expect(cards).toHaveCount(1);
   await expect(cards.first()).toContainText('SortTag A');
+
+  // The clear button only appears once there's search text, and clicking it empties the
+  // box and restores the unfiltered (well, tab-filtered) list.
+  await expect(page.getByTestId(SEARCH_CLEAR_BUTTON)).toBeVisible();
+  await page.getByTestId(SEARCH_CLEAR_BUTTON).click();
+  await expect(page.getByTestId(SEARCH_INPUT)).toHaveValue('');
+  await expect(page.getByTestId(SEARCH_CLEAR_BUTTON)).not.toBeVisible();
+  await expect(page.getByTestId(ITEM_CARD).first()).toBeVisible();
 
   // View mode toggles between compact and expanded, and the choice is visually reflected.
   const card = page.getByTestId(ITEM_CARD).first();

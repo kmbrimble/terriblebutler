@@ -19,6 +19,7 @@ export const ITEM_CARD = 'item-card';
 export const ITEM_LIST = 'item-list';
 export const EMPTY_STATE = 'empty-state';
 export const SEARCH_INPUT = 'search-input';
+export const SEARCH_CLEAR_BUTTON = 'search-clear-button';
 export const SORT_SELECT = 'sort-select';
 export const SORT_DIR_BUTTON = 'sort-dir-button';
 export const VIEW_MODE_TOGGLE = 'view-mode-toggle';
