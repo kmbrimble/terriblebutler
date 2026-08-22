@@ -321,6 +321,48 @@ test('reorder threshold is floored at 0: stepping down from 0 stays at 0, and ty
   await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
 });
 
+test('quantity inputs (add-item, set-quantity, and deduct) are stepped by 1 and floored at 0', async ({ page }) => {
+  await page.goto('/');
+
+  // Add-item Quantity: stepper clamps at 0, typed negative blocks submit.
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  const quantityInput = page.getByTestId(ITEM_QUANTITY_INPUT);
+  await quantityInput.fill('0');
+  await quantityInput.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(quantityInput).toHaveValue('0');
+  await quantityInput.fill('-2');
+  await page.getByTestId(ITEM_NAME_INPUT).fill(`Negative Quantity Guard ${Date.now()}`);
+  expect(await quantityInput.evaluate((el) => el.checkValidity())).toBe(false);
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+  await page.getByTestId(MODAL_CLOSE_BUTTON).click();
+
+  // Set-quantity modal: same stepper clamp and typed-negative guard.
+  const singleCard = page.getByTestId(ITEM_CARD).filter({ hasText: qtySingle.name });
+  await singleCard.getByTestId(QTY_DISPLAY_BUTTON).click();
+  const qtyModalAmount = page.getByTestId(QTY_MODAL_AMOUNT_INPUT);
+  await qtyModalAmount.fill('0');
+  await qtyModalAmount.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(qtyModalAmount).toHaveValue('0');
+  await qtyModalAmount.fill('-3');
+  expect(await qtyModalAmount.evaluate((el) => el.checkValidity())).toBe(false);
+  await page.getByRole('button', { name: 'Cancel' }).click();
+
+  // Deduct modal: same guard on the deduct amount.
+  await page.getByTestId(DEDUCT_OPEN_BUTTON).click();
+  await page.getByTestId(DEDUCT_SEARCH_INPUT).fill(deductSingle.name);
+  await page.getByTestId(DEDUCT_LIST_ITEM).filter({ hasText: deductSingle.name }).click();
+  const deductAmount = page.getByTestId(DEDUCT_QUANTITY_INPUT);
+  await deductAmount.fill('0');
+  await deductAmount.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(deductAmount).toHaveValue('0');
+  await deductAmount.fill('-1');
+  expect(await deductAmount.evaluate((el) => el.checkValidity())).toBe(false);
+});
+
 test('quantity: quick +/- adjusts directly, targets the active location tab, opens the set-quantity modal when ambiguous, and the display button always opens it directly', async ({ page }) => {
   await page.goto('/');
 

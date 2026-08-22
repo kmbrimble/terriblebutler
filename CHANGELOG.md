@@ -4,6 +4,21 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Quantity inputs stepped by 1 and floored at 0 (fixes #27)
+
+The reorder-threshold input was already fixed to `step="1" min="0"` in #25. This closes the
+same gap on the remaining quantity-style number inputs, which still used `step="0.1"` with no
+floor: `ItemFormModal`'s add-mode Quantity field, `DeductModal`'s deduct amount,
+`QtyModal`'s set-quantity amount, and `InvoiceImportModal`'s per-line "Qty confirmed". All
+four are now `step="1" min="0"`, so the stepper/arrow-keys clamp at 0 and native constraint
+validation blocks submitting a typed-in negative value, same UX guard as the threshold fix.
+Server-side validation (`finiteNumber(..., { min: 0 })` for quantity/threshold,
+`{ min: 0.000001 }` for deduct amount, in `server.js`) already floored these correctly and is
+unchanged — no server change needed. New unit tests in `ItemFormModal.test.tsx` (quantity
+input) and new test files `DeductModal.test.tsx`, `QtyModal.test.tsx` (step/min addition), and
+`InvoiceImportModal.test.tsx`; e2e coverage added to `test-e2e/v2-item-detail.spec.js`
+alongside the existing threshold-floor test.
+
 ### Homemade and Dog Food items excluded from Grocery List / Ignored tabs (fixes #28)
 
 `filterItems()`'s `'grocery'` and `'ignored'` cases now also require

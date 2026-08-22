@@ -150,7 +150,7 @@ export function InvoiceImportModal({
   );
 }
 
-function InvoiceImportLineRow({
+export function InvoiceImportLineRow({
   line,
   categories,
   locations,

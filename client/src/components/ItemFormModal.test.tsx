@@ -138,3 +138,17 @@ describe('ItemFormModal reorder-threshold step', () => {
     expect(thresholdInputTag(editHtml)).toContain('min="0"');
   });
 });
+
+describe('ItemFormModal add-mode Quantity step/floor', () => {
+  function quantityInputTag(html: string): string {
+    const match = html.match(/<input[^>]*data-testid="item-quantity-input"[^>]*>/);
+    expect(match).toBeTruthy();
+    return match![0];
+  }
+
+  it('uses a whole-number step floored at 0, not the legacy 0.1 with no floor', () => {
+    const html = renderToStaticMarkup(<ItemFormModal mode="add" locations={[]} categories={categories} onClose={() => {}} />);
+    expect(quantityInputTag(html)).toContain('step="1"');
+    expect(quantityInputTag(html)).toContain('min="0"');
+  });
+});

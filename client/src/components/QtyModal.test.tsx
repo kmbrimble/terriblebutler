@@ -61,3 +61,13 @@ describe('QtyModal initialLocationId', () => {
     expect(amountValue(html)).toBe('7');
   });
 });
+
+describe('QtyModal amount step/floor', () => {
+  it('uses a whole-number step floored at 0, not the legacy 0.1 with no floor', () => {
+    const html = renderToStaticMarkup(<QtyModal item={makeItem()} onClose={() => {}} />);
+    const match = html.match(/<input[^>]*data-testid="qty-modal-amount-input"[^>]*>/);
+    expect(match).toBeTruthy();
+    expect(match![0]).toContain('step="1"');
+    expect(match![0]).toContain('min="0"');
+  });
+});
