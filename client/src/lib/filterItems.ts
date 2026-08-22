@@ -12,6 +12,10 @@ export interface Tab {
   id: number | null;
 }
 
+// Categories that aren't grocery-restockable in the normal sense, so items in them never
+// appear in the Grocery List or Ignored Out-of-Stock tabs regardless of stock level.
+const NON_GROCERY_CATEGORIES = ['Homemade', 'Dog Food'];
+
 export function filterItems(items: Item[], tab: Tab, search: string): Item[] {
   const query = search.toLowerCase();
   return items.filter((item) => {
@@ -27,9 +31,13 @@ export function filterItems(items: Item[], tab: Tab, search: string): Item[] {
       case 'location':
         return item.locations.some((l) => l.location_id === tab.id);
       case 'grocery':
-        return item.quantity <= item.reorder_threshold && item.is_ignored_grocery === 0;
+        return (
+          item.quantity <= item.reorder_threshold &&
+          item.is_ignored_grocery === 0 &&
+          !NON_GROCERY_CATEGORIES.includes(item.category_name ?? '')
+        );
       case 'ignored':
-        return item.is_ignored_grocery === 1;
+        return item.is_ignored_grocery === 1 && !NON_GROCERY_CATEGORIES.includes(item.category_name ?? '');
       default:
         return true;
     }
