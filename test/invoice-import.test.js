@@ -13,8 +13,10 @@ const COLES_PDF = path.join(process.cwd(), 'test/fixtures/invoices/coles-example
 beforeAll(() => {
   // Unreachable on purpose: lines with no deterministic item match fall back to an LLM
   // classify call, and this proves+keeps that fallback fast/deterministic in tests by
-  // failing the connection immediately rather than hitting a real model.
-  process.env.LLM_API_URL = 'http://127.0.0.1:1';
+  // failing the connection immediately rather than hitting a real model. ANTHROPIC_BASE_URL
+  // is read natively by the Anthropic SDK's client construction.
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+  process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1';
 });
 
 function markAllReviewed(importId) {

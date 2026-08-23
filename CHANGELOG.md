@@ -4,6 +4,40 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Replace Ollama vision model with Anthropic API (fixes #34)
+
+Plan: drop the self-hosted Ollama vision model entirely (slow VRAM load time, low
+reliability) and call the Anthropic Messages API directly via the official
+`@anthropic-ai/sdk`, using forced strict tool-use so the response is guaranteed
+schema-valid JSON instead of parsed free-text. Default model `claude-haiku-4-5`
+(vision-capable, cheap, fast — matches the issue's stated latency/reliability-over-cost
+priority for a synchronous, bounded-schema extraction task), overridable via
+`ANTHROPIC_MODEL`. `ANTHROPIC_API_KEY` required, read live via a new
+`lib/config.js` getter, never hardcoded or logged.
+
+- `lib/llm-client.js`: remove `fetchWithTimeout`, `fetchWithOllamaFallback`,
+  `extractJsonFromText` (Ollama/free-text-specific); add a shared
+  `callClaudeForJSON()` helper wrapping `client.messages.create()` with a single
+  forced (`tool_choice`), `strict: true` tool. `classifyLineWithLLM` reimplemented
+  on top of it, same signature/behaviour (never blocks import on failure).
+- `routes/uploads.js` (`/api/parse-label-llm`) and `routes/invoices.js`
+  (`/api/invoices/parse`): swap the Ollama-shaped fetch payload for
+  `callClaudeForJSON()` calls; existing fallback-on-error behaviour and
+  `llm-schema.js` validation/fuzzy-matching untouched.
+- `lib/config.js`: remove `getLlmApiUrl()`/`LLM_API_URL`; add
+  `getAnthropicModel()` (`ANTHROPIC_MODEL`, default `claude-haiku-4-5`, read live
+  like the old `getLlmModel()` for test-override reasons).
+- `docker-compose.yml`: drop `LLM_API_URL`, add `ANTHROPIC_API_KEY`.
+- No Unraid Community Applications XML template exists anywhere in this repo (only
+  `docker-compose.yml`) — the issue assumed one; it's maintained outside this repo,
+  so it isn't touched here.
+- Tests: mock `global.fetch` (the SDK's transport) to cover the new Anthropic
+  call path without hitting the real API; `test/invoice-import.test.js`'s
+  unreachable-URL trick moves from `LLM_API_URL` to `ANTHROPIC_BASE_URL` (the SDK
+  reads this env var natively).
+- `CLAUDE.md` non-negotiable constraint #6 updated to describe the Anthropic
+  default instead of the retired Ollama/granite one.
+
 ## 0.30 - 2026-08-23
 
 ### Split server.js into discrete modules (fixes #32)
