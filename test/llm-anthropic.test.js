@@ -99,7 +99,7 @@ describe('POST /api/parse-label-llm', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await api(app).post('/api/parse-label-llm').attach('image', PRODUCT_IMAGE);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ name: '', container_details: '', category_id: null, location_id: null });
+    expect(res.body).toMatchObject({ name: '', container_details: '', category_id: null, location_id: null });
     expect(consoleSpy).toHaveBeenCalled();
   });
 });

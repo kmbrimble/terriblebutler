@@ -1,13 +1,11 @@
 const fs = require('fs');
 const Fuse = require('fuse.js');
-const pdfParse = require('pdf-parse');
 const { PDFParse } = require('pdf-parse');
 const { findMatch } = require('../item-matching');
 const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
-const { fetchWithOllamaFallback, extractJsonFromText, classifyLineWithLLM } = require('../lib/llm-client');
+const { callClaudeForJSON, classifyLineWithLLM } = require('../lib/llm-client');
 const { cleanText, finiteNumber, sendMutationError } = require('../lib/domain-helpers');
-const config = require('../lib/config');
 
 function getImportWithLines(db, importId) {
   const importRow = db.prepare('SELECT * FROM invoice_imports WHERE id = ?').get(importId);
@@ -32,31 +30,38 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     if (!req.file) {
       return res.status(400).json({ error: 'No invoice uploaded' });
     }
-    const llmApiUrl = config.getLlmApiUrl();
-    const llmModel = config.getLlmModel();
     try {
-      const dataBuffer = fs.readFileSync(req.file.path);
-      const pdfData = await pdfParse(dataBuffer);
-      const rawText = pdfData.text;
-      const payload = {
-        model: llmModel,
-        messages: [
-          {
-            role: "user",
-            content: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string). Output strictly as JSON.\n\n${rawText}`
-          }
-        ],
-        response_format: { type: "json_object" }
-      };
-      const response = await fetchWithOllamaFallback(llmApiUrl, payload);
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      let parsedJson;
-      try {
-        parsedJson = extractJsonFromText(content);
-      } catch (e) {
-        parsedJson = { items: [] };
-      }
+      const pdfParser = new PDFParse({ data: fs.readFileSync(req.file.path) });
+      const { text: rawText } = await pdfParser.getText();
+      await pdfParser.destroy();
+      const parsedJson = await callClaudeForJSON({
+        userContent: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).\n\n${rawText}`,
+        toolName: 'invoice_items',
+        toolDescription: 'Record the invoice line items extracted from the supplied invoice text.',
+        schema: {
+          type: 'object',
+          properties: {
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  container_details: { type: 'string' },
+                  quantity: { type: 'number' },
+                  price: { type: 'number' },
+                  vendor: { type: 'string' },
+                },
+                required: ['name', 'container_details', 'quantity', 'price', 'vendor'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['items'],
+          additionalProperties: false,
+        },
+        maxTokens: 4096,
+      });
       const { items, errors } = validateInvoiceItems(parsedJson);
       if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
       res.json(items);

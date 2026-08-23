@@ -6,14 +6,14 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ### Replace Ollama vision model with Anthropic API (fixes #34)
 
-Plan: drop the self-hosted Ollama vision model entirely (slow VRAM load time, low
+Dropped the self-hosted Ollama vision model entirely (slow VRAM load time, low
 reliability) and call the Anthropic Messages API directly via the official
 `@anthropic-ai/sdk`, using forced strict tool-use so the response is guaranteed
 schema-valid JSON instead of parsed free-text. Default model `claude-haiku-4-5`
 (vision-capable, cheap, fast — matches the issue's stated latency/reliability-over-cost
 priority for a synchronous, bounded-schema extraction task), overridable via
-`ANTHROPIC_MODEL`. `ANTHROPIC_API_KEY` required, read live via a new
-`lib/config.js` getter, never hardcoded or logged.
+`ANTHROPIC_MODEL`. `ANTHROPIC_API_KEY` is read directly from the environment by the
+SDK — never hardcoded, logged, or passed through `lib/config.js`.
 
 - `lib/llm-client.js`: remove `fetchWithTimeout`, `fetchWithOllamaFallback`,
   `extractJsonFromText` (Ollama/free-text-specific); add a shared
@@ -30,13 +30,23 @@ priority for a synchronous, bounded-schema extraction task), overridable via
 - `docker-compose.yml`: drop `LLM_API_URL`, add `ANTHROPIC_API_KEY`.
 - No Unraid Community Applications XML template exists anywhere in this repo (only
   `docker-compose.yml`) — the issue assumed one; it's maintained outside this repo,
-  so it isn't touched here.
-- Tests: mock `global.fetch` (the SDK's transport) to cover the new Anthropic
-  call path without hitting the real API; `test/invoice-import.test.js`'s
-  unreachable-URL trick moves from `LLM_API_URL` to `ANTHROPIC_BASE_URL` (the SDK
-  reads this env var natively).
-- `CLAUDE.md` non-negotiable constraint #6 updated to describe the Anthropic
-  default instead of the retired Ollama/granite one.
+  so it isn't touched here. The user will add the equivalent field(s) to that
+  template themselves.
+- Fixed a pre-existing, unrelated bug hit while wiring up `/api/invoices/parse`:
+  it called `pdfParse(dataBuffer)` using the `pdf-parse` v1 callable API, but the
+  installed v2 replaced that with a `PDFParse` class (already used correctly two
+  handlers down, at the `/api/invoices/import` route) — the endpoint was silently
+  broken on `main` before this change touched it.
+- Tests: new `test/llm-anthropic.test.js` mocks `global.fetch` (the SDK's
+  transport) to cover the new Anthropic call path — `callClaudeForJSON`/
+  `classifyLineWithLLM` request shape, `/api/parse-label-llm` and
+  `/api/invoices/parse` happy-path and failure-path — without hitting the real
+  API. `test/invoice-import.test.js`'s unreachable-URL trick moves from
+  `LLM_API_URL` to `ANTHROPIC_BASE_URL` (the SDK reads this env var natively).
+- `CLAUDE.md` non-negotiable constraint #6 and the `lib/llm-client.js` layout
+  entry updated to describe the Anthropic default instead of the retired
+  Ollama/granite one.
+- Full `npm test` (237 backend + 98 client) green.
 
 ## 0.30 - 2026-08-23
 

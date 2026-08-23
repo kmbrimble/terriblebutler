@@ -54,8 +54,8 @@ middleware logic. The actual code lives in:
   helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
   `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
-- `lib/llm-client.js` — `fetchWithTimeout`, `fetchWithOllamaFallback`, `extractJsonFromText`,
-  `classifyLineWithLLM`.
+- `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
+  Messages API), `classifyLineWithLLM`.
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
@@ -89,9 +89,14 @@ from outside this project without checking against this list.
    `if (require.main === module) { ... }`, and the file ending with
    `module.exports = { app, server, db };`. This lets supertest import the app without
    starting a listener.
-6. **LLM model default is `ibm/granite3.3-vision:2b`** (`lib/config.js` `getLlmModel()` —
-   reads `process.env.LLM_MODEL` live rather than caching it, since a cached value would
-   ignore a per-test override set after module load). Do not revert to `llama3.2-vision`.
+6. **Vision/text LLM calls go through the Anthropic Messages API** (`lib/llm-client.js`
+   `callClaudeForJSON()`, official `@anthropic-ai/sdk`), not a self-hosted Ollama model —
+   that path was removed (fixes #34). Default model is `claude-haiku-4-5`
+   (`lib/config.js` `getAnthropicModel()` — reads `process.env.ANTHROPIC_MODEL` live rather
+   than caching it, since a cached value would ignore a per-test override set after module
+   load). `ANTHROPIC_API_KEY` is required and read by the SDK directly from the
+   environment — never hardcode it or log it. Structured JSON is guaranteed via a forced,
+   `strict: true` tool call, not free-text parsing.
 7. **Camera must stay allowed.** The `Permissions-Policy` header (`securityHeaders` in
    `lib/middleware.js`) must include `camera=(self)`. Removing it breaks the barcode scanner.
    There is a test guarding this; do not weaken it.

@@ -9,7 +9,7 @@ services:
       - "2626:2626"
     environment:
       - PORT=2626
-      - LLM_API_URL=http://192.168.0.10:11434/v1/chat/completions
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=production
     volumes:
       - ./data:/app/data

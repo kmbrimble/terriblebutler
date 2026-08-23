@@ -3,8 +3,7 @@ const Fuse = require('fuse.js');
 const sharp = require('sharp');
 const { resolveNamedMatch } = require('../item-matching');
 const { validateLabelResult } = require('../llm-schema');
-const { fetchWithTimeout, extractJsonFromText } = require('../lib/llm-client');
-const config = require('../lib/config');
+const { callClaudeForJSON } = require('../lib/llm-client');
 
 function registerUploadRoutes(app, { db, imageUpload }) {
   app.post('/api/upload-image', imageUpload.single('image'), (req, res) => {
@@ -21,8 +20,6 @@ function registerUploadRoutes(app, { db, imageUpload }) {
       console.error("[Label Parser] No image file received in upload request.");
       return res.status(400).json({ error: 'No image uploaded' });
     }
-    const llmApiUrl = config.getLlmApiUrl();
-    const llmModel = config.getLlmModel();
     console.log(`[Label Parser] Received file: ${req.file.originalname} (${req.file.size} bytes)`);
     try {
       const locs = db.prepare('SELECT id, name FROM locations').all();
@@ -40,61 +37,30 @@ function registerUploadRoutes(app, { db, imageUpload }) {
 "container_details": ONLY the strict measurement of weight, volume, or size (e.g., '180g', '2L'). Exclude all other descriptive text.
 "category_name": Select the most appropriate category strictly from this list: [${catNames}]. If no category is a good fit, leave it empty.
 "location_name": Select the most logical physical storage location for this product strictly from this list: [${locNames}].`;
-      const payload = {
-        model: llmModel,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: promptText },
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
-            ]
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 1024,
-        stream: false,
-        // Ollama's OpenAI-compatible /v1/chat/completions endpoint does not honour a raw
-        // top-level `format` field (that's the native /api/chat structured-output
-        // mechanism) — it's silently ignored, letting the model return free-form,
-        // off-schema JSON. `response_format` with an attached json_schema is the field
-        // this endpoint actually enforces. Verified against ibm/granite3.3-vision:2b.
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "label_result",
-            schema: {
-              type: "object",
-              properties: {
-                name: { type: "string" },
-                category_name: { type: "string" },
-                location_name: { type: "string" },
-                container_details: { type: "string" }
-              },
-              required: ["name", "category_name", "location_name", "container_details"]
-            }
-          }
-        }
-      };
-      console.log(`[Label Parser] Sending request to LLM URL: ${llmApiUrl} (Model: ${llmModel})`);
-      const response = await fetchWithTimeout(llmApiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[Label Parser Error] Ollama responded with HTTP ${response.status}:`, errorText);
-        throw new Error(`LLM API returned HTTP ${response.status}: ${errorText}`);
-      }
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '{}';
-      console.log("[Label Parser] Raw LLM Response:", content);
+      console.log('[Label Parser] Sending request to Anthropic API');
       let parsedData;
       try {
-        parsedData = extractJsonFromText(content);
-      } catch (parseErr) {
-        console.error("[Label Parser Error] JSON parse failed on response:", parseErr.message);
+        parsedData = await callClaudeForJSON({
+          userContent: [
+            { type: 'text', text: promptText },
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
+          ],
+          toolName: 'label_result',
+          toolDescription: 'Record the extracted product label information.',
+          schema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              category_name: { type: 'string' },
+              location_name: { type: 'string' },
+              container_details: { type: 'string' },
+            },
+            required: ['name', 'category_name', 'location_name', 'container_details'],
+            additionalProperties: false,
+          },
+        });
+      } catch (llmErr) {
+        console.error('[Label Parser Error] Anthropic API call failed:', llmErr.message);
         parsedData = fallbackObject;
       }
       const validated = validateLabelResult(parsedData);
