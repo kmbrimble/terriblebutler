@@ -28,7 +28,7 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const val = parseFloat(amount);
-    if (isNaN(val)) return;
+    if (isNaN(val) || val < 0) return;
     await updateItemQuantity(item.id, val, 'set', multiLocation ? locationId || null : undefined);
     onClose();
   }
@@ -42,7 +42,8 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
             &times;
           </button>
         </div>
-        <form onSubmit={handleSubmit}>
+        {/* noValidate: amount is pre-filled from a possibly-fractional legacy quantity, which would otherwise trip step="1"'s native stepMismatch and silently block Set — negative is floored in handleSubmit instead. */}
+        <form onSubmit={handleSubmit} noValidate>
           {multiLocation && (
             <div className="mb-4 text-left">
               <label className="block text-sm font-bold mb-1 text-rimmy-text">Location</label>

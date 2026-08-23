@@ -98,6 +98,7 @@ let qtySingle, qtyMulti;
 let deductSingle, deductMulti;
 let ignoreItem;
 let openSingle, openMulti;
+let fractionalQtyItem;
 let historyItem, noHistoryItem;
 let category, fieldsItem;
 
@@ -122,7 +123,7 @@ test.beforeAll(async ({ request }) => {
     return res.json();
   }
 
-  const NEEDED_HEADROOM = 44; // this file's total fixture + UI-driven mutation count, generously rounded
+  const NEEDED_HEADROOM = 48; // this file's total fixture + UI-driven mutation count, generously rounded
   const probeRes = await request.post('/api/locations', { data: { name: `${prefix} Loc A` } });
   expect(probeRes.ok()).toBeTruthy();
   locA = await probeRes.json();
@@ -156,6 +157,11 @@ test.beforeAll(async ({ request }) => {
   openSingle = await post('/api/items', { name: `${prefix} OpenSingle`, quantity: 3, location_id: locA.id });
   openMulti = await post('/api/items', { name: `${prefix} OpenMulti`, quantity: 2, location_id: locA.id });
   await patch(`/api/items/${openMulti.id}/quantity`, { amount: 2, action: 'add', location_id: locB.id });
+
+  // A fractional quantity, same as pre-existing live data from before quantity inputs were
+  // floored to whole-number steps (#27) — the server itself never restricted quantity to
+  // integers, only the client's <input step="1">.
+  fractionalQtyItem = await post('/api/items', { name: `${prefix} FractionalQty`, quantity: 2.5, location_id: locA.id });
 
   // Three price-history records via one add + two edits, spanning a max (8, most recent) and a
   // min (3) that differ from each other and from the most-recent record, so last-purchase,
@@ -441,6 +447,30 @@ test('"open" status: toggle turns the qty display red, the quick minus button au
   // locA's own row is untouched by locB's toggle.
   await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locA.name }).click();
   await expect(page.getByTestId(ITEM_CARD).filter({ hasText: openMulti.name }).getByTestId(QTY_DISPLAY_BUTTON)).not.toHaveClass(/text-red-500/);
+});
+
+test('set-quantity modal: a pre-filled fractional quantity (pre-existing/legacy data) still saves, and a typed negative is still blocked', async ({ page }) => {
+  await page.goto('/');
+
+  // Regression: QtyModal's amount input got step="1" in #27, but is pre-filled from the
+  // item's CURRENT quantity, which the server has never restricted to whole numbers — a
+  // stepMismatch would silently block native form submission for any item with legacy
+  // fractional stock, with no error shown.
+  const card = page.getByTestId(ITEM_CARD).filter({ hasText: fractionalQtyItem.name });
+  await card.getByTestId(QTY_DISPLAY_BUTTON).click();
+  const amountInput = page.getByTestId(QTY_MODAL_AMOUNT_INPUT);
+  await expect(amountInput).toHaveValue('2.5');
+  await page.getByTestId(QTY_MODAL_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(QTY_MODAL)).toBeHidden();
+  await expect(card.getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('2.5');
+
+  // The min="0" floor must still block a typed negative value from being saved.
+  await card.getByTestId(QTY_DISPLAY_BUTTON).click();
+  await amountInput.fill('-4');
+  await page.getByTestId(QTY_MODAL_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(QTY_MODAL)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(card.getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('2.5');
 });
 
 test('deduct requires a location picker only for multi-location items, and ignore/restore moves an item between the Grocery and Ignored tabs', async ({ page }) => {

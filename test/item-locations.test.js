@@ -185,6 +185,18 @@ describe('Per-location "open" status', () => {
     expect(item.locations[0].quantity).toBe(2);
   });
 
+  it('deducting exactly 1 via POST /deduct also clears is_open, not just the quantity PATCH endpoint', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Jam Jar', location_id: locA, quantity: 3 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1 });
+
+    await api(app).post(`/api/items/${id}/deduct`).send({ amount: 1, location_id: locA });
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations[0].is_open).toBe(0);
+    expect(item.locations[0].quantity).toBe(2);
+  });
+
   it('subtracting more than 1 at once leaves is_open untouched', async () => {
     const created = await api(app).post('/api/items').send({ name: 'Cheese Block', location_id: locA, quantity: 5 });
     const id = created.body.id;

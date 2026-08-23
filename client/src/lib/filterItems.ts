@@ -13,8 +13,14 @@ export interface Tab {
 }
 
 // Categories that aren't grocery-restockable in the normal sense, so items in them never
-// appear in the Grocery List or Ignored Out-of-Stock tabs regardless of stock level.
-const NON_GROCERY_CATEGORIES = ['Homemade', 'Dog Food'];
+// appear in the Grocery List or Ignored Out-of-Stock tabs regardless of stock level. Category
+// names are free text (no canonical ID for these two), so matching is case/whitespace-loose
+// rather than requiring an exact match a household member could easily type around.
+const NON_GROCERY_CATEGORIES = ['homemade', 'dog food'];
+
+function isNonGroceryCategory(categoryName: string | null): boolean {
+  return NON_GROCERY_CATEGORIES.includes((categoryName ?? '').trim().toLowerCase());
+}
 
 export function filterItems(items: Item[], tab: Tab, search: string): Item[] {
   const query = search.toLowerCase();
@@ -31,13 +37,9 @@ export function filterItems(items: Item[], tab: Tab, search: string): Item[] {
       case 'location':
         return item.locations.some((l) => l.location_id === tab.id);
       case 'grocery':
-        return (
-          item.quantity <= item.reorder_threshold &&
-          item.is_ignored_grocery === 0 &&
-          !NON_GROCERY_CATEGORIES.includes(item.category_name ?? '')
-        );
+        return item.quantity <= item.reorder_threshold && item.is_ignored_grocery === 0 && !isNonGroceryCategory(item.category_name);
       case 'ignored':
-        return item.is_ignored_grocery === 1 && !NON_GROCERY_CATEGORIES.includes(item.category_name ?? '');
+        return item.is_ignored_grocery === 1 && !isNonGroceryCategory(item.category_name);
       default:
         return true;
     }

@@ -4,6 +4,29 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Code-review follow-up fixes for #27/#28/#31
+
+An independent review of this session's five issue fixes surfaced three issues, all fixed here:
+
+- **QtyModal silently blocked "Set" for legacy fractional quantities.** #27 changed its amount
+  input to `step="1"`, but that input is pre-filled from the item's (or a location's) CURRENT
+  quantity — never restricted to whole numbers server-side — so any item with a pre-existing
+  fractional quantity would trip native `stepMismatch` on submit with no visible error. Fixed
+  by adding `noValidate` to the form and moving the negative-value floor into `handleSubmit`
+  (`val < 0` check) instead of relying on native constraint validation for it; `min="0"` still
+  clamps the stepper's arrow keys. New e2e test in `test-e2e/v2-item-detail.spec.js` covering
+  both a fractional pre-fill saving successfully and a typed negative still being blocked.
+- **Homemade/Dog Food category exclusion (#28) was exact-match only.** `category_name` is free
+  text with no canonical ID for these two, so "homemade" (lowercase) or "Dog Food " (trailing
+  space) silently defeated the exclusion. `filterItems.ts` now trims and lowercases both sides
+  before comparing. New unit test in `filterItems.test.ts`.
+- **Clarified a misleading code comment in `upsertItemLocationQuantity`'s subtract branch**
+  (#31): it described the amount-1 auto-clear-`is_open` rule as tied to "the quick '-' button",
+  but the branch is shared by `POST /api/items/:id/deduct` too — a manual deduct of exactly 1
+  also clears it, which is deliberate (a data-layer rule, not a UI-specific one) but the
+  comment undersold that. Reworded, and added a supertest in `test/item-locations.test.js`
+  proving the `/deduct` path exercises the same behaviour.
+
 ### Per-location "open" status on items (fixes #31)
 
 Added a per-location `is_open` flag (new `item_locations.is_open INTEGER NOT NULL DEFAULT 0`

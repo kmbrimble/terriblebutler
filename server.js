@@ -762,8 +762,9 @@ function upsertItemLocationQuantity(id, locationId, action, amount) {
   }
   if (action === 'subtract') {
     if (!existing || existing.quantity < amount) return false;
-    // Reducing by exactly 1 (the quick "-" button's own amount, always 1) auto-clears a
-    // location's "open" flag — see issue #31. Data-layer rule, not a UI-origin special case.
+    // Subtracting exactly 1 auto-clears this location's "open" flag (issue #31) — a
+    // data-layer rule applied to ANY caller of this branch (quick "-" button, or a manual
+    // deduct of exactly 1 via /deduct), not just one specific UI control.
     if (amount === 1) db.prepare('UPDATE item_locations SET quantity = quantity - ?, is_open = 0 WHERE id = ?').run(amount, existing.id);
     else db.prepare('UPDATE item_locations SET quantity = quantity - ? WHERE id = ?').run(amount, existing.id);
     return true;

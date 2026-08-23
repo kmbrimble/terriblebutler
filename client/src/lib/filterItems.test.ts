@@ -72,6 +72,14 @@ describe('filterItems', () => {
     expect(result.map((i) => i.id)).toEqual([3]);
   });
 
+  it('matches Homemade/Dog Food regardless of case or surrounding whitespace', () => {
+    const lowerCase = makeItem({ id: 1, quantity: 0, reorder_threshold: 2, category_name: 'homemade' });
+    const shoutCase = makeItem({ id: 2, quantity: 0, reorder_threshold: 2, category_name: 'DOG FOOD' });
+    const padded = makeItem({ id: 3, quantity: 0, reorder_threshold: 2, category_name: ' Homemade ' });
+    const result = filterItems([lowerCase, shoutCase, padded], { type: 'grocery', id: null }, '');
+    expect(result).toEqual([]);
+  });
+
   it('the "all" tab still shows Homemade and Dog Food items', () => {
     const homemade = makeItem({ id: 1, category_name: 'Homemade' });
     const result = filterItems([homemade], { type: 'all', id: null }, '');
