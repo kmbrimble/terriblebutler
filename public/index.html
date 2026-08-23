@@ -120,6 +120,12 @@
                 class="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
             <input id="loginPassword" data-testid="login-password-input" name="password" type="password" placeholder="Password" autocomplete="current-password" required
                 class="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
+            <label class="flex items-center gap-2 text-sm text-rimmy-text">
+                <input type="checkbox" id="rememberDeviceCheckbox" data-testid="remember-device-checkbox" onchange="document.getElementById('deviceLabelInput').classList.toggle('hidden', !this.checked)">
+                Remember this device
+            </label>
+            <input id="deviceLabelInput" data-testid="device-label-input" type="text" placeholder="Device name (e.g. Kitchen tablet)"
+                class="hidden w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text">
             <p id="loginError" data-testid="login-error" class="hidden text-sm text-red-500"></p>
             <button type="submit" data-testid="login-submit-button" class="w-full bg-rimmy-orange hover:bg-rimmy-orangeHover text-white font-semibold p-2 rounded">Log in</button>
         </form>
@@ -161,6 +167,7 @@
             <h3 class="text-rimmy-orange font-bold uppercase text-xs tracking-wider">Manage Options</h3>
             <button onclick="toggleDrawer(); openManageCategories()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm transition-all text-sm">Manage Categories</button>
             <button onclick="toggleDrawer(); openManageLocations()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm transition-all text-sm">Manage Locations</button>
+            <button onclick="toggleDrawer(); openManageDevices()" class="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm transition-all text-sm">Manage Devices</button>
         </div>
 
         <div class="flex flex-col gap-5 mt-2 border-t border-rimmy-border pt-4 shrink-0">
@@ -430,6 +437,18 @@
         </div>
     </div>
 
+    <!-- Manage Devices Modal -->
+    <div id="manageDevicesModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
+        <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6 relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-rimmy-orange">Manage Devices</h2>
+                <button onclick="closeManageDevices()" class="text-rimmy-textMuted hover:text-rimmy-orange font-bold text-2xl leading-none transition-colors">&times;</button>
+            </div>
+
+            <ul id="manageDeviceList" class="flex flex-col gap-2 flex-1 overflow-y-auto pr-1"></ul>
+        </div>
+    </div>
+
     <!-- Manage Locations Modal -->
     <div id="manageLocationsModal" class="hidden fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
         <div class="bg-rimmy-charcoal border border-rimmy-purple shadow-[0_0_20px_rgba(106,13,173,0.3)] rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6 relative">
@@ -679,6 +698,26 @@
                         return;
                     }
                     localStorage.setItem('tb_token', data.token);
+
+                    const rememberDevice = document.getElementById('rememberDeviceCheckbox').checked;
+                    const deviceLabel = document.getElementById('deviceLabelInput').value.trim();
+                    if (rememberDevice && deviceLabel) {
+                        try {
+                            const deviceRes = await fetch('/api/auth/device-token', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${data.token}`
+                                },
+                                body: JSON.stringify({ device_label: deviceLabel })
+                            });
+                            const deviceData = await deviceRes.json().catch(() => ({}));
+                            if (deviceRes.ok) {
+                                localStorage.setItem('tb_token', deviceData.token);
+                            }
+                        } catch (err) {}
+                    }
+
                     initApp();
                 } catch (err) {
                     showLogin('Could not reach the server.');
@@ -910,6 +949,40 @@
             if (!confirm('Delete this category? Items in this category will not be deleted.')) return;
             try {
                 await apiRequest(`/api/categories/${id}`, { method: 'DELETE' });
+            } catch {}
+        }
+
+        // --- MANAGE DEVICES LOGIC ---
+        function openManageDevices() {
+            document.getElementById('manageDevicesModal').classList.remove('hidden');
+            renderManageDevices();
+        }
+        function closeManageDevices() {
+            document.getElementById('manageDevicesModal').classList.add('hidden');
+        }
+        async function renderManageDevices() {
+            const list = document.getElementById('manageDeviceList');
+            if (!list) return;
+            let devices = [];
+            try {
+                const res = await apiRequest('/api/auth/devices', { silent: true });
+                devices = await res.json();
+            } catch {}
+            list.innerHTML = devices.map(d => `
+                <li class="flex justify-between items-center bg-rimmy-black border border-rimmy-border rounded p-2">
+                    <div class="truncate pr-2">
+                        <div class="text-rimmy-text font-bold truncate">${escapeHtml(d.device_label)}</div>
+                        <div class="text-rimmy-textMuted text-xs">${d.revoked ? 'Revoked' : `Last used ${escapeHtml(d.last_used_at)}`}</div>
+                    </div>
+                    ${d.revoked ? '' : `<button onclick="revokeDevice(${d.id})" class="shrink-0 text-red-500 hover:text-red-700 font-bold touch-target px-2 border border-rimmy-border rounded">Revoke</button>`}
+                </li>
+            `).join('');
+        }
+        async function revokeDevice(id) {
+            if (!confirm('Revoke this device? It will need to log in again to regain access.')) return;
+            try {
+                await apiRequest(`/api/auth/devices/${id}/revoke`, { method: 'POST' });
+                renderManageDevices();
             } catch {}
         }
 

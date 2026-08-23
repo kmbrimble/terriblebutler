@@ -4,11 +4,15 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.29 - 2026-08-23
+
 ### Long-lived device token auth (fixes #18)
 
-Plan: add an opt-in second auth path alongside the existing shared-password JWT login, so a
+Adds an opt-in second auth path alongside the existing shared-password JWT login, so a
 trusted device (kitchen tablet, a phone) can skip re-entering the password after its JWT
-expires, without a hard expiry from normal use, and with per-device revocation.
+expires, without a hard expiry from normal use, and with per-device revocation. Implemented
+in parallel in both front ends (`public/index.html` and the React client under `client/`),
+since both are live and separately e2e-tested.
 
 - New `device_tokens` table (id, token_hash, device_label, created_at, last_used_at, revoked) —
   brand-new table added directly to `server.js`'s `CREATE TABLE IF NOT EXISTS` block.
@@ -18,10 +22,15 @@ expires, without a hard expiry from normal use, and with per-device revocation.
   to a device-token hash lookup — rejecting a revoked token or one idle for over a year, and
   bumping `last_used_at` on every successful use (sliding expiry).
 - `GET /api/auth/devices` and `POST /api/auth/devices/:id/revoke` back a new "Manage Devices"
-  panel in the settings drawer.
-- Client reuses the existing `tb_token` localStorage slot for a device token — same header format
-  as a JWT, so `apiFetch` and the socket connection need no changes. Login form gets a "remember
-  this device" checkbox + label input that calls the new endpoint after a successful login.
+  panel in the settings drawer of both front ends.
+- Both clients reuse the existing `tb_token` localStorage slot for a device token — same header
+  format as a JWT, so the rest of each client's request/socket code needs no changes. Each
+  login form gets a "remember this device" checkbox + label input that calls the new endpoint
+  after a successful login.
+- New `test/device-tokens.test.js` (Vitest + supertest) covers issuance, bearer auth via a
+  device token, revocation, the 1-year inactivity cutoff, and the device-list/revoke endpoints.
+  Full backend suite (227 tests), client unit suite (98 tests), and the Playwright e2e suite
+  (60 tests) all pass unchanged.
 
 ### Code-review follow-up fixes for #27/#28/#31
 

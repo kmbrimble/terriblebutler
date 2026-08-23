@@ -25,6 +25,7 @@ import { ItemDetailModal } from './ItemDetailModal';
 import { InvoiceImportModal, ACTIVE_IMPORT_KEY } from './InvoiceImportModal';
 import { ManageCategoriesModal } from './ManageCategoriesModal';
 import { ManageLocationsModal } from './ManageLocationsModal';
+import { ManageDevicesModal } from './ManageDevicesModal';
 import { Toast } from './Toast';
 
 export function ItemList() {
@@ -45,6 +46,7 @@ export function ItemList() {
   const [invoiceImportOpen, setInvoiceImportOpen] = useState(false);
   const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
   const [manageLocationsOpen, setManageLocationsOpen] = useState(false);
+  const [manageDevicesOpen, setManageDevicesOpen] = useState(false);
 
   useEffect(() => {
     getItems().then(setItems).catch(() => {});
@@ -149,6 +151,7 @@ export function ItemList() {
         onOpenInvoiceImport={() => setInvoiceImportOpen(true)}
         onOpenManageCategories={() => setManageCategoriesOpen(true)}
         onOpenManageLocations={() => setManageLocationsOpen(true)}
+        onOpenManageDevices={() => setManageDevicesOpen(true)}
       />
       <TabBar locations={locations} activeTab={tab} onSelect={setTab} />
       <div className="p-4 flex flex-col gap-3">
@@ -232,6 +235,7 @@ export function ItemList() {
       )}
       {manageCategoriesOpen && <ManageCategoriesModal categories={categories} onClose={() => setManageCategoriesOpen(false)} />}
       {manageLocationsOpen && <ManageLocationsModal locations={locations} onClose={() => setManageLocationsOpen(false)} />}
+      {manageDevicesOpen && <ManageDevicesModal onClose={() => setManageDevicesOpen(false)} />}
       <Toast />
     </div>
   );

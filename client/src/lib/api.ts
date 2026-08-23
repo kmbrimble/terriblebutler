@@ -25,6 +25,26 @@ export async function login(username: string, password: string): Promise<void> {
   localStorage.setItem(TOKEN_KEY, data.token);
 }
 
+// Enrols the current device as a trusted device: exchanges the just-issued JWT for a
+// long-lived, individually-revocable device token, and overwrites tb_token with it — the
+// server accepts both token shapes under the same Authorization header, so no other client
+// code needs to know which kind is stored.
+export async function rememberDevice(deviceLabel: string): Promise<void> {
+  const res = await fetch('/api/auth/device-token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY) ?? ''}`,
+    },
+    body: JSON.stringify({ device_label: deviceLabel }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to remember this device.');
+  }
+  localStorage.setItem(TOKEN_KEY, data.token);
+}
+
 // Shapes below are read directly from server.js: GET /api/items' SQL (items.* plus
 // location_name/category_name/quantity) and parseItemLocations() for the `locations` array.
 
@@ -411,6 +431,25 @@ export interface MatchCandidate {
 export interface MatchResult {
   type: 'barcode' | 'exact_name' | 'fuzzy' | null;
   candidates: MatchCandidate[];
+}
+
+export interface DeviceToken {
+  id: number;
+  device_label: string;
+  created_at: string;
+  last_used_at: string;
+  revoked: number;
+}
+
+export async function getDevices(): Promise<DeviceToken[]> {
+  const res = await authorizedFetch('/api/auth/devices');
+  if (!res.ok) throw new Error('Failed to fetch devices.');
+  return res.json();
+}
+
+export async function revokeDevice(id: number): Promise<void> {
+  const res = await authorizedFetch(`/api/auth/devices/${id}/revoke`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to revoke device.');
 }
 
 export async function matchItem(name: string, barcode?: string): Promise<MatchResult | null> {

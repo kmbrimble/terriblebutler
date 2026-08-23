@@ -14,10 +14,11 @@ const { parseInvoice } = require('./parsers/router');
 const sharp = require('sharp');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { logAction } = require('./logger');
 const { scheduleNightlyBackup } = require('./backup');
 // Initialise App and Server
-const APP_VERSION = '0.27';
+const APP_VERSION = '0.29';
 const app = express();
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -259,6 +260,14 @@ db.exec(`
     status TEXT NOT NULL DEFAULT 'in_progress',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS device_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT NOT NULL UNIQUE,
+    device_label TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    revoked INTEGER NOT NULL DEFAULT 0
+  );
   CREATE TABLE IF NOT EXISTS invoice_import_lines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     import_id INTEGER NOT NULL REFERENCES invoice_imports(id),
@@ -295,15 +304,10 @@ function broadcastUpdate(action, itemData) {
 }
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
-  if (!token) {
+  if (!token || !authenticateToken(token)) {
     return next(new Error('Unauthorized'));
   }
-  try {
-    jwt.verify(token, JWT_SECRET);
-    next();
-  } catch (err) {
-    next(new Error('Unauthorized'));
-  }
+  next();
 });
 io.on('connection', (socket) => {
   console.log('A client connected');
@@ -463,20 +467,68 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: APP_VERSION });
 });
 
+const DEVICE_TOKEN_MAX_IDLE_MS = 365 * 24 * 60 * 60 * 1000;
+
+function hashDeviceToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// Accepts either a household JWT or a device token as the bearer value. A device token
+// is opaque (not self-contained like a JWT), so it's checked against its stored hash and
+// rejected if revoked or idle beyond DEVICE_TOKEN_MAX_IDLE_MS; a successful check bumps
+// last_used_at, giving it a sliding expiry instead of a hard one.
+function authenticateToken(token) {
+  try {
+    jwt.verify(token, JWT_SECRET);
+    return true;
+  } catch (err) {
+    // Not a valid JWT — fall through to the device-token check below.
+  }
+  const row = db.prepare('SELECT * FROM device_tokens WHERE token_hash = ?').get(hashDeviceToken(token));
+  if (!row || row.revoked) return false;
+  if (Date.now() - new Date(row.last_used_at).getTime() > DEVICE_TOKEN_MAX_IDLE_MS) return false;
+  db.prepare('UPDATE device_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+  return true;
+}
+
 function requireAuth(req, res, next) {
   const [scheme, token] = (req.headers['authorization'] || '').split(' ');
   if (scheme !== 'Bearer' || !token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  try {
-    jwt.verify(token, JWT_SECRET);
-    next();
-  } catch (err) {
-    res.status(401).json({ error: 'Unauthorized' });
+  if (!authenticateToken(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
+  next();
 }
 
 app.use('/api', requireAuth);
+
+app.post('/api/auth/device-token', (req, res) => {
+  const { device_label } = req.body || {};
+  if (!device_label || typeof device_label !== 'string' || !device_label.trim()) {
+    return res.status(400).json({ error: 'device_label is required.' });
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  db.prepare('INSERT INTO device_tokens (token_hash, device_label) VALUES (?, ?)')
+    .run(hashDeviceToken(token), device_label.trim());
+  res.json({ token });
+});
+
+app.get('/api/auth/devices', (req, res) => {
+  const devices = db.prepare(
+    'SELECT id, device_label, created_at, last_used_at, revoked FROM device_tokens ORDER BY created_at DESC'
+  ).all();
+  res.json(devices);
+});
+
+app.post('/api/auth/devices/:id/revoke', (req, res) => {
+  const result = db.prepare('UPDATE device_tokens SET revoked = 1 WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Device not found.' });
+  }
+  res.json({ success: true });
+});
 
 // --- LOCATION ENDPOINTS ---
 app.get('/api/locations', (req, res) => {

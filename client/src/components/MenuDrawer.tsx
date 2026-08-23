@@ -11,10 +11,12 @@ export function MenuDrawer({
   onOpenInvoiceImport,
   onOpenManageCategories,
   onOpenManageLocations,
+  onOpenManageDevices,
 }: {
   onOpenInvoiceImport: () => void;
   onOpenManageCategories: () => void;
   onOpenManageLocations: () => void;
+  onOpenManageDevices: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(() => getTheme() === 'dark');
@@ -101,6 +103,13 @@ export function MenuDrawer({
             className="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm text-sm"
           >
             Manage Locations
+          </button>
+          <button
+            type="button"
+            onClick={() => pick(onOpenManageDevices)}
+            className="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm text-sm"
+          >
+            Manage Devices
           </button>
         </div>
 

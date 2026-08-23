@@ -6,12 +6,14 @@ export function Header({
   onOpenInvoiceImport,
   onOpenManageCategories,
   onOpenManageLocations,
+  onOpenManageDevices,
 }: {
   onOpenAdd: () => void;
   onOpenDeduct: () => void;
   onOpenInvoiceImport: () => void;
   onOpenManageCategories: () => void;
   onOpenManageLocations: () => void;
+  onOpenManageDevices: () => void;
 }) {
   return (
     <header className="bg-rimmy-purple text-white p-4 sticky top-0 z-10 flex justify-between items-center gap-2 border-b border-rimmy-purpleHover">
@@ -48,6 +50,7 @@ export function Header({
           onOpenInvoiceImport={onOpenInvoiceImport}
           onOpenManageCategories={onOpenManageCategories}
           onOpenManageLocations={onOpenManageLocations}
+          onOpenManageDevices={onOpenManageDevices}
         />
       </div>
     </header>

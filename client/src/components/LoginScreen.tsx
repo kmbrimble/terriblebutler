@@ -1,15 +1,20 @@
 import { useState, type FormEvent } from 'react';
-import { login } from '../lib/api';
+import { login, rememberDevice } from '../lib/api';
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberDeviceChecked, setRememberDeviceChecked] = useState(false);
+  const [deviceLabel, setDeviceLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     try {
       await login(username, password);
+      if (rememberDeviceChecked && deviceLabel.trim()) {
+        await rememberDevice(deviceLabel.trim()).catch(() => {});
+      }
       setError(null);
       onLoggedIn();
     } catch (err) {
@@ -51,6 +56,25 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
           onChange={(e) => setPassword(e.target.value)}
           className="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text"
         />
+        <label className="flex items-center gap-2 text-sm text-rimmy-text">
+          <input
+            type="checkbox"
+            data-testid="remember-device-checkbox"
+            checked={rememberDeviceChecked}
+            onChange={(e) => setRememberDeviceChecked(e.target.checked)}
+          />
+          Remember this device
+        </label>
+        {rememberDeviceChecked && (
+          <input
+            data-testid="device-label-input"
+            type="text"
+            placeholder="Device name (e.g. Kitchen tablet)"
+            value={deviceLabel}
+            onChange={(e) => setDeviceLabel(e.target.value)}
+            className="w-full p-2 rounded border border-rimmy-border bg-rimmy-black text-rimmy-text"
+          />
+        )}
         {error && (
           <p data-testid="login-error" className="text-sm text-red-500">
             {error}
