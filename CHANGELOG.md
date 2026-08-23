@@ -4,6 +4,25 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Long-lived device token auth (fixes #18)
+
+Plan: add an opt-in second auth path alongside the existing shared-password JWT login, so a
+trusted device (kitchen tablet, a phone) can skip re-entering the password after its JWT
+expires, without a hard expiry from normal use, and with per-device revocation.
+
+- New `device_tokens` table (id, token_hash, device_label, created_at, last_used_at, revoked) —
+  brand-new table added directly to `server.js`'s `CREATE TABLE IF NOT EXISTS` block.
+- `POST /api/auth/device-token` (requires an existing valid session): generates an opaque random
+  token, stores only its SHA-256 hash, returns the raw token once.
+- `requireAuth` and the Socket.IO handshake middleware try JWT verification first, then fall back
+  to a device-token hash lookup — rejecting a revoked token or one idle for over a year, and
+  bumping `last_used_at` on every successful use (sliding expiry).
+- `GET /api/auth/devices` and `POST /api/auth/devices/:id/revoke` back a new "Manage Devices"
+  panel in the settings drawer.
+- Client reuses the existing `tb_token` localStorage slot for a device token — same header format
+  as a JWT, so `apiFetch` and the socket connection need no changes. Login form gets a "remember
+  this device" checkbox + label input that calls the new endpoint after a successful login.
+
 ### Code-review follow-up fixes for #27/#28/#31
 
 An independent review of this session's five issue fixes surfaced three issues, all fixed here:
