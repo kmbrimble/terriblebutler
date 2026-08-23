@@ -85,7 +85,26 @@ describe('device token as bearer auth', () => {
 
     const after = db.prepare('SELECT last_used_at FROM device_tokens WHERE device_label = ?')
       .get('Sliding tablet').last_used_at;
+    // Not parsed as a Date: SQLite's CURRENT_TIMESTAMP has no timezone suffix, so `new
+    // Date(after)` would be parsed as local time and give a false mismatch against Date.now()
+    // on any non-UTC host — a plain inequality against the known-stale value sidesteps that.
     expect(after).not.toBe(staleButValid);
+  });
+
+  it('does not rewrite last_used_at within the throttle window (recently used, well under the idle cutoff)', async () => {
+    const issued = await issueDeviceToken('Throttled tablet');
+    const recentlyUsed = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    db.prepare('UPDATE device_tokens SET last_used_at = ? WHERE device_label = ?')
+      .run(recentlyUsed, 'Throttled tablet');
+
+    const res = await request(app)
+      .get('/api/items')
+      .set('Authorization', `Bearer ${issued.body.token}`);
+    expect(res.status).toBe(200);
+
+    const after = db.prepare('SELECT last_used_at FROM device_tokens WHERE device_label = ?')
+      .get('Throttled tablet').last_used_at;
+    expect(after).toBe(recentlyUsed);
   });
 
   it('rejects a garbage bearer value that matches neither a JWT nor a device token', async () => {

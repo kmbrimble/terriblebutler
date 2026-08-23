@@ -468,9 +468,18 @@ app.get('/api/health', (req, res) => {
 });
 
 const DEVICE_TOKEN_MAX_IDLE_MS = 365 * 24 * 60 * 60 * 1000;
+const DEVICE_TOKEN_TOUCH_INTERVAL_MS = 60 * 60 * 1000;
 
 function hashDeviceToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// SQLite's CURRENT_TIMESTAMP produces "YYYY-MM-DD HH:MM:SS" in UTC with no timezone suffix;
+// `new Date()` on that string is parsed as LOCAL time, skewing every idle calculation by the
+// host's UTC offset. Tests also store proper ISO strings (with a 'Z') directly, so only add
+// one where it's missing.
+function parseUtcTimestamp(value) {
+  return new Date(/Z$/.test(value) ? value : `${value.replace(' ', 'T')}Z`);
 }
 
 // Accepts either a household JWT or a device token as the bearer value. A device token
@@ -486,8 +495,14 @@ function authenticateToken(token) {
   }
   const row = db.prepare('SELECT * FROM device_tokens WHERE token_hash = ?').get(hashDeviceToken(token));
   if (!row || row.revoked) return false;
-  if (Date.now() - new Date(row.last_used_at).getTime() > DEVICE_TOKEN_MAX_IDLE_MS) return false;
-  db.prepare('UPDATE device_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+  const idleMs = Date.now() - parseUtcTimestamp(row.last_used_at).getTime();
+  if (idleMs > DEVICE_TOKEN_MAX_IDLE_MS) return false;
+  // Only write last_used_at once an hour per device, not on every request — a device token
+  // is used for every API call a tablet/phone makes, and the sliding-expiry check above only
+  // needs hour-level precision, not per-request precision.
+  if (idleMs > DEVICE_TOKEN_TOUCH_INTERVAL_MS) {
+    db.prepare('UPDATE device_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+  }
   return true;
 }
 
