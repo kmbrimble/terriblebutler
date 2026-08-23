@@ -62,6 +62,27 @@ describe('QtyModal initialLocationId', () => {
   });
 });
 
+describe('QtyModal open toggle (fixes #35)', () => {
+  it('is not rendered for single-location items (the card\'s own Open button covers that case)', () => {
+    const singleLocationItem = makeItem({ quantity: 7, locations: [{ location_id: 1, location_name: 'Pantry', quantity: 7 }] });
+    const html = renderToStaticMarkup(<QtyModal item={singleLocationItem} onClose={() => {}} />);
+    expect(html).not.toContain('qty-modal-open-toggle');
+  });
+
+  it('reflects the initially-selected location\'s is_open state for multi-location items', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 1 },
+        { location_id: 2, location_name: 'Garage', quantity: 5, is_open: 0 },
+      ],
+    });
+    const html = renderToStaticMarkup(<QtyModal item={item} onClose={() => {}} />);
+    const match = html.match(/<input[^>]*data-testid="qty-modal-open-toggle"[^>]*>/);
+    expect(match).toBeTruthy();
+    expect(match![0]).toContain('checked=""');
+  });
+});
+
 describe('QtyModal amount step/floor', () => {
   it('uses a whole-number step floored at 0, not the legacy 0.1 with no floor', () => {
     const html = renderToStaticMarkup(<QtyModal item={makeItem()} onClose={() => {}} />);

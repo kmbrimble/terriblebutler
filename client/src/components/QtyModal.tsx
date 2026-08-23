@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateItemQuantity } from '../lib/api';
+import { updateItemQuantity, setItemOpen } from '../lib/api';
 import type { Item } from '../lib/api';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
@@ -18,11 +18,22 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
     if (multiLocation) return String(initialLocation?.quantity ?? 0);
     return String(item.quantity);
   });
+  // fixes #35: the card's own Open button hides itself for a multi-location item viewed outside
+  // a location tab (openToggleTarget in cardQuantity.ts) since it can't guess which location's
+  // pack to mark — this modal already resolves that ambiguity via the location picker below, so
+  // it's the natural place to still offer the toggle for exactly that case.
+  const [isOpen, setIsOpen] = useState(() => Boolean(initialLocation?.is_open));
 
   function handleLocationChange(value: string) {
     setLocationId(value);
     const loc = item.locations.find((l) => String(l.location_id ?? '') === value);
     setAmount(String(loc ? loc.quantity : 0));
+    setIsOpen(Boolean(loc?.is_open));
+  }
+
+  function handleToggleOpen(checked: boolean) {
+    setIsOpen(checked);
+    setItemOpen(item.id, checked ? 1 : 0, locationId ? Number(locationId) : null).catch(() => setIsOpen(!checked));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -54,6 +65,15 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
                   </option>
                 ))}
               </select>
+              <label className="mt-2 flex items-center gap-2 text-sm text-rimmy-text">
+                <input
+                  type="checkbox"
+                  data-testid="qty-modal-open-toggle"
+                  checked={isOpen}
+                  onChange={(e) => handleToggleOpen(e.target.checked)}
+                />
+                Mark this location's pack as open
+              </label>
             </div>
           )}
           <input

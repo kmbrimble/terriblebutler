@@ -55,6 +55,7 @@ export const QTY_DISPLAY_BUTTON = 'qty-display-button';
 export const QTY_MODAL = 'qty-modal';
 export const QTY_MODAL_AMOUNT_INPUT = 'qty-modal-amount-input';
 export const QTY_MODAL_LOCATION_SELECT = 'qty-modal-location-select';
+export const QTY_MODAL_OPEN_TOGGLE = 'qty-modal-open-toggle';
 export const QTY_MODAL_SUBMIT_BUTTON = 'qty-modal-submit-button';
 
 export const DEDUCT_ACTION_CONTAINER = 'deduct-action-container';
