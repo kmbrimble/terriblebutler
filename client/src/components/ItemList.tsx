@@ -144,15 +144,20 @@ export function ItemList() {
 
   return (
     <div className="flex flex-col">
-      <Header
-        onOpenAdd={() => setAddOpen(true)}
-        onOpenDeduct={() => setDeductOpen(true)}
-        onOpenInvoiceImport={() => setInvoiceImportOpen(true)}
-        onOpenManageCategories={() => setManageCategoriesOpen(true)}
-        onOpenManageLocations={() => setManageLocationsOpen(true)}
-        onOpenManageDevices={() => setManageDevicesOpen(true)}
-      />
-      <TabBar locations={locations} activeTab={tab} onSelect={setTab} />
+      {/* fixes #36: Header is already sticky on its own, but nothing pinned TabBar below it —
+          wrapping both in one sticky container keeps them glued together as a unit rather than
+          hardcoding the header's pixel height as TabBar's top offset. */}
+      <div className="sticky top-0 z-10 flex flex-col">
+        <Header
+          onOpenAdd={() => setAddOpen(true)}
+          onOpenDeduct={() => setDeductOpen(true)}
+          onOpenInvoiceImport={() => setInvoiceImportOpen(true)}
+          onOpenManageCategories={() => setManageCategoriesOpen(true)}
+          onOpenManageLocations={() => setManageLocationsOpen(true)}
+          onOpenManageDevices={() => setManageDevicesOpen(true)}
+        />
+        <TabBar locations={locations} activeTab={tab} onSelect={setTab} />
+      </div>
       <div className="p-4 flex flex-col gap-3">
         <SearchInput value={search} onChange={setSearch} />
         <div className="flex justify-between items-center gap-2">

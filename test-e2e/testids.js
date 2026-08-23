@@ -14,6 +14,7 @@ export const DEDUCT_OPEN_BUTTON = 'deduct-open-button';
 export const ADD_OPEN_BUTTON = 'add-open-button';
 
 export const LOCATION_TAB_BUTTON = 'location-tab-button';
+export const TAB_BAR = 'tab-bar';
 
 export const ITEM_CARD = 'item-card';
 export const ITEM_LIST = 'item-list';

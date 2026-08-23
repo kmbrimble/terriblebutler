@@ -29,7 +29,7 @@ export function TabBar({
   const tabDefs = buildTabDefs(locations);
 
   return (
-    <nav className="bg-rimmy-charcoal shadow-md border-b border-rimmy-border">
+    <nav data-testid="tab-bar" className="bg-rimmy-charcoal shadow-md border-b border-rimmy-border">
       <ul className="flex overflow-x-auto no-scrollbar p-2 gap-2 whitespace-nowrap">
         {tabDefs.map((tab) => {
           const isActive = activeTab.type === tab.type && activeTab.id === tab.id;
