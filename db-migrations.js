@@ -46,6 +46,13 @@ const migrations = [
       WHERE id NOT IN (SELECT item_id FROM item_locations)
     `);
   },
+  // #2: item_locations.is_open — per-location "there's an open pack here" flag. Also in
+  // server.js's base CREATE TABLE block for fresh installs.
+  (db) => {
+    if (!hasColumn(db, 'item_locations', 'is_open')) {
+      db.exec('ALTER TABLE item_locations ADD COLUMN is_open INTEGER NOT NULL DEFAULT 0');
+    }
+  },
 ];
 
 module.exports = { runMigrations, hasColumn, migrations };

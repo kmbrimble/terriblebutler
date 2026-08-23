@@ -244,6 +244,7 @@ db.exec(`
     item_id INTEGER NOT NULL,
     location_id INTEGER,
     quantity REAL NOT NULL DEFAULT 0,
+    is_open INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE,
     FOREIGN KEY(location_id) REFERENCES locations(id)
   );
@@ -318,7 +319,7 @@ io.on('connection', (socket) => {
 // SELECT-list alias there.
 const TOTAL_QUANTITY_SQL = `COALESCE((SELECT SUM(quantity) FROM item_locations WHERE item_id = items.id), 0)`;
 const LOCATIONS_BREAKDOWN_SQL = `(
-    SELECT json_group_array(json_object('location_id', il.location_id, 'location_name', l.name, 'quantity', il.quantity))
+    SELECT json_group_array(json_object('location_id', il.location_id, 'location_name', l.name, 'quantity', il.quantity, 'is_open', il.is_open))
     FROM item_locations il
     LEFT JOIN locations l ON il.location_id = l.id
     WHERE il.item_id = items.id
@@ -761,7 +762,10 @@ function upsertItemLocationQuantity(id, locationId, action, amount) {
   }
   if (action === 'subtract') {
     if (!existing || existing.quantity < amount) return false;
-    db.prepare('UPDATE item_locations SET quantity = quantity - ? WHERE id = ?').run(amount, existing.id);
+    // Reducing by exactly 1 (the quick "-" button's own amount, always 1) auto-clears a
+    // location's "open" flag — see issue #31. Data-layer rule, not a UI-origin special case.
+    if (amount === 1) db.prepare('UPDATE item_locations SET quantity = quantity - ?, is_open = 0 WHERE id = ?').run(amount, existing.id);
+    else db.prepare('UPDATE item_locations SET quantity = quantity - ? WHERE id = ?').run(amount, existing.id);
     return true;
   }
   if (action === 'set') {
@@ -813,6 +817,23 @@ app.patch('/api/items/:id/ignore-grocery', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+app.patch('/api/items/:id/open', (req, res) => {
+  const id = Number(req.params.id);
+  if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
+  try {
+    const isOpen = req.body.is_open ? 1 : 0;
+    const locationId = resolveTargetLocation(id, req.body.location_id);
+    const existing = locationId === null
+      ? db.prepare('SELECT id FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)
+      : db.prepare('SELECT id FROM item_locations WHERE item_id = ? AND location_id = ?').get(id, locationId);
+    if (!existing) return res.status(404).json({ error: 'Item is not stocked at that location' });
+    db.prepare('UPDATE item_locations SET is_open = ? WHERE id = ?').run(isOpen, existing.id);
+    db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+    const updatedItem = getItem(id);
+    broadcastUpdate('update_open', updatedItem);
+    res.json(updatedItem);
+  } catch (err) { sendMutationError(res, err); }
 });
 app.delete('/api/items/:id', (req, res) => {
   const id = Number(req.params.id);

@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import type { Item } from '../lib/api';
 import type { ViewMode } from '../lib/preferences';
 import type { Tab } from '../lib/filterItems';
-import { cardQuantity } from '../lib/cardQuantity';
+import { cardQuantity, cardIsOpen, openToggleTarget } from '../lib/cardQuantity';
 import { locationLabel } from '../lib/locationLabel';
 import { isTap } from '../lib/tapGesture';
 
@@ -29,6 +29,7 @@ export function ItemCard({
   onAdjust,
   onOpenQtyModal,
   onToggleIgnore,
+  onToggleOpen,
 }: {
   item: Item;
   viewMode: ViewMode;
@@ -38,6 +39,7 @@ export function ItemCard({
   onAdjust: (item: Item, action: 'add' | 'subtract') => void;
   onOpenQtyModal: (item: Item) => void;
   onToggleIgnore: (item: Item, status: 0 | 1) => void;
+  onToggleOpen: (item: Item, locationId: number | null, isOpen: 0 | 1) => void;
 }) {
   // Ref, not state — the pointerdown/pointerup pair happens well within one gesture and never
   // needs to trigger a re-render.
@@ -78,6 +80,8 @@ export function ItemCard({
   };
   const locLabel = locationLabel(item);
   const qty = cardQuantity(item, tab);
+  const isOpen = cardIsOpen(item, tab);
+  const openTarget = openToggleTarget(item, tab);
   // Button visibility mirrors public/index.html exactly: driven by which tab is active, not by
   // reading item.is_ignored_grocery (which can be genuinely NULL on live rows despite its
   // DEFAULT 0 — see the live-DB audit in this stage's changelog entry).
@@ -106,7 +110,7 @@ export function ItemCard({
           e.stopPropagation();
           onOpenQtyModal(item);
         }}
-        className="w-10 h-full flex items-center justify-center bg-transparent text-rimmy-text font-bold text-[12px] leading-none"
+        className={`w-10 h-full flex items-center justify-center bg-transparent font-bold text-[12px] leading-none ${isOpen ? 'text-red-500' : 'text-rimmy-text'}`}
       >
         {qty}
       </button>
@@ -123,6 +127,26 @@ export function ItemCard({
         +
       </button>
     </div>
+  );
+
+  const openButton = openTarget !== undefined && (
+    <button
+      type="button"
+      data-testid="open-toggle-button"
+      aria-label={isOpen ? 'Mark closed' : 'Mark open'}
+      onPointerDown={stopPointerDown}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleOpen(item, openTarget, isOpen ? 0 : 1);
+      }}
+      className={
+        isOpen
+          ? 'w-8 h-full flex items-center justify-center text-red-500 border border-red-500 rounded text-[9px] font-bold'
+          : 'w-8 h-full flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange border border-rimmy-border rounded text-[9px] font-bold'
+      }
+    >
+      {isOpen ? 'Close' : 'Open'}
+    </button>
   );
 
   const editButton = (
@@ -174,6 +198,7 @@ export function ItemCard({
         </div>
         <div className="flex items-center shrink-0 h-[30px] gap-1">
           {editButton}
+          {openButton}
           {qtyControls}
         </div>
       </div>
@@ -201,6 +226,7 @@ export function ItemCard({
       </div>
       <div className="flex w-full sm:w-auto justify-end gap-2">
         {editButton}
+        {openButton}
         {qtyControls}
       </div>
     </div>

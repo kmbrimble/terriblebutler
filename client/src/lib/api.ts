@@ -32,6 +32,9 @@ export interface ItemLocation {
   location_id: number | null;
   location_name: string | null;
   quantity: number;
+  // Optional: the API always sends it, but this keeps every pre-existing fixture literal
+  // across the test suite (built before this field existed) source-compatible.
+  is_open?: number;
 }
 
 export interface Item {
@@ -385,6 +388,17 @@ export async function setIgnoreGrocery(id: number, isIgnored: 0 | 1): Promise<It
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update the grocery list flag.');
+  return data;
+}
+
+export async function setItemOpen(id: number, isOpen: 0 | 1, locationId: number | null): Promise<Item> {
+  const res = await authorizedFetch(`/api/items/${id}/open`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_open: isOpen, location_id: locationId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to update the open flag.');
   return data;
 }
 

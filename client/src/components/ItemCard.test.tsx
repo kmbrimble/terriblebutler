@@ -97,6 +97,12 @@ describe('ItemCard "open" status', () => {
     expect(html).not.toContain('data-testid="open-toggle-button"');
   });
 
+  it('shows the open-toggle button in expanded view too, not just compact', () => {
+    const item = makeItem({ locations: [{ location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 }] });
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="expanded" {...cardProps} />);
+    expect(html).toContain('data-testid="open-toggle-button"');
+  });
+
   it('shows the open-toggle button for a multi-location item when inside that location\'s own tab', () => {
     const item = makeItem({
       locations: [

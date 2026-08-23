@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getItems, getLocations, getCategories, updateItemQuantity, setIgnoreGrocery, type Item, type Location, type Category } from '../lib/api';
+import { getItems, getLocations, getCategories, updateItemQuantity, setIgnoreGrocery, setItemOpen, type Item, type Location, type Category } from '../lib/api';
 import { connectSocket } from '../lib/socket';
 import {
   getViewMode,
@@ -137,6 +137,10 @@ export function ItemList() {
     setIgnoreGrocery(item.id, status).catch(() => {});
   }
 
+  function handleToggleOpen(item: Item, locationId: number | null, isOpen: 0 | 1) {
+    setItemOpen(item.id, isOpen, locationId).catch(() => {});
+  }
+
   return (
     <div className="flex flex-col">
       <Header
@@ -172,6 +176,7 @@ export function ItemList() {
                 onAdjust={handleQuickAdjust}
                 onOpenQtyModal={setQtyModalItem}
                 onToggleIgnore={handleToggleIgnore}
+                onToggleOpen={handleToggleOpen}
               />
             ))}
             {unavailable.length > 0 && (
@@ -190,6 +195,7 @@ export function ItemList() {
                     onAdjust={handleQuickAdjust}
                     onOpenQtyModal={setQtyModalItem}
                     onToggleIgnore={handleToggleIgnore}
+                onToggleOpen={handleToggleOpen}
                   />
                 ))}
               </>

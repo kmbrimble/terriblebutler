@@ -90,6 +90,7 @@ describe('item_locations.is_open migration', () => {
       CREATE UNIQUE INDEX idx_item_locations_unique ON item_locations(item_id, location_id) WHERE location_id IS NOT NULL;
       CREATE UNIQUE INDEX idx_item_locations_unique_null ON item_locations(item_id) WHERE location_id IS NULL;
     `);
+    db.prepare("INSERT INTO items (id, name, quantity) VALUES (1, 'Beans', 5)").run();
     db.prepare("INSERT INTO item_locations (item_id, location_id, quantity) VALUES (1, NULL, 5)").run();
     db.pragma('user_version = 1');
     return db;
