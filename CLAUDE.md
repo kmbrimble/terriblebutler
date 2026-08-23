@@ -32,32 +32,69 @@ affecting browser behaviour changed.
 Tests use a temporary database via the `DB_PATH` environment variable. They must never read or
 write the live database or uploads directory.
 
+## Server layout
+
+`server.js` is a thin composition root — it wires modules together in a specific order and
+re-exports `{ app, server, db }`. It does not itself contain route handlers, DB setup, or
+middleware logic. The actual code lives in:
+
+- `lib/config.js` — env-derived constants (`APP_VERSION`, `JWT_SECRET`, `AUTH_USERNAME`,
+  `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`).
+- `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
+- `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
+  handshake auth, `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
+  parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
+  dependency cycle — the composition root builds `server` from `app`, then calls this before
+  registering any routes.
+- `lib/middleware.js` — security headers, the rate-limiter factory and its configured
+  instances (`generalApiRateLimiter`, `mutationRateLimiterMiddleware`, `llmRateLimiter`,
+  `loginRateLimiter`), the multer upload configs, and `createAuth(db)` (`authenticateToken`,
+  `requireAuth`, `hashDeviceToken`).
+- `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
+  helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
+  `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
+  `LOCATIONS_BREAKDOWN_SQL` fragments).
+- `lib/llm-client.js` — `fetchWithTimeout`, `fetchWithOllamaFallback`, `extractJsonFromText`,
+  `classifyLineWithLLM`.
+- `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
+- `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
+  `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
+  function called from `server.js` in the exact order the routes must be mounted.
+
+`test/module-seam.test.js` snapshots the registered route table (method + path, in order) and
+asserts `{ app, server, db }` are still exported against `DB_PATH` — treat a failure there as a
+sign a change altered request-handling behaviour, not just structure.
+
 ## Non-negotiable constraints
 
-These MUST be preserved in `server.js`. Generic "best practice" refactors break them; do not
-apply patterns from outside this project without checking against this list.
+These MUST be preserved. Generic "best practice" refactors break them; do not apply patterns
+from outside this project without checking against this list.
 
-1. **Listen on all interfaces, port 2626.** `const PORT = process.env.PORT || 2626;` and
-   `server.listen(PORT, ...)` with NO host argument. NEVER bind to `127.0.0.1` or any loopback
-   address — it makes the app unreachable by Nginx Proxy Manager and by the LAN.
-2. **App-level auth via JWT.** `POST /api/auth/login` checks `AUTH_USERNAME` /
-   `AUTH_PASSWORD_HASH` (bcrypt) and returns a 30-day JWT. All `/api/*` routes require
-   `Authorization: Bearer <token>` except `/api/auth/login` and `/api/health`.
-   Rate-limited to 5 attempts/15min on login. Socket.IO validates the token on
-   handshake. Do not remove this auth layer or make routes public without checking
-   with the user first.
-3. **Preserve the SQLite pragmas:** `journal_mode = WAL`, `synchronous = FULL`,
-   `foreign_keys = ON`.
-4. **Preserve `DB_PATH`:**
-   `const dbPath = process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db');`
+1. **Listen on all interfaces, port 2626.** `lib/config.js` sets
+   `PORT = process.env.PORT || 2626`, and `server.js` calls `server.listen(PORT, ...)` with NO
+   host argument. NEVER bind to `127.0.0.1` or any loopback address — it makes the app
+   unreachable by Nginx Proxy Manager and by the LAN.
+2. **App-level auth via JWT.** `POST /api/auth/login` (`routes/auth.js`) checks
+   `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` (bcrypt) and returns a 30-day JWT. All `/api/*`
+   routes require `Authorization: Bearer <token>` (`requireAuth` in `lib/middleware.js`)
+   except `/api/auth/login` and `/api/health`. Rate-limited to 5 attempts/15min on login.
+   Socket.IO validates the token on handshake (`lib/realtime.js`). Do not remove this auth
+   layer or make routes public without checking with the user first.
+3. **Preserve the SQLite pragmas** (`lib/database.js`): `journal_mode = WAL`,
+   `synchronous = FULL`, `foreign_keys = ON`.
+4. **Preserve `DB_PATH`** (`lib/database.js`):
+   `const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'inventory.db');`
    This is what lets tests use a temp DB. Never hardcode the database path.
-5. **Preserve the test seam:** `server.listen` wrapped in `if (require.main === module) { ... }`
-   and the file ending with `module.exports = { app, server, db };`. This lets supertest import
-   the app without starting a listener.
-6. **LLM model default is `ibm/granite3.3-vision:2b`** on both LLM endpoints. Do not revert to
-   `llama3.2-vision`.
-7. **Camera must stay allowed.** The `Permissions-Policy` header must include `camera=(self)`.
-   Removing it breaks the barcode scanner. There is a test guarding this; do not weaken it.
+5. **Preserve the test seam:** `server.listen` in `server.js` wrapped in
+   `if (require.main === module) { ... }`, and the file ending with
+   `module.exports = { app, server, db };`. This lets supertest import the app without
+   starting a listener.
+6. **LLM model default is `ibm/granite3.3-vision:2b`** (`lib/config.js` `getLlmModel()` —
+   reads `process.env.LLM_MODEL` live rather than caching it, since a cached value would
+   ignore a per-test override set after module load). Do not revert to `llama3.2-vision`.
+7. **Camera must stay allowed.** The `Permissions-Policy` header (`securityHeaders` in
+   `lib/middleware.js`) must include `camera=(self)`. Removing it breaks the barcode scanner.
+   There is a test guarding this; do not weaken it.
 8. **Never expose the Node port raw to the internet.** Current access path (may change
    again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
    header/auth settings were removed, so NPM now passes straight through) →

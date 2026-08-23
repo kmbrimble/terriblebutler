@@ -4,6 +4,45 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.30 - 2026-08-23
+
+### Split server.js into discrete modules (fixes #32)
+
+Pure structural refactor, no behaviour change. `server.js` was a 1512-line file mixing DB
+bootstrap, rate limiting, auth, upload config, LLM plumbing, and seven route groups in one
+lexical scope; every change, however small, meant reading the whole file. It's now a thin
+composition root that wires modules together in a fixed order and re-exports
+`{ app, server, db }`.
+
+- New `lib/`: `config.js` (env-derived constants), `database.js` (`openDatabase()` — pragmas,
+  schema, migrations, seeding), `realtime.js` (`createRealtime(server, authenticateToken)` —
+  resolves the `broadcastUpdate` → `io` → `server` → `app` → routes dependency cycle by taking
+  `server` and `authenticateToken` as parameters instead of closing over module-level state),
+  `middleware.js` (security headers, rate limiters, multer uploads, `createAuth(db)`),
+  `domain-helpers.js` (item shaping/validation), `llm-client.js` (fetch/JSON-extraction/LLM
+  classify helpers), `shutdown.js` (`setupGracefulShutdown`).
+- New `routes/`: one file per route group — `health`, `auth`, `locations`, `categories`,
+  `items`, `price-history`, `uploads`, `invoices` — each exporting a `register*(app, deps)`
+  function, called from `server.js` in the exact original mount order.
+- Deleted `server.js_prestage1`, a stale leftover from an earlier front-end cutover.
+- New `test/module-seam.test.js`: asserts `{ app, server, db }` are still exported and the DB
+  opens against `DB_PATH`, and snapshots the full registered route table (method + path, in
+  source order) — an empty diff against that snapshot is the strongest signal a future change
+  to this area hasn't altered request-handling behaviour.
+- `LLM_API_URL`/`LLM_MODEL` are read live from `process.env` at each of the three call sites
+  (`routes/uploads.js`, `routes/invoices.js`, `lib/llm-client.js`) via `config.getLlmApiUrl()`/
+  `getLlmModel()`, not cached once at module-load time — caching them in `lib/config.js`
+  initially broke `test/invoice-import.test.js`, which sets `process.env.LLM_API_URL` in a
+  `beforeAll` that runs after `server.js` has already loaded; a code-reviewer pass caught it.
+- No schema change, no route path/method/order change, no middleware order change. Full
+  `npm test` (231 backend + 98 client) and `npm run test:e2e` (60/60) green.
+- A follow-up cleanup pass moved the action-logging middleware and the startup duplicate-barcode
+  check out of `server.js` and into `lib/middleware.js` (`actionLogger`) and
+  `lib/domain-helpers.js` (`checkDuplicateBarcodes`) respectively, so the composition root has
+  no inline middleware or raw SQL left; also dropped two now-dead exports
+  (`createRateLimiter`, `openDatabase`'s unused `isFreshDb`).
+- `CLAUDE.md`'s non-negotiable constraint list updated to point at the new file layout.
+
 ## 0.29 - 2026-08-23
 
 ### Long-lived device token auth (fixes #18)
