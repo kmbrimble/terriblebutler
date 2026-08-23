@@ -26,7 +26,6 @@ import { InvoiceImportModal, ACTIVE_IMPORT_KEY } from './InvoiceImportModal';
 import { ManageCategoriesModal } from './ManageCategoriesModal';
 import { ManageLocationsModal } from './ManageLocationsModal';
 import { ManageDevicesModal } from './ManageDevicesModal';
-import { Toast } from './Toast';
 
 export function ItemList() {
   const [items, setItems] = useState<Item[]>([]);
@@ -236,7 +235,6 @@ export function ItemList() {
       {manageCategoriesOpen && <ManageCategoriesModal categories={categories} onClose={() => setManageCategoriesOpen(false)} />}
       {manageLocationsOpen && <ManageLocationsModal locations={locations} onClose={() => setManageLocationsOpen(false)} />}
       {manageDevicesOpen && <ManageDevicesModal onClose={() => setManageDevicesOpen(false)} />}
-      <Toast />
     </div>
   );
 }

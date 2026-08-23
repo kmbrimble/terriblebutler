@@ -714,8 +714,12 @@
                             const deviceData = await deviceRes.json().catch(() => ({}));
                             if (deviceRes.ok) {
                                 localStorage.setItem('tb_token', deviceData.token);
+                            } else {
+                                showError(deviceData.error || 'Could not remember this device — you will need to log in again next time.');
                             }
-                        } catch (err) {}
+                        } catch (err) {
+                            showError('Could not remember this device — you will need to log in again next time.');
+                        }
                     }
 
                     initApp();

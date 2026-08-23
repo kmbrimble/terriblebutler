@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { login, rememberDevice } from '../lib/api';
+import { showToast } from '../lib/toast';
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [username, setUsername] = useState('');
@@ -13,7 +14,11 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
     try {
       await login(username, password);
       if (rememberDeviceChecked && deviceLabel.trim()) {
-        await rememberDevice(deviceLabel.trim()).catch(() => {});
+        try {
+          await rememberDevice(deviceLabel.trim());
+        } catch {
+          showToast('Could not remember this device — you will need to log in again next time.', 'error');
+        }
       }
       setError(null);
       onLoggedIn();

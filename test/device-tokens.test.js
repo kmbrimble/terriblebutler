@@ -92,8 +92,13 @@ describe('device token as bearer auth', () => {
   });
 
   it('does not rewrite last_used_at within the throttle window (recently used, well under the idle cutoff)', async () => {
+    // Written in SQLite's own CURRENT_TIMESTAMP format ("YYYY-MM-DD HH:MM:SS", no timezone
+    // suffix) rather than a JS .toISOString() string — this is what the real INSERT/UPDATE
+    // default actually produces, and is the one format that catches a regression of
+    // parseUtcTimestamp() back to a naive `new Date(value)` (which misparses this as local
+    // time on a non-UTC host, making every request look >1hr stale and defeating the throttle).
     const issued = await issueDeviceToken('Throttled tablet');
-    const recentlyUsed = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const recentlyUsed = db.prepare("SELECT datetime('now', '-10 minutes') AS ts").get().ts;
     db.prepare('UPDATE device_tokens SET last_used_at = ? WHERE device_label = ?')
       .run(recentlyUsed, 'Throttled tablet');
 

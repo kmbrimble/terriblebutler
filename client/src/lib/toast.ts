@@ -10,15 +10,23 @@ export interface ToastState {
 
 let listeners: Array<(state: ToastState | null) => void> = [];
 let hideTimer: ReturnType<typeof setTimeout> | undefined;
+// Kept so a Toast that mounts mid-flight (e.g. the login screen swapping to the app root
+// right after a toast fires) can pick up the still-active message instead of starting blank.
+let currentState: ToastState | null = null;
 
 export function showToast(message: string, type: ToastType = 'success'): void {
   clearTimeout(hideTimer);
-  listeners.forEach((cb) => cb({ message, type }));
-  hideTimer = setTimeout(() => listeners.forEach((cb) => cb(null)), 3000);
+  currentState = { message, type };
+  listeners.forEach((cb) => cb(currentState));
+  hideTimer = setTimeout(() => {
+    currentState = null;
+    listeners.forEach((cb) => cb(null));
+  }, 3000);
 }
 
 export function subscribeToast(cb: (state: ToastState | null) => void): () => void {
   listeners.push(cb);
+  cb(currentState);
   return () => {
     listeners = listeners.filter((l) => l !== cb);
   };
