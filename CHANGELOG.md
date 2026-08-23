@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.31 - 2026-08-23
+
 ### Replace Ollama vision model with Anthropic API (fixes #34)
 
 Dropped the self-hosted Ollama vision model entirely (slow VRAM load time, low
