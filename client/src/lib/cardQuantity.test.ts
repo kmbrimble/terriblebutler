@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardQuantity, splitAvailability } from './cardQuantity';
+import { cardQuantity, splitAvailability, cardIsOpen, openToggleTarget } from './cardQuantity';
 import type { Item } from './api';
 
 function makeItem(overrides: Partial<Item> = {}): Item {
@@ -94,5 +94,71 @@ describe('splitAvailability', () => {
     const result = splitAvailability([zeroQty], { type: 'ignored', id: null });
     expect(result.available.map((i) => i.id)).toEqual([1]);
     expect(result.unavailable).toEqual([]);
+  });
+});
+
+describe('cardIsOpen', () => {
+  it('inside a location tab, reflects just that location\'s own flag', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 1 },
+        { location_id: 2, location_name: 'Garage', quantity: 2, is_open: 0 },
+      ],
+    });
+    expect(cardIsOpen(item, { type: 'location', id: 1 })).toBe(true);
+    expect(cardIsOpen(item, { type: 'location', id: 2 })).toBe(false);
+  });
+
+  it('outside a location tab, is true if ANY location is open', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 },
+        { location_id: 2, location_name: 'Garage', quantity: 2, is_open: 1 },
+      ],
+    });
+    expect(cardIsOpen(item, { type: 'all', id: null })).toBe(true);
+  });
+
+  it('is false when no location is open, or the item has no locations at all', () => {
+    const noneOpen = makeItem({ locations: [{ location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 }] });
+    expect(cardIsOpen(noneOpen, { type: 'all', id: null })).toBe(false);
+    expect(cardIsOpen(makeItem({ locations: [] }), { type: 'all', id: null })).toBe(false);
+  });
+
+  it('treats a missing is_open field as not open (older/incomplete fixtures)', () => {
+    const item = makeItem({ locations: [{ location_id: 1, location_name: 'Pantry', quantity: 3 }] });
+    expect(cardIsOpen(item, { type: 'all', id: null })).toBe(false);
+  });
+});
+
+describe('openToggleTarget', () => {
+  it('inside a location tab, always targets that location', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3 },
+        { location_id: 2, location_name: 'Garage', quantity: 2 },
+      ],
+    });
+    expect(openToggleTarget(item, { type: 'location', id: 2 })).toBe(2);
+  });
+
+  it('outside a location tab, targets the item\'s single location when unambiguous', () => {
+    const item = makeItem({ locations: [{ location_id: 5, location_name: 'Pantry', quantity: 3 }] });
+    expect(openToggleTarget(item, { type: 'all', id: null })).toBe(5);
+  });
+
+  it('outside a location tab, targets the unassigned bucket (null) when the item has no locations', () => {
+    const item = makeItem({ locations: [] });
+    expect(openToggleTarget(item, { type: 'all', id: null })).toBe(null);
+  });
+
+  it('outside a location tab, is undefined (ambiguous, hide the toggle) when stocked in more than one location', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3 },
+        { location_id: 2, location_name: 'Garage', quantity: 2 },
+      ],
+    });
+    expect(openToggleTarget(item, { type: 'all', id: null })).toBeUndefined();
   });
 });

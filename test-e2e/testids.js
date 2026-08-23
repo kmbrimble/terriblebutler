@@ -48,6 +48,7 @@ export const ITEM_VENDOR_INPUT = 'item-vendor-input';
 export const ITEM_DATE_INPUT = 'item-date-input';
 export const EDIT_ITEM_BUTTON = 'edit-item-button';
 export const IGNORE_TOGGLE_BUTTON = 'ignore-toggle-button';
+export const OPEN_TOGGLE_BUTTON = 'open-toggle-button';
 export const QTY_MINUS_BUTTON = 'qty-minus-button';
 export const QTY_PLUS_BUTTON = 'qty-plus-button';
 export const QTY_DISPLAY_BUTTON = 'qty-display-button';

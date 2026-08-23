@@ -58,6 +58,7 @@ describe('item_locations migration', () => {
         item_id INTEGER NOT NULL,
         location_id INTEGER,
         quantity REAL NOT NULL DEFAULT 0,
+        is_open INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE,
         FOREIGN KEY(location_id) REFERENCES locations(id)
       );
@@ -67,5 +68,49 @@ describe('item_locations migration', () => {
     runMigrations(db, migrations, true);
     expect(db.prepare('SELECT COUNT(*) AS n FROM item_locations').get().n).toBe(0);
     expect(db.pragma('user_version', { simple: true })).toBe(migrations.length);
+  });
+});
+
+describe('item_locations.is_open migration', () => {
+  // Simulates a DB already at migration #1 (item_locations exists, no is_open column yet) —
+  // the "existing live DB, mid-history" scenario migration #2 has to run safely against.
+  function dbAtMigration1() {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE locations (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
+      CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, location_id INTEGER, quantity REAL DEFAULT 0, reorder_threshold REAL DEFAULT 0);
+      CREATE TABLE item_locations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL,
+        location_id INTEGER,
+        quantity REAL NOT NULL DEFAULT 0,
+        FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE,
+        FOREIGN KEY(location_id) REFERENCES locations(id)
+      );
+      CREATE UNIQUE INDEX idx_item_locations_unique ON item_locations(item_id, location_id) WHERE location_id IS NOT NULL;
+      CREATE UNIQUE INDEX idx_item_locations_unique_null ON item_locations(item_id) WHERE location_id IS NULL;
+    `);
+    db.prepare("INSERT INTO item_locations (item_id, location_id, quantity) VALUES (1, NULL, 5)").run();
+    db.pragma('user_version = 1');
+    return db;
+  }
+
+  it('adds is_open defaulted to 0, preserving existing rows', () => {
+    const db = dbAtMigration1();
+    runMigrations(db, migrations, false);
+
+    const row = db.prepare('SELECT * FROM item_locations WHERE item_id = 1').get();
+    expect(row.is_open).toBe(0);
+    expect(row.quantity).toBe(5);
+    expect(db.pragma('user_version', { simple: true })).toBe(migrations.length);
+  });
+
+  it('is safe to run twice — does not error on an already-migrated DB', () => {
+    const db = dbAtMigration1();
+    runMigrations(db, migrations, false);
+    for (const migration of migrations) migration(db);
+
+    const row = db.prepare('SELECT * FROM item_locations WHERE item_id = 1').get();
+    expect(row.is_open).toBe(0);
   });
 });

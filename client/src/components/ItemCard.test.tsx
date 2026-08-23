@@ -33,7 +33,7 @@ function makeItem(overrides: Partial<Item> = {}): Item {
 }
 
 const noop = () => {};
-const cardProps = { tab: { type: 'all' as const, id: null }, onEdit: noop, onOpenDetail: noop, onAdjust: noop, onOpenQtyModal: noop, onToggleIgnore: noop };
+const cardProps = { tab: { type: 'all' as const, id: null }, onEdit: noop, onOpenDetail: noop, onAdjust: noop, onOpenQtyModal: noop, onToggleIgnore: noop, onToggleOpen: noop };
 
 describe('ItemCard', () => {
   it('expanded view renders without throwing when last_price and lowest_price are null', () => {
@@ -58,5 +58,53 @@ describe('ItemCard', () => {
   it('compact view renders without throwing when prices are null (defensive; it never reads them)', () => {
     const item = makeItem({ last_price: null, lowest_price: null });
     expect(() => renderToStaticMarkup(<ItemCard item={item} viewMode="compact" {...cardProps} />)).not.toThrow();
+  });
+});
+
+describe('ItemCard "open" status', () => {
+  function qtyDisplayTag(html: string): string {
+    const match = html.match(/<button[^>]*data-testid="qty-display-button"[^>]*>/);
+    expect(match).toBeTruthy();
+    return match![0];
+  }
+
+  it('renders the qty display in red when the item is open here', () => {
+    const item = makeItem({ locations: [{ location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 1 }] });
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="compact" {...cardProps} />);
+    expect(qtyDisplayTag(html)).toContain('text-red-500');
+  });
+
+  it('does not render the qty display in red when not open', () => {
+    const item = makeItem({ locations: [{ location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 }] });
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="compact" {...cardProps} />);
+    expect(qtyDisplayTag(html)).not.toContain('text-red-500');
+  });
+
+  it('shows the open-toggle button when the target location is unambiguous (single-location item)', () => {
+    const item = makeItem({ locations: [{ location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 }] });
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="compact" {...cardProps} />);
+    expect(html).toContain('data-testid="open-toggle-button"');
+  });
+
+  it('hides the open-toggle button when the target location is ambiguous (multi-location item outside a location tab)', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 },
+        { location_id: 2, location_name: 'Garage', quantity: 1, is_open: 0 },
+      ],
+    });
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="compact" {...cardProps} />);
+    expect(html).not.toContain('data-testid="open-toggle-button"');
+  });
+
+  it('shows the open-toggle button for a multi-location item when inside that location\'s own tab', () => {
+    const item = makeItem({
+      locations: [
+        { location_id: 1, location_name: 'Pantry', quantity: 3, is_open: 0 },
+        { location_id: 2, location_name: 'Garage', quantity: 1, is_open: 0 },
+      ],
+    });
+    const html = renderToStaticMarkup(<ItemCard item={item} viewMode="compact" tab={{ type: 'location', id: 1 }} onEdit={noop} onOpenDetail={noop} onAdjust={noop} onOpenQtyModal={noop} onToggleIgnore={noop} onToggleOpen={noop} />);
+    expect(html).toContain('data-testid="open-toggle-button"');
   });
 });

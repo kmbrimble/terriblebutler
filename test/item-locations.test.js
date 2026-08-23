@@ -21,7 +21,7 @@ describe('Multi-location stock', () => {
 
     const item = (await api(app).get('/api/items')).body.find((i) => i.id === created.body.id);
     expect(item.quantity).toBe(3);
-    expect(item.locations).toEqual([{ location_id: locA, location_name: 'Pantry Test', quantity: 3 }]);
+    expect(item.locations).toEqual([{ location_id: locA, location_name: 'Pantry Test', quantity: 3, is_open: 0 }]);
   });
 
   it('PATCH quantity "add" to a new location creates a second item_locations row without touching the first', async () => {
@@ -118,7 +118,7 @@ describe('Multi-location stock', () => {
 
     const item = (await api(app).get('/api/items')).body.find((i) => i.id === created.body.id);
     expect(item.quantity).toBe(4);
-    expect(item.locations).toEqual([{ location_id: null, location_name: null, quantity: 4 }]);
+    expect(item.locations).toEqual([{ location_id: null, location_name: null, quantity: 4, is_open: 0 }]);
   });
 
   it('deleting a location merges into an existing unassigned row rather than violating the unique index', async () => {
@@ -140,6 +140,71 @@ describe('Multi-location stock', () => {
     const item = (await api(app).get('/api/items')).body.find((i) => i.id === created.body.id);
     expect(item.locations).toHaveLength(2); // otherLoc(1), unassigned(3+2=5)
     const unassigned = item.locations.find((l) => l.location_id === null);
-    expect(unassigned).toEqual({ location_id: null, location_name: null, quantity: 5 });
+    expect(unassigned).toEqual({ location_id: null, location_name: null, quantity: 5, is_open: 0 });
+  });
+});
+
+describe('Per-location "open" status', () => {
+  it('PATCH /api/items/:id/open infers the location when the item has stock in exactly one', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Milk 2L', location_id: locA, quantity: 1 });
+    const id = created.body.id;
+
+    const res = await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1 });
+    expect(res.status).toBe(200);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations[0].is_open).toBe(1);
+  });
+
+  it('requires an explicit location_id when the item has stock in more than one location', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Yoghurt Tub', location_id: locA, quantity: 1 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'add', location_id: locB });
+
+    const ambiguous = await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1 });
+    expect(ambiguous.status).toBe(400);
+
+    const scoped = await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1, location_id: locB });
+    expect(scoped.status).toBe(200);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    const byLocation = Object.fromEntries(item.locations.map((l) => [l.location_id, l.is_open]));
+    expect(byLocation[locA]).toBe(0);
+    expect(byLocation[locB]).toBe(1);
+  });
+
+  it('subtracting exactly 1 clears is_open on that location\'s row', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Butter Block', location_id: locA, quantity: 3 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1 });
+
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'subtract', location_id: locA });
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations[0].is_open).toBe(0);
+    expect(item.locations[0].quantity).toBe(2);
+  });
+
+  it('subtracting more than 1 at once leaves is_open untouched', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Cheese Block', location_id: locA, quantity: 5 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1 });
+
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 2, action: 'subtract', location_id: locA });
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations[0].is_open).toBe(1);
+    expect(item.locations[0].quantity).toBe(3);
+  });
+
+  it('adding stock does not affect is_open', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Bread Loaf', location_id: locA, quantity: 1 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/open`).send({ is_open: 1 });
+
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'add', location_id: locA });
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations[0].is_open).toBe(1);
   });
 });

@@ -4,6 +4,36 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Per-location "open" status on items (fixes #31)
+
+Added a per-location `is_open` flag (new `item_locations.is_open INTEGER NOT NULL DEFAULT 0`
+column — migration #2 in `db-migrations.js`, guarded by `hasColumn()`, plus the same column
+added to the base `CREATE TABLE` for fresh installs) so a household member can mark "there's
+an open pack of this at this location". Per-location rather than per-item, since a multi-
+location item can have an open pack in one place and a sealed one in another.
+
+- `LOCATIONS_BREAKDOWN_SQL` now includes `is_open` in each `item.locations[]` entry.
+- New `PATCH /api/items/:id/open` endpoint (`{ is_open: 0|1, location_id? }`), reusing the
+  existing `resolveTargetLocation()` helper for the same "infer when unambiguous, require
+  `location_id` when the item has stock in more than one place" rule the quantity endpoints
+  already use.
+- `upsertItemLocationQuantity()`'s `subtract` branch now also clears `is_open` back to 0 on
+  that row whenever the subtracted amount is exactly 1 — this is the data-layer rule for
+  "reduced by one auto-clears open", and applies regardless of which UI control triggered it
+  (the quick "−" button always subtracts exactly 1; a manual deduct of exactly 1 behaves the
+  same way, which is consistent with the rule rather than a special case for it).
+- Client: `ItemCard`'s quantity display renders in red when the relevant location's item is
+  open (aggregated with "any location open" outside a location tab, mirroring how the qty
+  total itself aggregates — see `cardQuantity.ts`'s existing `cardQuantity()`). A new small
+  toggle button next to the qty controls sets/clears the flag; it's shown only when the
+  target location is unambiguous (inside a location tab, or the item has stock in at most one
+  location) — same ambiguity boundary the quick +/- already respects, hidden rather than
+  guessed at otherwise.
+- New pure helpers `cardIsOpen()` / `openToggleTarget()` in `cardQuantity.ts` with unit tests;
+  backend supertest coverage for the new endpoint and the auto-clear-on-subtract-1 rule; a
+  migration test for the new column; e2e coverage for the toggle, the red styling, and the
+  auto-clear via the quick minus button.
+
 ### Items list splits out-of-stock items under an "Unavailable" subheading (fixes #30)
 
 In the "All Inventory" and per-location tabs, `ItemList` now renders in-stock items first,

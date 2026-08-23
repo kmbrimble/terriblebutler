@@ -20,6 +20,7 @@ import {
   QTY_MODAL_LOCATION_SELECT,
   QTY_MODAL_SUBMIT_BUTTON,
   IGNORE_TOGGLE_BUTTON,
+  OPEN_TOGGLE_BUTTON,
   LOCATION_TAB_BUTTON,
   DEDUCT_SEARCH_INPUT,
   DEDUCT_LIST_ITEM,
@@ -96,6 +97,7 @@ let dupExisting, overrideExisting, editOriginal;
 let qtySingle, qtyMulti;
 let deductSingle, deductMulti;
 let ignoreItem;
+let openSingle, openMulti;
 let historyItem, noHistoryItem;
 let category, fieldsItem;
 
@@ -120,7 +122,7 @@ test.beforeAll(async ({ request }) => {
     return res.json();
   }
 
-  const NEEDED_HEADROOM = 36; // this file's total fixture + UI-driven mutation count, generously rounded
+  const NEEDED_HEADROOM = 44; // this file's total fixture + UI-driven mutation count, generously rounded
   const probeRes = await request.post('/api/locations', { data: { name: `${prefix} Loc A` } });
   expect(probeRes.ok()).toBeTruthy();
   locA = await probeRes.json();
@@ -150,6 +152,10 @@ test.beforeAll(async ({ request }) => {
   await patch(`/api/items/${deductMulti.id}/quantity`, { amount: 3, action: 'add', location_id: locB.id });
 
   ignoreItem = await post('/api/items', { name: `${prefix} Ignore`, quantity: 1, reorder_threshold: 2, location_id: locA.id });
+
+  openSingle = await post('/api/items', { name: `${prefix} OpenSingle`, quantity: 3, location_id: locA.id });
+  openMulti = await post('/api/items', { name: `${prefix} OpenMulti`, quantity: 2, location_id: locA.id });
+  await patch(`/api/items/${openMulti.id}/quantity`, { amount: 2, action: 'add', location_id: locB.id });
 
   // Three price-history records via one add + two edits, spanning a max (8, most recent) and a
   // min (3) that differ from each other and from the most-recent record, so last-purchase,
@@ -402,6 +408,39 @@ test('quantity: quick +/- adjusts directly, targets the active location tab, ope
   // Verify locB's own quantity via that location's tab (client-side filter, no extra request).
   await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locB.name }).click();
   await expect(page.getByTestId(ITEM_CARD).filter({ hasText: qtyMulti.name }).getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('9');
+});
+
+test('"open" status: toggle turns the qty display red, the quick minus button auto-clears it, and it hides when the location is ambiguous', async ({ page }) => {
+  await page.goto('/');
+
+  // Single-location item: toggle is visible and turns the qty display red.
+  const singleCard = page.getByTestId(ITEM_CARD).filter({ hasText: openSingle.name });
+  const qtyDisplay = singleCard.getByTestId(QTY_DISPLAY_BUTTON);
+  await expect(singleCard.getByTestId(OPEN_TOGGLE_BUTTON)).toBeVisible();
+  await expect(qtyDisplay).not.toHaveClass(/text-red-500/);
+  await singleCard.getByTestId(OPEN_TOGGLE_BUTTON).click();
+  await expect(qtyDisplay).toHaveClass(/text-red-500/);
+
+  // The quick "-" button always subtracts exactly 1, which auto-clears the open flag.
+  await singleCard.getByTestId(QTY_MINUS_BUTTON).click();
+  await expect(qtyDisplay).toHaveText('2');
+  await expect(qtyDisplay).not.toHaveClass(/text-red-500/);
+
+  // Multi-location item, viewed outside a location tab: the target location is ambiguous, so
+  // the toggle hides rather than guessing which location's pack is open.
+  const multiCardAll = page.getByTestId(ITEM_CARD).filter({ hasText: openMulti.name });
+  await expect(multiCardAll.getByTestId(OPEN_TOGGLE_BUTTON)).toBeHidden();
+
+  // Inside that location's own tab, the target is unambiguous again — toggle it there.
+  await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locB.name }).click();
+  const multiCardInTab = page.getByTestId(ITEM_CARD).filter({ hasText: openMulti.name });
+  await expect(multiCardInTab.getByTestId(OPEN_TOGGLE_BUTTON)).toBeVisible();
+  await multiCardInTab.getByTestId(OPEN_TOGGLE_BUTTON).click();
+  await expect(multiCardInTab.getByTestId(QTY_DISPLAY_BUTTON)).toHaveClass(/text-red-500/);
+
+  // locA's own row is untouched by locB's toggle.
+  await page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: locA.name }).click();
+  await expect(page.getByTestId(ITEM_CARD).filter({ hasText: openMulti.name }).getByTestId(QTY_DISPLAY_BUTTON)).not.toHaveClass(/text-red-500/);
 });
 
 test('deduct requires a location picker only for multi-location items, and ignore/restore moves an item between the Grocery and Ignored tabs', async ({ page }) => {
