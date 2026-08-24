@@ -4,6 +4,27 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Add a one-off manual-stocktake loader script (data migration, not a feature)
+
+Added `scripts/apply-stocktake.js` (`applyStocktake(db, stocktake, { dryRun })` + a
+`--apply`-gated CLI) to load a manual stocktake JSON of Pantry/Fridge/Fridge Freezer as
+ground truth for quantity, the per-location `is_open` flag, `reorder_threshold` and
+`is_ignored_grocery`. Matches by case-insensitive exact name against `items.name`;
+inserts a new item when no match exists, otherwise overwrites only those fields — category,
+barcode, price and (on existing items) `container_details` are untouched, and any
+`item_locations` row for a location not named in the stocktake entry is left alone.
+Multi-location entries write one `item_locations` row per location; a new item's
+`container_details` is the entry's distinct per-location containers joined with `" / "`
+(the schema has no per-location container field). Writes are set, not incremented, so
+re-running the same file is idempotent. Everything runs inside a single transaction;
+dry-run (the default — `--apply` is required to write) runs the same code path inside a
+transaction that's always rolled back, so the dry-run log matches a real run exactly.
+Refuses to run at all if a stocktake location is unknown, a stocktake name ambiguously
+matches more than one existing item, or the same name appears twice within the input file
+itself (caught in review — without this a duplicate name would silently double-insert
+rather than merge, since the existing-items lookup map is built once up front). Not wired
+into any route, UI or scheduled job. Covered by `test/apply-stocktake.test.js` (8 cases).
+
 ## 0.31 - 2026-08-23
 
 ### Replace Ollama vision model with Anthropic API (fixes #34)
