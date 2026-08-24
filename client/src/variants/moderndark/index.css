@@ -32,8 +32,12 @@ body {
   border-radius: 16px !important;
 }
 
-/* BlurView glassmorphism headers/nav (intensity 20) per the style spec. */
-header, [data-testid="menu-drawer"] {
+/* BlurView glassmorphism headers/nav (intensity 20) per the style spec. Deliberately NOT
+   applied to `header` itself: MenuDrawer (position: fixed) renders inside <header>
+   (Header.tsx:49), and backdrop-filter on an ancestor creates a new containing block for
+   fixed-position descendants — that clipped the whole drawer to the header's own small box.
+   Scoped to the drawer panel only, which has no fixed-position descendants of its own. */
+[data-testid="menu-drawer"] {
   backdrop-filter: blur(20px);
   background-color: rgba(10, 10, 12, 0.75) !important;
 }

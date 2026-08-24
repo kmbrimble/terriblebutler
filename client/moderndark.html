@@ -9,6 +9,9 @@
     <title>Terrible Butler — Modern Dark</title>
     <script>
       document.documentElement.classList.add('dark');
+      // This style has one deliberate dark-only palette (see index.css) — flag it so
+      // MenuDrawer hides the Dark Mode toggle instead of rendering a no-op control.
+      document.documentElement.dataset.themeLocked = 'true';
     </script>
   </head>
   <body>

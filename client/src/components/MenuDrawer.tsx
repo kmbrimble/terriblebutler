@@ -25,6 +25,10 @@ export function MenuDrawer({
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(() => getTheme() === 'dark');
   const [variants, setVariants] = useState<DesignVariant[]>([]);
+  // Some alternate designs (issue #37) are deliberately a single dark-only palette — those set
+  // this before mount (see e.g. pixelart.html/moderndark.html) so the toggle isn't shown as a
+  // no-op control.
+  const themeLocked = document.documentElement.dataset.themeLocked === 'true';
 
   useEffect(() => {
     fetch('/variants.json')
@@ -125,21 +129,23 @@ export function MenuDrawer({
           </button>
         </div>
 
-        <div className="flex flex-col gap-5 mt-2 border-t border-rimmy-border pt-4 shrink-0">
-          <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-rimmy-text font-bold text-sm">Dark Mode</span>
-            <div className="relative">
-              <input
-                type="checkbox"
-                data-testid="menu-dark-mode-toggle"
-                checked={dark}
-                onChange={(e) => handleThemeChange(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rimmy-purple" />
-            </div>
-          </label>
-        </div>
+        {!themeLocked && (
+          <div className="flex flex-col gap-5 mt-2 border-t border-rimmy-border pt-4 shrink-0">
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className="text-rimmy-text font-bold text-sm">Dark Mode</span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  data-testid="menu-dark-mode-toggle"
+                  checked={dark}
+                  onChange={(e) => handleThemeChange(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rimmy-purple" />
+              </div>
+            </label>
+          </div>
+        )}
 
         {variants.length > 0 && (
           <div className="flex flex-col gap-2 mt-2 border-t border-rimmy-border pt-4 shrink-0">
