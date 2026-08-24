@@ -1,0 +1,63 @@
+/* Alternate skin for issue #37 (style 83, "Enterprise SaaS (Mobile)"). Tokens taken directly
+   from the ui-ux-pro-max-skill style catalog (styles.csv, Style ID enterprise-saas-mobile).
+   Reuses every component/hook unchanged. */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #F8FAFC;
+  --color-card: #FFFFFF;
+  --color-header: #4F46E5;
+  --color-header-hover: #4338CA;
+  --color-accent: #7C3AED;
+  --color-accent-hover: #6D28D9;
+  --color-text: #0F172A;
+  --color-text-muted: #64748B;
+  --color-border: #E2E8F0;
+}
+
+.dark {
+  --color-bg: #0F172A;
+  --color-card: #1E293B;
+  --color-header: #4F46E5;
+  --color-header-hover: #3730A3;
+  --color-accent: #A78BFA;
+  --color-accent-hover: #8B5CF6;
+  --color-text: #F1F5F9;
+  --color-text-muted: #94A3B8;
+  --color-border: #334155;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.rounded {
+  border-radius: 16px !important;
+}
+.rounded-lg {
+  border-radius: 12px !important;
+}
+
+/* Colored card shadows (indigo-tinted) instead of neutral grey. */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08) !important;
+}
+
+/* Indigo -> violet gradient on the header band and primary CTAs, per the style spec. */
+.bg-rimmy-purple {
+  background-image: linear-gradient(135deg, #4F46E5, #7C3AED) !important;
+}
+.bg-rimmy-orange {
+  background-image: linear-gradient(135deg, #7C3AED, #4F46E5) !important;
+}
+
+[style*="Lobster Two"] {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
+  font-weight: 800 !important;
+}

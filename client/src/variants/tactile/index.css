@@ -1,0 +1,61 @@
+/* Alternate skin for issue #37 (style 60, "Tactile Digital / Deformable UI"). Colors and
+   interaction spec taken directly from the ui-ux-pro-max-skill style catalog (styles.csv,
+   Style ID tactile-digital-deformable-ui: Chrome Silver #C0C0C0, Jelly Pink #FF9ECD, Soft Blue
+   #87CEEB, --press-scale: 0.95, --bounce-duration: 400ms). Reuses every component/hook
+   unchanged; the press/bounce feel comes from a plain CSS :active transform. */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #EEF1F5;
+  --color-card: #FFFFFF;
+  --color-header: #87CEEB;
+  --color-header-hover: #6BB8D6;
+  --color-accent: #FF9ECD;
+  --color-accent-hover: #F582B8;
+  --color-text: #1F2937;
+  --color-text-muted: #6B7280;
+  --color-border: #D8DEE6;
+}
+
+.dark {
+  --color-bg: #14161C;
+  --color-card: #1E2028;
+  --color-header: #5B93A8;
+  --color-header-hover: #4A7A8C;
+  --color-accent: #FF9ECD;
+  --color-accent-hover: #F582B8;
+  --color-text: #E5E7EB;
+  --color-text-muted: #9CA3AF;
+  --color-border: #2C2F38;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Nunito', system-ui, sans-serif;
+}
+
+/* Glossy highlight + depth shadow instead of a flat drop shadow. */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2) !important;
+}
+.bg-rimmy-purple, .bg-rimmy-orange {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0%, transparent 60%);
+}
+
+/* Press deformation + bounce-back, the style's signature interaction. */
+button {
+  transition: transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+button:active {
+  transform: scale(0.95);
+}
+
+[style*="Lobster Two"] {
+  font-family: 'Nunito', system-ui, sans-serif !important;
+  font-weight: 800 !important;
+}

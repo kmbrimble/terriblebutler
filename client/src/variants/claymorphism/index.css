@@ -1,0 +1,68 @@
+/* Alternate skin for issue #37 (style 82, "Claymorphism (Mobile)"). Tokens taken directly from
+   the ui-ux-pro-max-skill style catalog (styles.csv, Style ID claymorphism-mobile). Reuses
+   every component/hook unchanged; the squish-on-press feel comes from a plain CSS :active
+   transform (no JS/animation library needed for a scale transition this small). */
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&family=Varela+Round&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #F4F1FA;
+  --color-card: #FFFFFF;
+  --color-header: #7C3AED;
+  --color-header-hover: #6D28D9;
+  --color-accent: #DB2777;
+  --color-accent-hover: #BE185D;
+  --color-text: #332F3A;
+  --color-text-muted: #635F69;
+  --color-border: #E4DEF2;
+}
+
+.dark {
+  --color-bg: #2A2632;
+  --color-card: #37324080;
+  --color-header: #7C3AED;
+  --color-header-hover: #9061F9;
+  --color-accent: #F472B6;
+  --color-accent-hover: #DB2777;
+  --color-text: #F1EEF7;
+  --color-text-muted: #B8B2C7;
+  --color-border: #4C4658;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Nunito Sans', system-ui, sans-serif;
+}
+
+/* Claymorphism's own radius scale: card 32px, button 20px, outer 50px. */
+.rounded {
+  border-radius: 32px !important;
+}
+.rounded-lg {
+  border-radius: 20px !important;
+}
+
+/* Multi-layer "clay" shadow stack instead of a flat drop shadow. */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+  box-shadow:
+    0 1px 1px rgba(124, 58, 237, 0.06),
+    0 8px 16px rgba(124, 58, 237, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Spring squish on press — the style's signature interaction, done with a plain CSS
+   transition rather than a JS spring library since it's a single scale transform. */
+button {
+  transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+button:active {
+  transform: scale(0.94);
+}
+
+[style*="Lobster Two"] {
+  font-family: 'Varela Round', system-ui, sans-serif !important;
+}

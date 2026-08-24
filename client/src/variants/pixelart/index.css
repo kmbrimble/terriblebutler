@@ -1,0 +1,49 @@
+/* Alternate skin for issue #37 (style 52, "Pixel Art"). NES-style limited palette + typography
+   per the ui-ux-pro-max-skill style catalog (styles.csv, Style ID pixel-art: "Primary colors
+   (NES Palette), brights, limited palette", "Press Start 2P / VT323", "box-shadow: 4px 0 0 #000
+   (pixel border), no anti-aliasing"). Reuses every component/hook unchanged. */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+.dark {
+  --color-bg: #0F172A;
+  --color-card: #192134;
+  --color-header: #2563EB;
+  --color-header-hover: #1D4ED8;
+  --color-accent: #22C55E;
+  --color-accent-hover: #16A34A;
+  --color-text: #FFFFFF;
+  --color-text-muted: #94A3B8;
+  --color-border: rgba(255, 255, 255, 0.35);
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  image-rendering: pixelated;
+}
+
+/* Blocky/sharp: no rounded corners anywhere, including toggles — square is period-correct. */
+.rounded, .rounded-lg, .rounded-full {
+  border-radius: 0 !important;
+}
+
+/* Hard pixel-border shadow instead of a blurred drop shadow. */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+  box-shadow: 4px 4px 0 #000 !important;
+}
+
+img {
+  image-rendering: pixelated;
+}
+
+[style*="Lobster Two"] {
+  font-family: 'Press Start 2P', monospace !important;
+  font-size: 0.8em !important;
+}

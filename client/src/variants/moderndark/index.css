@@ -1,0 +1,49 @@
+/* Alternate skin for issue #37 (style 71, "Modern Dark (Cinema Mobile)"). Tokens taken directly
+   from the ui-ux-pro-max-skill style catalog (styles.csv, Style ID modern-dark-cinema-mobile) —
+   this style's own "Preferred Mode" is dark, so :root and .dark share the same deep palette
+   rather than offering a separate light variant. Reuses every component/hook unchanged. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+.dark {
+  --color-bg: #020203;
+  --color-card: #0a0a0c;
+  --color-header: #0a0a0c;
+  --color-header-hover: #050506;
+  --color-accent: #5E6AD2;
+  --color-accent-hover: #7A85E0;
+  --color-text: #EDEDEF;
+  --color-text-muted: #8A8F98;
+  --color-border: rgba(255, 255, 255, 0.08);
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* borderRadius: 16 (cards/buttons) per the style's Implementation Checklist. */
+.rounded, .rounded-lg {
+  border-radius: 16px !important;
+}
+
+/* BlurView glassmorphism headers/nav (intensity 20) per the style spec. */
+header, [data-testid="menu-drawer"] {
+  backdrop-filter: blur(20px);
+  background-color: rgba(10, 10, 12, 0.75) !important;
+}
+
+/* Accent glow behind primary surfaces instead of a plain drop shadow. */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+  box-shadow: 0 10px 30px rgba(94, 106, 210, 0.15) !important;
+}
+
+[style*="Lobster Two"] {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-weight: 700 !important;
+}
