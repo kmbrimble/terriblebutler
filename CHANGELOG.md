@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.32 - 2026-08-24
+
 ### Add a one-off manual-stocktake loader script (data migration, not a feature)
 
 Added `scripts/apply-stocktake.js` (`applyStocktake(db, stocktake, { dryRun })` + a
