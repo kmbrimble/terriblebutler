@@ -1,0 +1,55 @@
+/* Alternate skin for issue #37 (style 75, "Flat Design Mobile"), generated from the
+   ui-ux-pro-max-skill design-system search for "flat design mobile touch-first inventory app".
+   Reuses every component/hook from the main app unchanged — the rimmy-* Tailwind colors are
+   already indirected through these same CSS custom properties (see src/index.css), so a flat
+   design skin is a genuine restyle (palette + zero elevation + flat typography) without needing
+   different markup. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #F8FAFC;
+  --color-card: #FFFFFF;
+  --color-header: #334155;
+  --color-header-hover: #1E293B;
+  --color-accent: #059669;
+  --color-accent-hover: #047857;
+  --color-text: #0F172A;
+  --color-text-muted: #475569;
+  --color-border: #E6E8EA;
+}
+
+.dark {
+  --color-bg: #0F172A;
+  --color-card: #1E293B;
+  --color-header: #334155;
+  --color-header-hover: #0F172A;
+  --color-accent: #10B981;
+  --color-accent-hover: #059669;
+  --color-text: #F1F5F9;
+  --color-text-muted: #94A3B8;
+  --color-border: #334155;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Flat Design's own spec: zero elevation, color-blocking sections instead of shadow-implied
+   depth — neutralise every shadow utility the shared components use rather than fork them. */
+.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+  box-shadow: none !important;
+}
+
+/* Flat Design is typography-focused, not script/decorative — the shared Header/LoginScreen set
+   the wordmark's cursive font via inline style, so override it the same way (attribute selector
+   on the inline style itself), rather than forking those components just for a font swap. */
+[style*="Lobster Two"] {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-weight: 800 !important;
+}

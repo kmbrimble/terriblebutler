@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getTheme, setTheme } from '../lib/theme';
+
+// issue #37: manifest of alternate-style variant pages (public/variants.json), fetched lazily so
+// removing/adding a variant doesn't need a code change here.
+type DesignVariant = { slug: string; name: string };
 
 // Ports legacy's hamburger/settings drawer (public/index.html L138-198,
 // toggleDrawer()/toggleFullScreen()/applyTheme() at L695-725) — the one piece of top-level nav
@@ -20,6 +24,14 @@ export function MenuDrawer({
 }) {
   const [open, setOpen] = useState(false);
   const [dark, setDark] = useState(() => getTheme() === 'dark');
+  const [variants, setVariants] = useState<DesignVariant[]>([]);
+
+  useEffect(() => {
+    fetch('/variants.json')
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setVariants)
+      .catch(() => {});
+  }, []);
 
   function toggleFullScreen() {
     if (!document.fullscreenElement) {
@@ -128,6 +140,34 @@ export function MenuDrawer({
             </div>
           </label>
         </div>
+
+        {variants.length > 0 && (
+          <div className="flex flex-col gap-2 mt-2 border-t border-rimmy-border pt-4 shrink-0">
+            <label htmlFor="design-variant-select" className="text-rimmy-orange font-bold uppercase text-xs tracking-wider">
+              Design
+            </label>
+            <select
+              id="design-variant-select"
+              data-testid="menu-design-variant-select"
+              defaultValue=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                window.location.href = e.target.value === '_default' ? '/' : `/${e.target.value}.html`;
+              }}
+              className="w-full bg-rimmy-black border border-rimmy-border text-rimmy-text font-bold py-2 px-2 rounded shadow-sm text-sm"
+            >
+              <option value="" disabled>
+                Switch design&hellip;
+              </option>
+              <option value="_default">Default</option>
+              {variants.map((v) => (
+                <option key={v.slug} value={v.slug}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
     </>
   );

@@ -1,0 +1,9 @@
+[
+  { "slug": "pixelart", "styleId": 52, "name": "Pixel Art" },
+  { "slug": "tactile", "styleId": 60, "name": "Tactile Digital" },
+  { "slug": "moderndark", "styleId": 71, "name": "Modern Dark" },
+  { "slug": "flatdesign", "styleId": 75, "name": "Flat Design" },
+  { "slug": "material3", "styleId": 76, "name": "Material 3 Expressive" },
+  { "slug": "claymorphism", "styleId": 82, "name": "Claymorphism" },
+  { "slug": "enterprisesaas", "styleId": 83, "name": "Enterprise SaaS" }
+]
