@@ -17,6 +17,12 @@ function getImportWithLines(db, importId) {
 const INVOICE_LINE_PATCH_FIELDS = (validForeignId) => ({
   final_category_id: (v) => validForeignId('categories', v, 'Category'),
   final_location_id: (v) => validForeignId('locations', v, 'Location'),
+  final_name: (v) => cleanText(v, { max: 200 }) || null,
+  final_container_details: (v) => cleanText(v, { max: 500 }) || null,
+  // Direct override of the match this line will commit against (fixes #40) — the review
+  // UI's "merge into existing item" control patches this straight through; null means
+  // "add as new", same as an unmatched line at parse time.
+  matched_item_id: (v) => validForeignId('items', v, 'Matched item'),
   qty_confirmed: (v) => finiteNumber(v, { name: 'Confirmed quantity', min: 0, allowNull: true }),
   barcode_scanned: (v) => cleanText(v, { max: 128 }) || null,
   line_status: (v) => {
@@ -274,8 +280,8 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     const existingItems = db.prepare('SELECT id, name, barcode, lowest_price FROM items').all();
     const fuse = new Fuse(existingItems, { keys: ['name'], threshold: 0.3 });
     const insertItem = db.prepare(`
-      INSERT INTO items (name, barcode, category_id, last_price, lowest_price)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO items (name, barcode, category_id, container_details, last_price, lowest_price)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     const touchItem = db.prepare('UPDATE items SET last_price = ?, lowest_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
     const insertPriceHistory = db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)');
@@ -294,16 +300,19 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           const locationId = line.final_location_id ?? line.suggested_location_id;
           const qty = line.qty_confirmed ?? line.qty_supplied ?? 0;
           const price = line.unit_price ?? 0;
+          const name = line.final_name || line.raw_name;
+          const containerDetails = line.final_container_details || '';
 
           // Reusing findMatch (rather than just trusting the staged matched_item_id) covers
           // two new lines in the same import sharing a name — the first one's just-created
           // item is picked up as an exact match for the second, same as the existing
-          // /api/invoices/commit endpoint.
+          // /api/invoices/commit endpoint. matched_item_id is also the review screen's
+          // direct match-override (fixes #40), so an explicit id here always wins.
           let matchedItem = line.matched_item_id
             ? existingItems.find((i) => i.id === line.matched_item_id) || null
             : null;
           if (!matchedItem) {
-            const match = findMatch(existingItems, { barcode: line.barcode_scanned || null, name: line.raw_name }, fuse);
+            const match = findMatch(existingItems, { barcode: line.barcode_scanned || null, name }, fuse);
             if (match.type === 'barcode' || match.type === 'exact_name') matchedItem = match.item;
           }
 
@@ -317,10 +326,10 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
             upsertItemLocationQuantity(itemId, locationId, 'add', qty);
             itemsMatched += 1;
           } else {
-            const info = insertItem.run(line.raw_name, line.barcode_scanned || null, categoryId, price, price);
+            const info = insertItem.run(name, line.barcode_scanned || null, categoryId, containerDetails, price, price);
             itemId = Number(info.lastInsertRowid);
             upsertItemLocationQuantity(itemId, locationId, 'add', qty);
-            existingItems.push({ id: itemId, name: line.raw_name, barcode: line.barcode_scanned || null, lowest_price: price });
+            existingItems.push({ id: itemId, name, barcode: line.barcode_scanned || null, lowest_price: price });
             fuse.setCollection(existingItems);
             itemsAdded += 1;
           }

@@ -150,6 +150,45 @@ describe('PATCH /api/invoices/import/:id/lines/:lineId', () => {
   });
 });
 
+describe('PATCH /api/invoices/import/:id/lines/:lineId — name/container/match overrides (fixes #40)', () => {
+  it('persists final_name and final_container_details edits', async () => {
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const importId = imported.body.import.id;
+    const line = imported.body.lines[0];
+
+    const res = await api(app).patch(`/api/invoices/import/${importId}/lines/${line.id}`).send({
+      final_name: 'Edited Product Name',
+      final_container_details: '500g tub',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.final_name).toBe('Edited Product Name');
+    expect(res.body.final_container_details).toBe('500g tub');
+
+    const getRes = await api(app).get(`/api/invoices/import/${importId}`);
+    const persisted = getRes.body.lines.find((l) => l.id === line.id);
+    expect(persisted.final_name).toBe('Edited Product Name');
+    expect(persisted.final_container_details).toBe('500g tub');
+  });
+
+  it('allows overriding matched_item_id directly, and rejects a non-existent item id', async () => {
+    const item = await api(app).post('/api/items').send({ name: 'Override Target Item', quantity: 1 });
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const importId = imported.body.import.id;
+    const line = imported.body.lines[0];
+
+    const res = await api(app).patch(`/api/invoices/import/${importId}/lines/${line.id}`).send({ matched_item_id: item.body.id });
+    expect(res.status).toBe(200);
+    expect(res.body.matched_item_id).toBe(item.body.id);
+
+    const cleared = await api(app).patch(`/api/invoices/import/${importId}/lines/${line.id}`).send({ matched_item_id: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.matched_item_id).toBeNull();
+
+    const invalid = await api(app).patch(`/api/invoices/import/${importId}/lines/${line.id}`).send({ matched_item_id: 999999 });
+    expect(invalid.status).toBe(400);
+  });
+});
+
 describe('POST /api/invoices/import/:id/commit', () => {
   it('rejects unauthenticated requests', async () => {
     const res = await request(app).post('/api/invoices/import/1/commit');
@@ -241,6 +280,46 @@ describe('POST /api/invoices/import/:id/commit', () => {
     const stagingLines = db.prepare('SELECT * FROM invoice_import_lines WHERE import_id = ?').all(importId);
     expect(stagingLines).toHaveLength(32);
     expect(stagingLines.every((l) => l.matched_item_id !== null)).toBe(true);
+  });
+
+  it('commits with the edited name and container details rather than the raw parsed name', async () => {
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const importId = imported.body.import.id;
+    const newLine = imported.body.lines.find((l) => l.matched_item_id === null);
+    expect(newLine).toBeTruthy();
+
+    await api(app).patch(`/api/invoices/import/${importId}/lines/${newLine.id}`).send({
+      final_name: 'Renamed During Review',
+      final_container_details: '2 x 250g',
+    });
+    markAllReviewed(importId);
+
+    const res = await api(app).post(`/api/invoices/import/${importId}/commit`);
+    expect(res.status).toBe(200);
+
+    const allItems = await api(app).get('/api/items');
+    const newItem = allItems.body.find((i) => i.name === 'Renamed During Review');
+    expect(newItem).toBeTruthy();
+    expect(newItem.container_details).toBe('2 x 250g');
+  });
+
+  it('honours an explicit matched_item_id override, merging into that item instead of creating a new one', async () => {
+    const target = await api(app).post('/api/items').send({ name: 'Explicit Merge Target', quantity: 3 });
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const importId = imported.body.import.id;
+    const newLine = imported.body.lines.find((l) => l.matched_item_id === null);
+    expect(newLine).toBeTruthy();
+
+    await api(app).patch(`/api/invoices/import/${importId}/lines/${newLine.id}`).send({ matched_item_id: target.body.id });
+    markAllReviewed(importId);
+
+    const itemCountBefore = db.prepare('SELECT COUNT(*) AS n FROM items').get().n;
+    const res = await api(app).post(`/api/invoices/import/${importId}/commit`);
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM items').get().n).toBe(itemCountBefore);
+
+    const mergedLine = db.prepare('SELECT matched_item_id FROM invoice_import_lines WHERE id = ?').get(newLine.id);
+    expect(mergedLine.matched_item_id).toBe(target.body.id);
   });
 
   it('rejects committing an already-committed import', async () => {

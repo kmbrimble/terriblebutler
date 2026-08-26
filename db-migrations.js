@@ -4,6 +4,10 @@ function hasColumn(db, table, column) {
   return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
 }
 
+function hasTable(db, table) {
+  return Boolean(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
+}
+
 // On a fresh DB, server.js's CREATE TABLE already reflects the latest schema, so nothing
 // needs replaying — just mark it caught up. On an existing DB, run pending migrations in
 // order, each in its own transaction. Migrations should guard themselves with hasColumn()
@@ -53,6 +57,20 @@ const migrations = [
       db.exec('ALTER TABLE item_locations ADD COLUMN is_open INTEGER NOT NULL DEFAULT 0');
     }
   },
+  // #3: invoice_import_lines.final_name / final_container_details — editable overrides of
+  // raw_name/container during import review (fixes #40). Also in server.js's base CREATE
+  // TABLE block for fresh installs. Guarded by hasTable() too, not just hasColumn(): some
+  // migration-test fixtures (and any real DB older than the staged-import feature) simulate
+  // a state where invoice_import_lines doesn't exist yet at all.
+  (db) => {
+    if (!hasTable(db, 'invoice_import_lines')) return;
+    if (!hasColumn(db, 'invoice_import_lines', 'final_name')) {
+      db.exec('ALTER TABLE invoice_import_lines ADD COLUMN final_name TEXT');
+    }
+    if (!hasColumn(db, 'invoice_import_lines', 'final_container_details')) {
+      db.exec('ALTER TABLE invoice_import_lines ADD COLUMN final_container_details TEXT');
+    }
+  },
 ];
 
-module.exports = { runMigrations, hasColumn, migrations };
+module.exports = { runMigrations, hasColumn, hasTable, migrations };

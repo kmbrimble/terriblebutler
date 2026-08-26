@@ -4,6 +4,33 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Editable name/container + item-match override in invoice import review (fixes #40)
+
+Plan: the staged import review screen (`InvoiceImportModal.tsx`, driving
+`invoice_imports`/`invoice_import_lines`) currently shows `raw_name` read-only and only
+merges into an existing item via the parse-time fuzzy/exact match, with no way to see or
+override it. Changes:
+- `invoice_import_lines` gets two new nullable columns, `final_name` and
+  `final_container_details` (base `CREATE TABLE` + a new guarded migration #3 in
+  `db-migrations.js`, per the "no migrations table, ad-hoc `ALTER TABLE ADD COLUMN`"
+  convention) — edited overrides of `raw_name`/container, mirroring the existing
+  `final_category_id`/`final_location_id` pattern.
+- `matched_item_id` (already a column, already used at commit) becomes directly
+  PATCH-able through `/api/invoices/import/:id/lines/:lineId`, validated against `items`.
+  This is the match-override: the UI's "merge into existing item" control is a plain text
+  input with a native `<datalist>` filtering by name as the user types (no new autocomplete
+  widget — HTML5 already does this), resolving to an id on an exact name match and clearing
+  to `null` ("add as new") when emptied.
+- Commit (`POST /api/invoices/import/:id/commit`) uses `final_name ?? raw_name` for the
+  new-item name and for its own exact-name dedupe fallback, and writes
+  `final_container_details ?? ''` into the new item's `container_details` (previously never
+  set at all on this path).
+- No new LLM call: the existing Fuse fuzzy matcher already suggests a match at parse time:
+  the ask was to see/override that suggestion, not add a second matcher. Category matching
+  is unchanged — a category picker already exists and categories already exist in this
+  codebase, so the issue's "once product categories are implemented" condition is already
+  met.
+
 ## 0.34 - 2026-08-27
 
 ### Add a way to move an item's stock between locations (fixes #39)
