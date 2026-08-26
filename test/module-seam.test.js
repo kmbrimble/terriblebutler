@@ -34,6 +34,7 @@ const EXPECTED_ROUTES = [
   'PUT /api/items/:id',
   'PATCH /api/items/:id/quantity',
   'POST /api/items/:id/deduct',
+  'PATCH /api/items/:id/move-location',
   'PATCH /api/items/:id/ignore-grocery',
   'PATCH /api/items/:id/open',
   'DELETE /api/items/:id',

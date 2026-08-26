@@ -1,13 +1,24 @@
 import { useState } from 'react';
-import { updateItemQuantity, setItemOpen } from '../lib/api';
-import type { Item } from '../lib/api';
+import { updateItemQuantity, setItemOpen, moveItemLocation } from '../lib/api';
+import type { Item, Location } from '../lib/api';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { showToast } from '../lib/toast';
 
 // Ports openQtyModal()/submitManualQty() from public/index.html: always sets an absolute
 // quantity (never a delta), with a location picker only when the item has stock in more than
 // one location. `initialLocationId` lets a caller (the item-detail view's per-location "edit"
 // button) pre-select a specific row instead of defaulting to the first location.
-export function QtyModal({ item, initialLocationId, onClose }: { item: Item; initialLocationId?: number | null; onClose: () => void }) {
+export function QtyModal({
+  item,
+  locations,
+  initialLocationId,
+  onClose,
+}: {
+  item: Item;
+  locations: Location[];
+  initialLocationId?: number | null;
+  onClose: () => void;
+}) {
   useLockBodyScroll();
   const multiLocation = item.locations.length > 1;
   const initialLocation =
@@ -24,11 +35,34 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
   // it's the natural place to still offer the toggle for exactly that case.
   const [isOpen, setIsOpen] = useState(() => Boolean(initialLocation?.is_open));
 
+  const sourceLocationId = locationId ? Number(locationId) : null;
+  const moveDestinations = locations.filter((l) => l.id !== sourceLocationId);
+  const [moveToLocationId, setMoveToLocationId] = useState(() => String(moveDestinations[0]?.id ?? ''));
+  const [moveAmount, setMoveAmount] = useState(() => amount);
+  const [moving, setMoving] = useState(false);
+
   function handleLocationChange(value: string) {
     setLocationId(value);
     const loc = item.locations.find((l) => String(l.location_id ?? '') === value);
     setAmount(String(loc ? loc.quantity : 0));
+    setMoveAmount(String(loc ? loc.quantity : 0));
     setIsOpen(Boolean(loc?.is_open));
+    const newSourceId = value ? Number(value) : null;
+    setMoveToLocationId(String(locations.find((l) => l.id !== newSourceId)?.id ?? ''));
+  }
+
+  async function handleMove() {
+    const val = parseFloat(moveAmount);
+    if (isNaN(val) || val <= 0 || !moveToLocationId) return;
+    setMoving(true);
+    try {
+      await moveItemLocation(item.id, val, multiLocation ? sourceLocationId : undefined, Number(moveToLocationId));
+      onClose();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to move item.', 'error');
+    } finally {
+      setMoving(false);
+    }
   }
 
   function handleToggleOpen(checked: boolean) {
@@ -94,6 +128,43 @@ export function QtyModal({ item, initialLocationId, onClose }: { item: Item; ini
             </button>
           </div>
         </form>
+        {moveDestinations.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-rimmy-border text-left">
+            <label className="block text-sm font-bold mb-1 text-rimmy-text">Move stock to another location</label>
+            <div className="flex gap-2">
+              <select
+                data-testid="qty-modal-move-location-select"
+                value={moveToLocationId}
+                onChange={(e) => setMoveToLocationId(e.target.value)}
+                className="flex-1 bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text"
+              >
+                {moveDestinations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                data-testid="qty-modal-move-amount-input"
+                value={moveAmount}
+                onChange={(e) => setMoveAmount(e.target.value)}
+                className="w-20 bg-rimmy-black border border-rimmy-border rounded p-3 text-center text-rimmy-text"
+              />
+            </div>
+            <button
+              type="button"
+              data-testid="qty-modal-move-button"
+              onClick={handleMove}
+              disabled={moving}
+              className="touch-target w-full mt-2 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold disabled:opacity-50"
+            >
+              Move
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

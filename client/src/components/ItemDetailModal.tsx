@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getItemDetails, getPriceHistory, deletePriceHistoryEntry } from '../lib/api';
-import type { Item, ItemDetails, PriceHistoryEntry, PurchaseSummary } from '../lib/api';
+import type { Item, ItemDetails, Location, PriceHistoryEntry, PurchaseSummary } from '../lib/api';
 import { chartPoints, priceExtremes } from '../lib/priceHistoryChart';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
@@ -21,7 +21,7 @@ function formatPurchase(p: PurchaseSummary | null): string {
   return `$${p.price.toFixed(2)} at ${p.vendor} on ${new Date(p.recorded_at).toLocaleDateString()}`;
 }
 
-export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => void }) {
+export function ItemDetailModal({ item, locations, onClose }: { item: Item; locations: Location[]; onClose: () => void }) {
   useLockBodyScroll();
   const [details, setDetails] = useState<ItemDetails | null>(null);
   const [history, setHistory] = useState<PriceHistoryEntry[]>([]);
@@ -239,6 +239,7 @@ export function ItemDetailModal({ item, onClose }: { item: Item; onClose: () => 
       {qtyEditLocationId !== undefined && details && (
         <QtyModal
           item={details}
+          locations={locations}
           initialLocationId={qtyEditLocationId}
           onClose={() => {
             setQtyEditLocationId(undefined);

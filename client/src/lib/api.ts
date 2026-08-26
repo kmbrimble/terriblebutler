@@ -411,6 +411,24 @@ export async function setIgnoreGrocery(id: number, isIgnored: 0 | 1): Promise<It
   return data;
 }
 
+export async function moveItemLocation(
+  id: number,
+  amount: number,
+  fromLocationId: number | string | null | undefined,
+  toLocationId: number | string | null
+): Promise<Item> {
+  const body: Record<string, unknown> = { amount, to_location_id: toLocationId };
+  if (fromLocationId !== undefined) body.from_location_id = fromLocationId;
+  const res = await authorizedFetch(`/api/items/${id}/move-location`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to move item.');
+  return data;
+}
+
 export async function setItemOpen(id: number, isOpen: 0 | 1, locationId: number | null): Promise<Item> {
   const res = await authorizedFetch(`/api/items/${id}/open`, {
     method: 'PATCH',

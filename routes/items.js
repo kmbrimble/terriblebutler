@@ -214,6 +214,29 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     } catch (err) { sendMutationError(res, err); }
   });
 
+  app.patch('/api/items/:id/move-location', (req, res) => {
+    const id = Number(req.params.id);
+    if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
+    try {
+      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001 });
+      const fromLocationId = resolveTargetLocation(id, req.body.from_location_id);
+      const toLocationId = validForeignId('locations', req.body.to_location_id, 'Destination location');
+      if (fromLocationId === toLocationId) {
+        return res.status(400).json({ error: 'Source and destination locations must be different' });
+      }
+      const moved = db.transaction(() => {
+        if (!upsertItemLocationQuantity(id, fromLocationId, 'subtract', amount)) return false;
+        upsertItemLocationQuantity(id, toLocationId, 'add', amount);
+        return true;
+      })();
+      if (!moved) return res.status(409).json({ error: 'Insufficient quantity at the source location' });
+      db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+      const item = getItem(id);
+      broadcastUpdate('update_quantity', item);
+      res.json(item);
+    } catch (err) { sendMutationError(res, err); }
+  });
+
   app.patch('/api/items/:id/ignore-grocery', (req, res) => {
     const { is_ignored_grocery } = req.body;
     const stmt = db.prepare("UPDATE items SET is_ignored_grocery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");

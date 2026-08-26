@@ -6,17 +6,19 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ### Add a way to move an item's stock between locations (fixes #39)
 
-Plan: new `PATCH /api/items/:id/move-location` route (`routes/items.js`) taking
+New `PATCH /api/items/:id/move-location` route (`routes/items.js`) takes
 `{ from_location_id, to_location_id, amount }`. Reuses the existing `resolveTargetLocation`
 (source, with the same omit-to-infer/explicit-unassigned convention as `/quantity` and
 `/open`) and `upsertItemLocationQuantity` (destination validated via `validForeignId`, same
 convention as item creation) primitives — subtracts at source then adds at destination in one
 transaction, merging into an existing destination row if one already exists. Rejects a
-same-location move and an over-amount move (409, no partial effect). Adds a "Move to
-location" control to `QtyModal.tsx` (destination select over the full location list + amount,
-defaulting to the current location's full quantity) and a `moveItemLocation()` API helper.
-`ItemDetailModal`/`ItemList` thread the existing `locations` list down to `QtyModal` for the
-destination picker.
+same-location move (400) and an over-amount move (409, no partial effect — the subtract is
+a no-op read when insufficient, so nothing is written before the add is skipped). Adds a
+"Move stock to another location" control to `QtyModal.tsx` (destination select over the full
+location list + amount, defaulting to the current location's full quantity) and a
+`moveItemLocation()` API helper. `ItemDetailModal`/`ItemList` thread the existing `locations`
+list down to `QtyModal` for the destination picker. `test/module-seam.test.js`'s route-table
+snapshot updated for the new route.
 
 ## 0.33 - 2026-08-27
 

@@ -58,6 +58,9 @@ export const QTY_MODAL_AMOUNT_INPUT = 'qty-modal-amount-input';
 export const QTY_MODAL_LOCATION_SELECT = 'qty-modal-location-select';
 export const QTY_MODAL_OPEN_TOGGLE = 'qty-modal-open-toggle';
 export const QTY_MODAL_SUBMIT_BUTTON = 'qty-modal-submit-button';
+export const QTY_MODAL_MOVE_LOCATION_SELECT = 'qty-modal-move-location-select';
+export const QTY_MODAL_MOVE_AMOUNT_INPUT = 'qty-modal-move-amount-input';
+export const QTY_MODAL_MOVE_BUTTON = 'qty-modal-move-button';
 
 export const DEDUCT_ACTION_CONTAINER = 'deduct-action-container';
 export const DEDUCT_ITEM_ID = 'deduct-item-id';

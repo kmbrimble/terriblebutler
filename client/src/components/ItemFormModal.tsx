@@ -303,7 +303,7 @@ export function ItemFormModal({
               <input type="number" step="1" min="0" data-testid="item-threshold-input" value={threshold} onChange={(e) => setThreshold(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text" />
             </div>
           </div>
-          {mode === 'edit' && <p className="text-xs text-rimmy-textMuted -mt-2">Use the qty +/- controls or item details to adjust stock per location.</p>}
+          {mode === 'edit' && <p className="text-xs text-rimmy-textMuted -mt-2">Use the qty +/- controls or item details to adjust stock per location, or move it between locations.</p>}
 
           <div className="border-t border-rimmy-border pt-4 mt-2">
             <h3 className="text-sm font-bold text-rimmy-orange mb-2">Optional Purchase Record</h3>

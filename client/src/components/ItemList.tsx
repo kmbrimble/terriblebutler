@@ -168,8 +168,8 @@ export function ItemList() {
         />
       )}
       {deductOpen && <DeductModal items={items} onClose={() => setDeductOpen(false)} />}
-      {qtyModalItem && <QtyModal item={qtyModalItem} onClose={() => setQtyModalItem(null)} />}
-      {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
+      {qtyModalItem && <QtyModal item={qtyModalItem} locations={locations} onClose={() => setQtyModalItem(null)} />}
+      {detailItem && <ItemDetailModal item={detailItem} locations={locations} onClose={() => setDetailItem(null)} />}
       {invoiceImportOpen && (
         <InvoiceImportModal
           categories={categories}
