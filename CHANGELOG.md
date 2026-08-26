@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.35 - 2026-08-27
+
 ### Editable name/container + item-match override in invoice import review (fixes #40)
 
 The staged import review screen (`InvoiceImportModal.tsx`, driving
