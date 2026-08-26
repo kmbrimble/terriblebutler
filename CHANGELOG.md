@@ -4,6 +4,13 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Fix Open-flag button swapping to "Close" (fixes #38)
+
+`ItemCard.tsx`'s card-level open-toggle button now always labels itself "Open"; only its
+colour styling indicates state (orange highlight when open) instead of swapping the label
+to "Close". `test-e2e/open-toggle.spec.js` now asserts on styling instead of text after
+toggling.
+
 ## 0.32 - 2026-08-24
 
 ### Add a one-off manual-stocktake loader script (data migration, not a feature)

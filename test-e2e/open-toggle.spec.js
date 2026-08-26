@@ -12,11 +12,14 @@ test('a single-location item shows a card-level Open button that toggles is_open
   const button = card.getByTestId(OPEN_TOGGLE_BUTTON);
 
   await expect(button).toHaveText('Open');
+  await expect(button).not.toHaveClass(/border-orange-500/);
   await button.click();
-  await expect(button).toHaveText('Close');
+  await expect(button).toHaveText('Open');
+  await expect(button).toHaveClass(/border-orange-500/);
 
   await button.click();
   await expect(button).toHaveText('Open');
+  await expect(button).not.toHaveClass(/border-orange-500/);
 });
 
 test('a multi-location item hides the card-level Open button but exposes one in the Qty modal per location', async ({ page, request }) => {

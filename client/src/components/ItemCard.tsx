@@ -141,11 +141,11 @@ export function ItemCard({
       }}
       className={
         isOpen
-          ? 'w-8 h-full flex items-center justify-center text-red-500 border border-red-500 rounded text-[9px] font-bold'
+          ? 'w-8 h-full flex items-center justify-center text-orange-500 border border-orange-500 rounded text-[9px] font-bold'
           : 'w-8 h-full flex items-center justify-center text-rimmy-textMuted hover:text-rimmy-orange border border-rimmy-border rounded text-[9px] font-bold'
       }
     >
-      {isOpen ? 'Close' : 'Open'}
+      Open
     </button>
   );
 
