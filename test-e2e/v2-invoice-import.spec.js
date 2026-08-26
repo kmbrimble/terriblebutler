@@ -8,6 +8,9 @@ import {
   INVOICE_IMPORT_COMMIT_BUTTON,
   INVOICE_IMPORT_LINE,
   INVOICE_IMPORT_LINE_CATEGORY_SELECT,
+  INVOICE_IMPORT_LINE_NAME_INPUT,
+  INVOICE_IMPORT_LINE_CONTAINER_INPUT,
+  INVOICE_IMPORT_LINE_MATCH_INPUT,
   INVOICE_IMPORT_MODAL,
   TOAST_NOTIFICATION,
 } from './testids.js';
@@ -72,6 +75,47 @@ test('v2: a category change on one line persists across a page reload (crash-saf
   const getRes = await request.get(`/api/invoices/import/${importId}`);
   const persisted = await getRes.json();
   expect(persisted.lines.find((l) => l.id === firstLineId).final_category_id).toBe(category.id);
+});
+
+test('v2: editing name/container and picking an existing item to merge into persist across a reload (fixes #40)', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const existingName = `E2E V2 Merge Target ${Date.now()}`;
+  const existing = await requestWithRateLimitRetry(() => request.post('/api/items', { data: { name: existingName, quantity: 1 } }));
+  const existingItem = await existing.json();
+
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+
+  const [importRes] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
+  ]);
+  const importBody = await importRes.json();
+  const importId = importBody.import.id;
+  const firstLineId = importBody.lines[0].id;
+
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  const row = lineRow(page, firstLineId);
+  await row.getByTestId(INVOICE_IMPORT_LINE_NAME_INPUT).fill('Edited Product Name');
+  await row.getByTestId(INVOICE_IMPORT_LINE_CONTAINER_INPUT).fill('500g tub');
+  const matchInput = row.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT);
+  await matchInput.fill(existingName);
+  await matchInput.blur();
+
+  await expect(async () => {
+    const getRes = await request.get(`/api/invoices/import/${importId}`);
+    const persisted = (await getRes.json()).lines.find((l) => l.id === firstLineId);
+    expect(persisted.final_name).toBe('Edited Product Name');
+    expect(persisted.final_container_details).toBe('500g tub');
+    expect(persisted.matched_item_id).toBe(existingItem.id);
+  }).toPass();
+
+  await page.reload();
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  const reloadedRow = lineRow(page, firstLineId);
+  await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_NAME_INPUT)).toHaveValue('Edited Product Name');
+  await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_CONTAINER_INPUT)).toHaveValue('500g tub');
+  await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT)).toHaveValue(existingName);
 });
 
 test('v2: completing a review and committing shows a summary and creates the expected items', async ({ page, request }) => {

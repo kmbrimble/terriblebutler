@@ -89,6 +89,9 @@ export const INVOICE_IMPORT_LINE_CATEGORY_SELECT = 'invoice-import-line-category
 export const INVOICE_IMPORT_LINE_LOCATION_SELECT = 'invoice-import-line-location-select';
 export const INVOICE_IMPORT_LINE_QTY_INPUT = 'invoice-import-line-qty-input';
 export const INVOICE_IMPORT_LINE_REVIEWED_CHECKBOX = 'invoice-import-line-reviewed-checkbox';
+export const INVOICE_IMPORT_LINE_NAME_INPUT = 'invoice-import-line-name-input';
+export const INVOICE_IMPORT_LINE_CONTAINER_INPUT = 'invoice-import-line-container-input';
+export const INVOICE_IMPORT_LINE_MATCH_INPUT = 'invoice-import-line-match-input';
 
 // Stage 5 (React client price history) — new fields/controls. DETAILS_MODAL/DETAILS_TITLE
 // above were reserved in stage 3 for this exact view. The modal's Close button has unique,

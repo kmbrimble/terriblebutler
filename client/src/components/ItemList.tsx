@@ -174,6 +174,7 @@ export function ItemList() {
         <InvoiceImportModal
           categories={categories}
           locations={locations}
+          items={items}
           onClose={() => setInvoiceImportOpen(false)}
           onCommitted={() => {
             setInvoiceImportOpen(false);

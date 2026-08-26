@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveLineCategoryValue,
   resolveLineLocationValue,
+  resolveLineNameValue,
+  resolveLineContainerValue,
   isCommitEnabled,
   matchLabel,
   formatSummaryLine,
@@ -23,6 +25,8 @@ function makeLine(overrides: Partial<InvoiceImportLine> = {}): InvoiceImportLine
     suggested_location_id: null,
     final_category_id: null,
     final_location_id: null,
+    final_name: null,
+    final_container_details: null,
     barcode_scanned: null,
     qty_confirmed: null,
     line_status: 'pending',
@@ -48,6 +52,24 @@ describe('resolveLineCategoryValue / resolveLineLocationValue', () => {
   it('falls back to an empty string when both are null', () => {
     expect(resolveLineCategoryValue(makeLine({ final_category_id: null, suggested_category_id: null }))).toBe('');
     expect(resolveLineLocationValue(makeLine({ final_location_id: null, suggested_location_id: null }))).toBe('');
+  });
+});
+
+describe('resolveLineNameValue / resolveLineContainerValue (fixes #40)', () => {
+  it('prefers the edited final_name over raw_name', () => {
+    expect(resolveLineNameValue(makeLine({ raw_name: 'COLES SHRIMP CHIPS 90G', final_name: 'Shrimp Chips' }))).toBe('Shrimp Chips');
+  });
+
+  it('falls back to raw_name when final_name is null', () => {
+    expect(resolveLineNameValue(makeLine({ raw_name: 'COLES SHRIMP CHIPS 90G', final_name: null }))).toBe('COLES SHRIMP CHIPS 90G');
+  });
+
+  it('falls back to an empty string for container details when final_container_details is null', () => {
+    expect(resolveLineContainerValue(makeLine({ final_container_details: null }))).toBe('');
+  });
+
+  it('returns the edited container details when set', () => {
+    expect(resolveLineContainerValue(makeLine({ final_container_details: '90g bag' }))).toBe('90g bag');
   });
 });
 

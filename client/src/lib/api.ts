@@ -274,6 +274,8 @@ export interface InvoiceImportLine {
   suggested_location_id: number | null;
   final_category_id: number | null;
   final_location_id: number | null;
+  final_name: string | null;
+  final_container_details: string | null;
   barcode_scanned: string | null;
   qty_confirmed: number | null;
   line_status: 'pending' | 'reviewed' | 'skipped';
@@ -303,7 +305,12 @@ export async function getInvoiceImport(id: number): Promise<InvoiceImportState |
 export async function patchInvoiceImportLine(
   importId: number,
   lineId: number,
-  fields: Partial<Pick<InvoiceImportLine, 'final_category_id' | 'final_location_id' | 'qty_confirmed' | 'barcode_scanned' | 'line_status'>>
+  fields: Partial<
+    Pick<
+      InvoiceImportLine,
+      'final_category_id' | 'final_location_id' | 'final_name' | 'final_container_details' | 'matched_item_id' | 'qty_confirmed' | 'barcode_scanned' | 'line_status'
+    >
+  >
 ): Promise<InvoiceImportLine> {
   const res = await authorizedFetch(`/api/invoices/import/${importId}/lines/${lineId}`, {
     method: 'PATCH',

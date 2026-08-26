@@ -8,8 +8,17 @@ import {
   type InvoiceImportLine,
   type Category,
   type Location,
+  type Item,
 } from '../lib/api';
-import { resolveLineCategoryValue, resolveLineLocationValue, isCommitEnabled, matchLabel, formatSummaryLine } from '../lib/invoiceImportLine';
+import {
+  resolveLineCategoryValue,
+  resolveLineLocationValue,
+  resolveLineNameValue,
+  resolveLineContainerValue,
+  isCommitEnabled,
+  matchLabel,
+  formatSummaryLine,
+} from '../lib/invoiceImportLine';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -26,11 +35,13 @@ export const ACTIVE_IMPORT_KEY = 'tb_active_import_id';
 export function InvoiceImportModal({
   categories,
   locations,
+  items,
   onClose,
   onCommitted,
 }: {
   categories: Category[];
   locations: Location[];
+  items: Item[];
   onClose: () => void;
   onCommitted: () => void;
 }) {
@@ -128,6 +139,7 @@ export function InvoiceImportModal({
                   line={line}
                   categories={categories}
                   locations={locations}
+                  items={items}
                   onPatch={(fields) => patchLine(line.id, fields)}
                   onScanBarcode={() => setScanningLineId(line.id)}
                 />
@@ -154,15 +166,38 @@ export function InvoiceImportLineRow({
   line,
   categories,
   locations,
+  items,
   onPatch,
   onScanBarcode,
 }: {
   line: InvoiceImportLine;
   categories: Category[];
   locations: Location[];
+  items: Item[];
   onPatch: (fields: Partial<InvoiceImportLine>) => void;
   onScanBarcode: () => void;
 }) {
+  const matchListId = `invoice-import-line-match-list-${line.id}`;
+  const matchedItem = items.find((i) => i.id === line.matched_item_id);
+  const [matchText, setMatchText] = useState(() => matchedItem?.name ?? '');
+
+  // Re-syncs the free-text match field if the line's matched_item_id changes from outside
+  // this input (e.g. the initial parse-time fuzzy/exact match arriving after mount).
+  useEffect(() => {
+    setMatchText(matchedItem?.name ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.matched_item_id]);
+
+  function handleMatchTextChange(value: string) {
+    setMatchText(value);
+    if (value.trim() === '') {
+      if (line.matched_item_id !== null) onPatch({ matched_item_id: null });
+      return;
+    }
+    const exact = items.find((i) => i.name.toLowerCase() === value.trim().toLowerCase());
+    if (exact && exact.id !== line.matched_item_id) onPatch({ matched_item_id: exact.id });
+  }
+
   const statusBadge =
     line.line_status === 'skipped' ? (
       <span className="text-xs font-bold text-gray-500 shrink-0">SKIPPED</span>
@@ -179,14 +214,44 @@ export function InvoiceImportLineRow({
       className={`border border-rimmy-border rounded-lg p-3 bg-rimmy-black flex flex-col gap-2 ${line.line_status === 'skipped' ? 'opacity-50' : ''}`}
     >
       <div className="flex justify-between items-start gap-2">
-        <div className="min-w-0">
-          <p className="font-bold text-[15px] leading-tight break-words text-rimmy-text">{line.raw_name}</p>
+        <div className="min-w-0 flex-1">
+          <input
+            data-testid="invoice-import-line-name-input"
+            value={resolveLineNameValue(line)}
+            onChange={(e) => onPatch({ final_name: e.target.value })}
+            className="w-full font-bold text-[15px] leading-tight bg-transparent border border-transparent hover:border-rimmy-border focus:border-rimmy-orange rounded px-1 -mx-1 text-rimmy-text"
+          />
           <p className="text-xs text-rimmy-textMuted mt-1">
             Qty supplied: {line.qty_supplied ?? '-'} | ${Number(line.unit_price ?? 0).toFixed(2)} ea | {line.gst_applicable ? 'GST' : 'No GST'}
           </p>
           <p className={`text-xs mt-1 ${line.matched_item_id ? 'text-emerald-400' : 'text-rimmy-textMuted'}`}>{matchLabel(line)}</p>
         </div>
         {statusBadge}
+      </div>
+      <div>
+        <input
+          data-testid="invoice-import-line-container-input"
+          value={resolveLineContainerValue(line)}
+          onChange={(e) => onPatch({ final_container_details: e.target.value })}
+          placeholder="Container details (size, weight, type)"
+          className="w-full border border-rimmy-border rounded p-2 bg-rimmy-charcoal text-rimmy-text text-sm"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-bold text-rimmy-textMuted">Merge into existing item (leave blank to add new):</label>
+        <input
+          data-testid="invoice-import-line-match-input"
+          list={matchListId}
+          value={matchText}
+          onChange={(e) => handleMatchTextChange(e.target.value)}
+          placeholder="Search existing items…"
+          className="w-full border border-rimmy-border rounded p-2 bg-rimmy-charcoal text-rimmy-text text-sm mt-1"
+        />
+        <datalist id={matchListId}>
+          {items.map((i) => (
+            <option key={i.id} value={i.name} />
+          ))}
+        </datalist>
       </div>
       <div className="flex flex-col sm:flex-row gap-2">
         <select

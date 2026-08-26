@@ -6,9 +6,9 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ### Editable name/container + item-match override in invoice import review (fixes #40)
 
-Plan: the staged import review screen (`InvoiceImportModal.tsx`, driving
-`invoice_imports`/`invoice_import_lines`) currently shows `raw_name` read-only and only
-merges into an existing item via the parse-time fuzzy/exact match, with no way to see or
+The staged import review screen (`InvoiceImportModal.tsx`, driving
+`invoice_imports`/`invoice_import_lines`) previously showed `raw_name` read-only and only
+merged into an existing item via the parse-time fuzzy/exact match, with no way to see or
 override it. Changes:
 - `invoice_import_lines` gets two new nullable columns, `final_name` and
   `final_container_details` (base `CREATE TABLE` + a new guarded migration #3 in
