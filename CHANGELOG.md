@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.34 - 2026-08-27
+
 ### Add a way to move an item's stock between locations (fixes #39)
 
 New `PATCH /api/items/:id/move-location` route (`routes/items.js`) takes
