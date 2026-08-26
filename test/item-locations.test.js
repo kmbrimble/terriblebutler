@@ -144,6 +144,82 @@ describe('Multi-location stock', () => {
   });
 });
 
+describe('Moving stock between locations', () => {
+  it('moves the full amount from an inferred single location to a brand-new destination', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Shrimp Chips', location_id: locA, quantity: 3 });
+    const id = created.body.id;
+
+    const res = await api(app).patch(`/api/items/${id}/move-location`).send({ to_location_id: locB, amount: 3 });
+    expect(res.status).toBe(200);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    const byLocation = Object.fromEntries(item.locations.map((l) => [l.location_id, l.quantity]));
+    expect(byLocation[locA]).toBe(0);
+    expect(byLocation[locB]).toBe(3);
+  });
+
+  it('merges into an existing destination row rather than creating a duplicate', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Baked Beans', location_id: locA, quantity: 2 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 5, action: 'add', location_id: locB });
+
+    const res = await api(app).patch(`/api/items/${id}/move-location`).send({ from_location_id: locA, to_location_id: locB, amount: 2 });
+    expect(res.status).toBe(200);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations).toHaveLength(2);
+    const byLocation = Object.fromEntries(item.locations.map((l) => [l.location_id, l.quantity]));
+    expect(byLocation[locA]).toBe(0);
+    expect(byLocation[locB]).toBe(7);
+  });
+
+  it('rejects moving more than is held at the source, leaving both locations untouched', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Canned Tuna', location_id: locA, quantity: 1 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 5, action: 'add', location_id: locB });
+
+    const res = await api(app).patch(`/api/items/${id}/move-location`).send({ from_location_id: locA, to_location_id: locB, amount: 10 });
+    expect(res.status).toBe(409);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    const byLocation = Object.fromEntries(item.locations.map((l) => [l.location_id, l.quantity]));
+    expect(byLocation[locA]).toBe(1);
+    expect(byLocation[locB]).toBe(5);
+  });
+
+  it('rejects moving to the same location it is already at', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Peanut Butter', location_id: locA, quantity: 4 });
+    const id = created.body.id;
+
+    const res = await api(app).patch(`/api/items/${id}/move-location`).send({ from_location_id: locA, to_location_id: locA, amount: 4 });
+    expect(res.status).toBe(400);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    expect(item.locations[0].quantity).toBe(4);
+  });
+
+  it('requires an explicit from_location_id when the item has stock in more than one location', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Cereal Box', location_id: locA, quantity: 2 });
+    const id = created.body.id;
+    await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'add', location_id: locB });
+
+    const ambiguous = await api(app).patch(`/api/items/${id}/move-location`).send({ to_location_id: locB, amount: 1 });
+    expect(ambiguous.status).toBe(400);
+  });
+
+  it('can move stock into the unassigned bucket', async () => {
+    const created = await api(app).post('/api/items').send({ name: 'Rolled Oats', location_id: locA, quantity: 2 });
+    const id = created.body.id;
+
+    const res = await api(app).patch(`/api/items/${id}/move-location`).send({ from_location_id: locA, to_location_id: '', amount: 2 });
+    expect(res.status).toBe(200);
+
+    const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
+    const unassigned = item.locations.find((l) => l.location_id === null);
+    expect(unassigned.quantity).toBe(2);
+  });
+});
+
 describe('Per-location "open" status', () => {
   it('PATCH /api/items/:id/open infers the location when the item has stock in exactly one', async () => {
     const created = await api(app).post('/api/items').send({ name: 'Milk 2L', location_id: locA, quantity: 1 });
