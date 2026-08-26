@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.33 - 2026-08-27
+
 ### Fix Open-flag button swapping to "Close" (fixes #38)
 
 `ItemCard.tsx`'s card-level open-toggle button now always labels itself "Open"; only its
