@@ -4,7 +4,7 @@ const { PDFParse } = require('pdf-parse');
 const { findMatch } = require('../item-matching');
 const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
-const { callClaudeForJSON, classifyLineWithLLM } = require('../lib/llm-client');
+const { callClaudeForJSON, classifyLineWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const { cleanText, finiteNumber, sendMutationError } = require('../lib/domain-helpers');
 
 function getImportWithLines(db, importId) {
@@ -213,6 +213,22 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         r.suggestedCategoryId = classified.category_id;
         r.suggestedLocationId = classified.location_id;
       }));
+
+      // Anything still unmatched (no exact/barcode hit — whether or not a fuzzy candidate set
+      // its category/location suggestion above) goes through one batched LLM match call for
+      // the whole invoice, since fuzzy string similarity can't bridge branded invoice text to
+      // broad non-branded item names (fixes the #40 follow-up report). A hit here inherits its
+      // item's category/location, same as an exact/barcode match.
+      const stillUnmatched = resolved.filter((r) => r.matchedItemId === null);
+      const llmMatches = await matchLinesWithLLM(existingItems, stillUnmatched.map((r) => r.line));
+      llmMatches.forEach((itemId, i) => {
+        if (!itemId) return;
+        const item = existingItems.find((it) => it.id === itemId);
+        if (!item) return;
+        stillUnmatched[i].matchedItemId = itemId;
+        stillUnmatched[i].suggestedCategoryId = item.category_id;
+        stillUnmatched[i].suggestedLocationId = item.location_id;
+      });
 
       for (const r of resolved) {
         insertLine.run(

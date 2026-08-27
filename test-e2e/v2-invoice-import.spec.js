@@ -118,6 +118,33 @@ test('v2: editing name/container and picking an existing item to merge into pers
   await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT)).toHaveValue(existingName);
 });
 
+test('v2: fast typing into the name/container fields does not drop characters (regression: every keystroke PATCHes, and a stale response used to clobber a newer one, most visibly eating spaces)', async ({ page, request }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+
+  const [importRes] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
+  ]);
+  const importBody = await importRes.json();
+  const firstLineId = importBody.lines[0].id;
+  const row = lineRow(page, firstLineId);
+
+  const nameInput = row.getByTestId(INVOICE_IMPORT_LINE_NAME_INPUT);
+  await nameInput.click();
+  await nameInput.fill('');
+  const typedName = 'Pineapple soft drink bottle';
+  await page.keyboard.type(typedName, { delay: 0 });
+  await expect(nameInput).toHaveValue(typedName);
+
+  const containerInput = row.getByTestId(INVOICE_IMPORT_LINE_CONTAINER_INPUT);
+  await containerInput.click();
+  const typedContainer = '1.25 L plastic bottle';
+  await page.keyboard.type(typedContainer, { delay: 0 });
+  await expect(containerInput).toHaveValue(typedContainer);
+});
+
 test('v2: completing a review and committing shows a summary and creates the expected items', async ({ page, request }) => {
   test.setTimeout(120_000);
   // Extra generous: import + one PATCH per Coles line (line count varies with the fixture PDF,

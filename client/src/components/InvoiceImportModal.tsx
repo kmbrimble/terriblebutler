@@ -180,6 +180,12 @@ export function InvoiceImportLineRow({
   const matchListId = `invoice-import-line-match-list-${line.id}`;
   const matchedItem = items.find((i) => i.id === line.matched_item_id);
   const [matchText, setMatchText] = useState(() => matchedItem?.name ?? '');
+  // Name/container each PATCH on every keystroke; buffering the displayed text locally (rather
+  // than deriving it straight from `line` on every render) keeps typing safe from a stale PATCH
+  // response landing after a newer keystroke and clobbering it — previously the most visible
+  // symptom was dropped spaces, since a missing space reads as two words silently joining.
+  const [nameText, setNameText] = useState(() => resolveLineNameValue(line));
+  const [containerText, setContainerText] = useState(() => resolveLineContainerValue(line));
 
   // Re-syncs the free-text match field if the line's matched_item_id changes from outside
   // this input (e.g. the initial parse-time fuzzy/exact match arriving after mount).
@@ -187,6 +193,16 @@ export function InvoiceImportLineRow({
     setMatchText(matchedItem?.name ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.matched_item_id]);
+
+  function handleNameChange(value: string) {
+    setNameText(value);
+    onPatch({ final_name: value });
+  }
+
+  function handleContainerChange(value: string) {
+    setContainerText(value);
+    onPatch({ final_container_details: value });
+  }
 
   function handleMatchTextChange(value: string) {
     setMatchText(value);
@@ -217,8 +233,8 @@ export function InvoiceImportLineRow({
         <div className="min-w-0 flex-1">
           <input
             data-testid="invoice-import-line-name-input"
-            value={resolveLineNameValue(line)}
-            onChange={(e) => onPatch({ final_name: e.target.value })}
+            value={nameText}
+            onChange={(e) => handleNameChange(e.target.value)}
             className="w-full font-bold text-[15px] leading-tight bg-transparent border border-transparent hover:border-rimmy-border focus:border-rimmy-orange rounded px-1 -mx-1 text-rimmy-text"
           />
           <p className="text-xs text-rimmy-textMuted mt-1">
@@ -231,8 +247,8 @@ export function InvoiceImportLineRow({
       <div>
         <input
           data-testid="invoice-import-line-container-input"
-          value={resolveLineContainerValue(line)}
-          onChange={(e) => onPatch({ final_container_details: e.target.value })}
+          value={containerText}
+          onChange={(e) => handleContainerChange(e.target.value)}
           placeholder="Container details (size, weight, type)"
           className="w-full border border-rimmy-border rounded p-2 bg-rimmy-charcoal text-rimmy-text text-sm"
         />

@@ -70,6 +70,48 @@ describe('lib/llm-client.js callClaudeForJSON (via classifyLineWithLLM)', () => 
   });
 });
 
+describe('lib/llm-client.js matchLinesWithLLM', () => {
+  it('returns the matched item id per line, and null for lines the model finds no match for', async () => {
+    const { matchLinesWithLLM } = await import('../lib/llm-client.js');
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      mockToolUseResponse('invoice_line_matches', {
+        matches: [
+          { line_index: 0, item_id: 7 },
+          { line_index: 1, item_id: 0 },
+        ],
+      }),
+    );
+    const existingItems = [{ id: 7, name: 'Pineapple soft drink', category_id: 3, location_id: 4 }];
+    const lines = [{ raw_name: 'Coles No Sugar Soft Drink Pineapple 1.25L' }, { raw_name: 'Something unrelated' }];
+    const result = await matchLinesWithLLM(existingItems, lines);
+    expect(result).toEqual([7, null]);
+  });
+
+  it('ignores an item_id the model invents that is not in the existing item list', async () => {
+    const { matchLinesWithLLM } = await import('../lib/llm-client.js');
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      mockToolUseResponse('invoice_line_matches', { matches: [{ line_index: 0, item_id: 999999 }] }),
+    );
+    const result = await matchLinesWithLLM([{ id: 1, name: 'Real Item' }], [{ raw_name: 'Anything' }]);
+    expect(result).toEqual([null]);
+  });
+
+  it('never throws and returns all-null when the Anthropic call fails', async () => {
+    const { matchLinesWithLLM } = await import('../lib/llm-client.js');
+    vi.spyOn(global, 'fetch').mockResolvedValue(mockHttpErrorResponse(429, { message: 'rate limited' }));
+    const result = await matchLinesWithLLM([{ id: 1, name: 'Real Item' }], [{ raw_name: 'A' }, { raw_name: 'B' }]);
+    expect(result).toEqual([null, null]);
+  });
+
+  it('returns an empty result with no call when there are no unmatched lines or no existing items', async () => {
+    const { matchLinesWithLLM } = await import('../lib/llm-client.js');
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    expect(await matchLinesWithLLM([{ id: 1, name: 'X' }], [])).toEqual([]);
+    expect(await matchLinesWithLLM([], [{ raw_name: 'A' }])).toEqual([null]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/parse-label-llm', () => {
   it('sends the image to Anthropic with a forced tool call and returns the resolved label', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(

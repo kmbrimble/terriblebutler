@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest';
 import path from 'path';
 import request from 'supertest';
 import './setup.js';
@@ -18,6 +18,26 @@ beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
   process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1';
 });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function mockToolUseResponse(toolName, input) {
+  return new Response(
+    JSON.stringify({
+      id: 'msg_test',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-haiku-4-5',
+      content: [{ type: 'tool_use', id: 'toolu_test', name: toolName, input }],
+      stop_reason: 'tool_use',
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
 
 function markAllReviewed(importId) {
   db.prepare("UPDATE invoice_import_lines SET line_status = 'reviewed' WHERE import_id = ?").run(importId);
@@ -100,6 +120,49 @@ describe('POST /api/invoices/import', () => {
   it('rejects unauthenticated requests', async () => {
     const res = await request(app).post('/api/invoices/import').attach('invoice', WOOLWORTHS_PDF);
     expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/invoices/import — LLM-assisted matching for lines the deterministic pass could not match', () => {
+  it('fills matched_item_id and inherits its category/location suggestion via a batched LLM match call', async () => {
+    const cat = await api(app).post('/api/categories').send({ name: `LLM Match Category ${Date.now()}` });
+    const loc = await api(app).post('/api/locations').send({ name: `LLM Match Location ${Date.now()}` });
+    const target = await api(app).post('/api/items').send({
+      name: `LLM Match Target ${Date.now()}`,
+      category_id: cat.body.id,
+      location_id: loc.body.id,
+      quantity: 1,
+    });
+
+    // Every line the deterministic pass leaves unmatched should get sent to the LLM matcher —
+    // mock it to match all of them to the same target item, regardless of which lines those
+    // turn out to be (this file shares one DB across tests, so earlier tests may already have
+    // created items that exact/fuzzy-match some fixture lines).
+    // mockImplementation (not mockResolvedValue) so each concurrent classify/match call gets
+    // its own fresh Response — a shared instance's body can only be read once, and the import
+    // route fires many of these concurrently (one classify call per unmatched-with-no-fuzzy-
+    // candidate line, running in parallel via Promise.all).
+    vi.spyOn(global, 'fetch').mockImplementation(async () =>
+      mockToolUseResponse('invoice_line_matches', {
+        matches: Array.from({ length: 40 }, (_, i) => ({ line_index: i, item_id: target.body.id })),
+      }),
+    );
+
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    expect(imported.status).toBe(200);
+    expect(imported.body.lines.every((l) => l.matched_item_id !== null)).toBe(true);
+
+    const llmMatchedLines = imported.body.lines.filter((l) => l.matched_item_id === target.body.id);
+    expect(llmMatchedLines.length).toBeGreaterThan(0);
+    expect(llmMatchedLines[0].suggested_category_id).toBe(cat.body.id);
+    expect(llmMatchedLines[0].suggested_location_id).toBe(loc.body.id);
+  });
+
+  it('leaves matched_item_id null when the LLM call fails, without blocking the import', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network unreachable'));
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    expect(imported.status).toBe(200);
+    expect(imported.body.lines.length).toBeGreaterThan(0);
   });
 });
 
