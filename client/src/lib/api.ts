@@ -328,6 +328,14 @@ export interface InvoiceCommitSummary {
   total_value: number;
 }
 
+export async function cancelInvoiceImport(importId: number): Promise<void> {
+  const res = await authorizedFetch(`/api/invoices/import/${importId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to cancel the invoice import.');
+  }
+}
+
 export async function commitInvoiceImport(importId: number): Promise<InvoiceCommitSummary> {
   const res = await authorizedFetch(`/api/invoices/import/${importId}/commit`, { method: 'POST' });
   const data = await res.json().catch(() => ({}));

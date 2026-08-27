@@ -1,7 +1,7 @@
 const fs = require('fs');
 const Fuse = require('fuse.js');
 const { PDFParse } = require('pdf-parse');
-const { findMatch } = require('../item-matching');
+const { findMatch, normaliseName } = require('../item-matching');
 const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
 const { callClaudeForJSON, classifyLineWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
@@ -190,6 +190,13 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      // Learned match memory first: a raw invoice description this household has previously
+      // committed against a specific item (invoice_line_match_memory, populated at commit
+      // time below) is treated exactly like an exact/barcode match — confident enough to
+      // inherit category/location and skip both the deterministic pass and the LLM call
+      // below. Grows with use: repeat purchases short-circuit straight to their last outcome.
+      const memoryStmt = db.prepare('SELECT item_id FROM invoice_line_match_memory WHERE raw_name_key = ?');
+
       // Deterministic match first: an exact (or barcode) hit is confident enough to inherit
       // its item's category/location as the suggestion and record matched_item_id outright.
       // A fuzzy hit is suggestion-only — its category/location still pre-fill the review
@@ -198,6 +205,11 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       // 32-line invoice, awaiting them one at a time would mean worst-case minutes of serial
       // network latency for something the UI is waiting on.
       const resolved = parsed.lines.map((line) => {
+        const memoryHit = memoryStmt.get(normaliseName(line.raw_name));
+        const memoryItem = memoryHit ? existingItems.find((it) => it.id === memoryHit.item_id) : null;
+        if (memoryItem) {
+          return { line, matchedItemId: memoryItem.id, suggestedCategoryId: memoryItem.category_id, suggestedLocationId: memoryItem.location_id };
+        }
         const match = findMatch(existingItems, { barcode: null, name: line.raw_name }, fuse);
         if (match.type === 'barcode' || match.type === 'exact_name') {
           return { line, matchedItemId: match.item.id, suggestedCategoryId: match.item.category_id, suggestedLocationId: match.item.location_id };
@@ -252,6 +264,20 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     res.json(result);
   });
 
+  app.delete('/api/invoices/import/:id', (req, res) => {
+    const importId = Number(req.params.id);
+    const importRow = db.prepare('SELECT status FROM invoice_imports WHERE id = ?').get(importId);
+    if (!importRow) return res.status(404).json({ error: 'Import not found' });
+    if (importRow.status === 'committed') return res.status(409).json({ error: 'This import has already been committed' });
+
+    // No ON DELETE CASCADE from invoice_import_lines to invoice_imports — lines go first.
+    db.transaction(() => {
+      db.prepare('DELETE FROM invoice_import_lines WHERE import_id = ?').run(importId);
+      db.prepare('DELETE FROM invoice_imports WHERE id = ?').run(importId);
+    })();
+    res.json({ message: 'Import cancelled' });
+  });
+
   const patchFields = INVOICE_LINE_PATCH_FIELDS(validForeignId);
 
   app.patch('/api/invoices/import/:id/lines/:lineId', (req, res) => {
@@ -302,6 +328,14 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     const touchItem = db.prepare('UPDATE items SET last_price = ?, lowest_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
     const insertPriceHistory = db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)');
     const markLineMatched = db.prepare('UPDATE invoice_import_lines SET matched_item_id = ? WHERE id = ?');
+    // Learns raw_name -> itemId for next time's memory lookup (POST /api/invoices/import),
+    // keyed on the untouched raw invoice text regardless of any final_name edit here, since
+    // that's what a future invoice's parsed line will actually look like.
+    const rememberMatch = db.prepare(`
+      INSERT INTO invoice_line_match_memory (raw_name_key, item_id, updated_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(raw_name_key) DO UPDATE SET item_id = excluded.item_id, updated_at = excluded.updated_at
+    `);
 
     let itemsAdded = 0;
     let itemsMatched = 0;
@@ -351,6 +385,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           }
           insertPriceHistory.run(itemId, price, importRow.retailer);
           markLineMatched.run(itemId, line.id);
+          rememberMatch.run(normaliseName(line.raw_name), itemId);
           totalValue += line.line_total || 0;
         }
         db.prepare("UPDATE invoice_imports SET status = 'committed' WHERE id = ?").run(importId);

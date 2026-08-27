@@ -71,6 +71,20 @@ const migrations = [
       db.exec('ALTER TABLE invoice_import_lines ADD COLUMN final_container_details TEXT');
     }
   },
+  // #4: invoice_line_match_memory — learned raw invoice text -> item match, consulted before
+  // the deterministic and LLM matching passes in POST /api/invoices/import. A brand-new table
+  // (not an ALTER on an existing one), so CREATE TABLE IF NOT EXISTS alone is enough to be
+  // idempotent — no hasTable/hasColumn guard needed. Also in server.js's base CREATE TABLE
+  // block for fresh installs.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS invoice_line_match_memory (
+        raw_name_key TEXT PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  },
 ];
 
 module.exports = { runMigrations, hasColumn, hasTable, migrations };

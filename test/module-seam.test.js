@@ -45,6 +45,7 @@ const EXPECTED_ROUTES = [
   'POST /api/invoices/commit',
   'POST /api/invoices/import',
   'GET /api/invoices/import/:id',
+  'DELETE /api/invoices/import/:id',
   'PATCH /api/invoices/import/:id/lines/:lineId',
   'POST /api/invoices/import/:id/commit',
   'GET *',

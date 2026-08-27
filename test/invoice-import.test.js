@@ -43,6 +43,15 @@ function markAllReviewed(importId) {
   db.prepare("UPDATE invoice_import_lines SET line_status = 'reviewed' WHERE import_id = ?").run(importId);
 }
 
+// Skips every other line in the import so a commit only actually processes `lineId` — used by
+// the match-memory tests below so committing doesn't teach the memory table every raw_name in
+// the shared fixture (this file reuses COLES_PDF/WOOLWORTHS_PDF across many tests; a full
+// markAllReviewed()+commit would otherwise poison later tests that expect an unmatched line).
+function reviewOnlyLine(importId, lineId) {
+  db.prepare("UPDATE invoice_import_lines SET line_status = 'skipped' WHERE import_id = ? AND id != ?").run(importId, lineId);
+  db.prepare("UPDATE invoice_import_lines SET line_status = 'reviewed' WHERE id = ?").run(lineId);
+}
+
 describe('POST /api/invoices/import', () => {
   it('parses the Woolworths fixture into staging rows with correct values', async () => {
     const res = await api(app).post('/api/invoices/import').attach('invoice', WOOLWORTHS_PDF);
@@ -176,6 +185,95 @@ describe('GET /api/invoices/import/:id', () => {
     const res = await api(app).get('/api/invoices/import/999999');
     expect(res.status).toBe(404);
   });
+});
+
+describe('DELETE /api/invoices/import/:id — cancel an in-progress import', () => {
+  it('rejects unauthenticated requests', async () => {
+    const res = await request(app).delete('/api/invoices/import/1');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 for a non-existent import', async () => {
+    const res = await api(app).delete('/api/invoices/import/999999');
+    expect(res.status).toBe(404);
+  });
+
+  it('deletes the import and its lines entirely', async () => {
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const importId = imported.body.import.id;
+    expect(db.prepare('SELECT COUNT(*) AS n FROM invoice_import_lines WHERE import_id = ?').get(importId).n).toBeGreaterThan(0);
+
+    const res = await api(app).delete(`/api/invoices/import/${importId}`);
+    expect(res.status).toBe(200);
+
+    expect(db.prepare('SELECT * FROM invoice_imports WHERE id = ?').get(importId)).toBeUndefined();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM invoice_import_lines WHERE import_id = ?').get(importId).n).toBe(0);
+
+    const getRes = await api(app).get(`/api/invoices/import/${importId}`);
+    expect(getRes.status).toBe(404);
+  });
+
+  it('refuses to cancel an already-committed import, leaving it and its lines intact', async () => {
+    const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const importId = imported.body.import.id;
+    // Skipped, not reviewed: this only needs *a* committed import to test the cancel
+    // rejection against, and skipping every line (rather than markAllReviewed's full commit)
+    // avoids teaching invoice_line_match_memory every raw_name in the shared COLES_PDF
+    // fixture, which would starve later tests expecting a fresh unmatched line from it.
+    db.prepare("UPDATE invoice_import_lines SET line_status = 'skipped' WHERE import_id = ?").run(importId);
+    const commitRes = await api(app).post(`/api/invoices/import/${importId}/commit`);
+    expect(commitRes.status).toBe(200);
+
+    const res = await api(app).delete(`/api/invoices/import/${importId}`);
+    expect(res.status).toBe(409);
+
+    expect(db.prepare('SELECT status FROM invoice_imports WHERE id = ?').get(importId).status).toBe('committed');
+    expect(db.prepare('SELECT COUNT(*) AS n FROM invoice_import_lines WHERE import_id = ?').get(importId).n).toBeGreaterThan(0);
+  });
+});
+
+describe('POST /api/invoices/import — learned match memory from a previous commit', () => {
+  // Two full imports of the same fixture in one test (each classifying every unmatched line
+  // against an unreachable Anthropic endpoint) runs past the default 5s test timeout.
+  it('matches a line to whatever item its raw text was merged into last time, even though the item name is nothing like the raw text', async () => {
+    const target = await api(app).post('/api/items').send({ name: `Match Memory Merge Target ${Date.now()}`, quantity: 1 });
+    const first = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const firstImportId = first.body.import.id;
+    const line = first.body.lines.find((l) => l.matched_item_id === null);
+    expect(line).toBeTruthy();
+
+    await api(app).patch(`/api/invoices/import/${firstImportId}/lines/${line.id}`).send({ matched_item_id: target.body.id });
+    reviewOnlyLine(firstImportId, line.id);
+    const commitRes = await api(app).post(`/api/invoices/import/${firstImportId}/commit`);
+    expect(commitRes.status).toBe(200);
+
+    const second = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const secondLine = second.body.lines.find((l) => l.raw_name === line.raw_name);
+    expect(secondLine).toBeTruthy();
+    expect(secondLine.matched_item_id).toBe(target.body.id);
+  }, 15000);
+
+  it('matches a line to a newly-created item from last time, even after that item was renamed away from the raw text', async () => {
+    const first = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const firstImportId = first.body.import.id;
+    const line = first.body.lines.find((l) => l.matched_item_id === null);
+    expect(line).toBeTruthy();
+
+    const renamedTo = `Match Memory Renamed ${Date.now()}`;
+    await api(app).patch(`/api/invoices/import/${firstImportId}/lines/${line.id}`).send({ final_name: renamedTo });
+    reviewOnlyLine(firstImportId, line.id);
+    const commitRes = await api(app).post(`/api/invoices/import/${firstImportId}/commit`);
+    expect(commitRes.status).toBe(200);
+
+    const createdItem = (await api(app).get('/api/items')).body.find((i) => i.name === renamedTo);
+    expect(createdItem).toBeTruthy();
+
+    const second = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+    const secondLine = second.body.lines.find((l) => l.raw_name === line.raw_name);
+    expect(secondLine).toBeTruthy();
+    expect(secondLine.matched_item_id).toBe(createdItem.id);
+    expect(secondLine.suggested_category_id).toBe(createdItem.category_id);
+  }, 15000);
 });
 
 describe('PATCH /api/invoices/import/:id/lines/:lineId', () => {
@@ -355,7 +453,7 @@ describe('POST /api/invoices/import/:id/commit', () => {
       final_name: 'Renamed During Review',
       final_container_details: '2 x 250g',
     });
-    markAllReviewed(importId);
+    reviewOnlyLine(importId, newLine.id);
 
     const res = await api(app).post(`/api/invoices/import/${importId}/commit`);
     expect(res.status).toBe(200);
@@ -374,7 +472,7 @@ describe('POST /api/invoices/import/:id/commit', () => {
     expect(newLine).toBeTruthy();
 
     await api(app).patch(`/api/invoices/import/${importId}/lines/${newLine.id}`).send({ matched_item_id: target.body.id });
-    markAllReviewed(importId);
+    reviewOnlyLine(importId, newLine.id);
 
     const itemCountBefore = db.prepare('SELECT COUNT(*) AS n FROM items').get().n;
     const res = await api(app).post(`/api/invoices/import/${importId}/commit`);
@@ -388,7 +486,9 @@ describe('POST /api/invoices/import/:id/commit', () => {
   it('rejects committing an already-committed import', async () => {
     const imported = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
     const importId = imported.body.import.id;
-    markAllReviewed(importId);
+    // Skipped, not reviewed — this test only needs a successfully-committed import to retry
+    // against, and doesn't need any line actually processed (see reviewOnlyLine's comment).
+    db.prepare("UPDATE invoice_import_lines SET line_status = 'skipped' WHERE import_id = ?").run(importId);
     const first = await api(app).post(`/api/invoices/import/${importId}/commit`);
     expect(first.status).toBe(200);
 

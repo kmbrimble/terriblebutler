@@ -4,6 +4,32 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Cancel an in-progress invoice import + a learned product-match memory
+
+Two related invoice-import improvements:
+
+1. There was no way to abandon a staged import — closing the modal's × button leaves
+   `tb_active_import_id` in localStorage, and reopening correctly resumes it (that resume
+   behaviour is deliberate and unchanged), but there was no way to actually clear it. Adds a
+   "Cancel import" button in the staging view (`InvoiceImportModal.tsx`) that, after a
+   `window.confirm` (matching this codebase's existing delete-confirmation convention), calls a
+   new `DELETE /api/invoices/import/:id` route. The route 404s for an unknown import and 409s
+   for one already committed (nothing to clear — it's already landed in inventory); otherwise
+   it deletes the import's `invoice_import_lines` rows then the `invoice_imports` row in a
+   transaction (no `ON DELETE CASCADE` between them, so the lines must go first). The front end
+   then clears `tb_active_import_id` and returns to the file-picker view.
+2. A new `invoice_line_match_memory` table (`raw_name_key TEXT PRIMARY KEY` — normalised via
+   the existing `normaliseName()` from `item-matching.js` — `item_id INTEGER REFERENCES
+   items(id) ON DELETE CASCADE`) records, at commit time, which item every non-skipped line
+   actually landed on (whether merged into an existing item or newly created, and regardless
+   of any name edit during review). `POST /api/invoices/import` checks this table first, before
+   the existing deterministic exact/barcode/fuzzy pass and before the LLM match call — a hit
+   is applied immediately (with its item's category/location inherited, same as an exact
+   match) and skips both. The table only grows with use: repeat purchases of the same product
+   get matched instantly from history, and both the fuzzy pass and the LLM call increasingly
+   only see genuinely new line items. `ON DELETE CASCADE` means a memory entry disappears
+   automatically if its item is later deleted, rather than pointing at nothing.
+
 ## 0.36 - 2026-08-27
 
 ### LLM-based invoice line matching + fix dropped keystrokes in import review fields

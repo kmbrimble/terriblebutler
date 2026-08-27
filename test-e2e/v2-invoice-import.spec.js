@@ -11,6 +11,7 @@ import {
   INVOICE_IMPORT_LINE_NAME_INPUT,
   INVOICE_IMPORT_LINE_CONTAINER_INPUT,
   INVOICE_IMPORT_LINE_MATCH_INPUT,
+  INVOICE_IMPORT_CANCEL_BUTTON,
   INVOICE_IMPORT_MODAL,
   TOAST_NOTIFICATION,
 } from './testids.js';
@@ -143,6 +144,33 @@ test('v2: fast typing into the name/container fields does not drop characters (r
   const typedContainer = '1.25 L plastic bottle';
   await page.keyboard.type(typedContainer, { delay: 0 });
   await expect(containerInput).toHaveValue(typedContainer);
+});
+
+test('v2: cancelling an in-progress import clears staging server-side and does not resume on reopen', async ({ page, request }) => {
+  test.setTimeout(60_000);
+  page.on('dialog', (dialog) => dialog.accept());
+
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  const [importRes] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
+  ]);
+  const importId = (await importRes.json()).import.id;
+
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await page.getByTestId(INVOICE_IMPORT_CANCEL_BUTTON).click();
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeHidden();
+
+  const getRes = await request.get(`/api/invoices/import/${importId}`);
+  expect(getRes.status()).toBe(404);
+
+  // Reopening after a cancel shouldn't resume the cleared import — same check the
+  // post-commit test below uses.
+  await page.reload();
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  await expect(page.getByTestId(INVOICE_IMPORT_MODAL)).toBeVisible();
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeHidden();
 });
 
 test('v2: completing a review and committing shows a summary and creates the expected items', async ({ page, request }) => {

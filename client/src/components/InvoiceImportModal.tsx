@@ -3,6 +3,7 @@ import {
   startInvoiceImport,
   getInvoiceImport,
   patchInvoiceImportLine,
+  cancelInvoiceImport,
   commitInvoiceImport,
   type InvoiceImportState,
   type InvoiceImportLine,
@@ -92,6 +93,19 @@ export function InvoiceImportModal({
     await patchLine(lineId, { barcode_scanned: barcode });
   }
 
+  async function handleCancel() {
+    if (!state) return;
+    if (!window.confirm('Cancel this import? Everything staged for review will be discarded.')) return;
+    try {
+      await cancelInvoiceImport(state.import.id);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to cancel the invoice import.', 'error');
+      return;
+    }
+    localStorage.removeItem(ACTIVE_IMPORT_KEY);
+    setState(null);
+  }
+
   async function handleCommit() {
     if (!state) return;
     try {
@@ -129,9 +143,19 @@ export function InvoiceImportModal({
           </div>
         ) : (
           <div data-testid="invoice-import-staging-container" className="flex flex-col gap-3 overflow-hidden flex-1">
-            <p data-testid="invoice-import-summary-line" className="text-sm text-rimmy-textMuted shrink-0">
-              {formatSummaryLine(state.import, state.lines.length)}
-            </p>
+            <div className="flex justify-between items-center gap-2 shrink-0">
+              <p data-testid="invoice-import-summary-line" className="text-sm text-rimmy-textMuted">
+                {formatSummaryLine(state.import, state.lines.length)}
+              </p>
+              <button
+                type="button"
+                data-testid="invoice-import-cancel-button"
+                onClick={handleCancel}
+                className="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange shrink-0"
+              >
+                Cancel import
+              </button>
+            </div>
             <div className="flex flex-col gap-3 overflow-y-auto pr-2 pb-2">
               {state.lines.map((line) => (
                 <InvoiceImportLineRow
