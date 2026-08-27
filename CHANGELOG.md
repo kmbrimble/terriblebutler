@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.36 - 2026-08-27
+
 ### LLM-based invoice line matching + fix dropped keystrokes in import review fields
 
 Follow-up to 0.35 (fixes #40). Two problems reported after real invoice imports:
