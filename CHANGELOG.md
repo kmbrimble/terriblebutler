@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.37 - 2026-08-27
+
 ### Cancel an in-progress invoice import + a learned product-match memory
 
 Two related invoice-import improvements:
