@@ -4,6 +4,34 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### LLM-based invoice line matching + fix dropped keystrokes in import review fields
+
+Follow-up to 0.35 (fixes #40). Two problems reported after real invoice imports:
+
+1. Deterministic (exact-name/fuzzy) matching in `item-matching.js` regularly failed to match
+   an invoice's branded, verbose description to an existing item's broad, non-branded name
+   (e.g. "Coles No Sugar Soft Drink Pineapple 1.25L" vs the existing item "Pineapple soft
+   drink") — fuzzy string similarity can't bridge that gap; it needs semantic understanding.
+   Fix: after the existing deterministic pass in `POST /api/invoices/import`, every line still
+   unmatched (no exact/barcode hit, whether or not a fuzzy suggestion set its category/
+   location) is sent through one batched LLM call — `matchLinesWithLLM()`, new in
+   `lib/llm-client.js`, following `classifyLineWithLLM`'s existing shape (forced strict tool
+   use via `callClaudeForJSON`, one call for the whole invoice rather than per-line). Items are
+   given as `id: name`, lines as `line_index: description`, and the model returns an item id
+   (or `0` for no match) per line. A matched line also inherits that item's category/location
+   suggestion, same as an exact/barcode match. On any failure (network, timeout, malformed
+   response) matching just falls back to null — the import is never blocked, and everything
+   the review screen already offers (the free-text "merge into existing item" override,
+   clearing it to add-as-new) still works as the correction path for a wrong LLM guess.
+2. The review screen's editable name/container inputs (`InvoiceImportModal.tsx`) drove their
+   displayed value directly off server state (`resolveLineNameValue`/`resolveLineContainerValue`),
+   while every keystroke fired an async PATCH. Fast typing could lose characters — most visibly
+   spaces, which read as words silently running together — when a stale PATCH response landed
+   and overwrote a newer keystroke. Fix: both inputs now buffer their displayed text in local
+   component state (the same pattern the match-override field already used), so typing is
+   never at the mercy of round-trip timing; the background PATCH-per-keystroke persistence is
+   unchanged.
+
 ## 0.35 - 2026-08-27
 
 ### Editable name/container + item-match override in invoice import review (fixes #40)
