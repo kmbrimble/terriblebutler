@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.38 - 2026-08-27
+
 ### Type a preferred name directly in the invoice import match field to create an item under it
 
 Previously, creating a new item during invoice import always used the raw (or separately
