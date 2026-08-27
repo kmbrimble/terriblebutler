@@ -8,7 +8,7 @@ import {
   INVOICE_IMPORT_COMMIT_BUTTON,
   INVOICE_IMPORT_LINE,
   INVOICE_IMPORT_LINE_CATEGORY_SELECT,
-  INVOICE_IMPORT_LINE_NAME_INPUT,
+  INVOICE_IMPORT_LINE_NAME_DISPLAY,
   INVOICE_IMPORT_LINE_CONTAINER_INPUT,
   INVOICE_IMPORT_LINE_MATCH_INPUT,
   INVOICE_IMPORT_CANCEL_BUTTON,
@@ -78,7 +78,7 @@ test('v2: a category change on one line persists across a page reload (crash-saf
   expect(persisted.lines.find((l) => l.id === firstLineId).final_category_id).toBe(category.id);
 });
 
-test('v2: editing name/container and picking an existing item to merge into persist across a reload (fixes #40)', async ({ page, request }) => {
+test('v2: editing container and picking an existing item to merge into persist across a reload (fixes #40)', async ({ page, request }) => {
   test.setTimeout(90_000);
   const existingName = `E2E V2 Merge Target ${Date.now()}`;
   const existing = await requestWithRateLimitRetry(() => request.post('/api/items', { data: { name: existingName, quantity: 1 } }));
@@ -97,7 +97,6 @@ test('v2: editing name/container and picking an existing item to merge into pers
 
   await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
   const row = lineRow(page, firstLineId);
-  await row.getByTestId(INVOICE_IMPORT_LINE_NAME_INPUT).fill('Edited Product Name');
   await row.getByTestId(INVOICE_IMPORT_LINE_CONTAINER_INPUT).fill('500g tub');
   const matchInput = row.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT);
   await matchInput.fill(existingName);
@@ -106,7 +105,6 @@ test('v2: editing name/container and picking an existing item to merge into pers
   await expect(async () => {
     const getRes = await request.get(`/api/invoices/import/${importId}`);
     const persisted = (await getRes.json()).lines.find((l) => l.id === firstLineId);
-    expect(persisted.final_name).toBe('Edited Product Name');
     expect(persisted.final_container_details).toBe('500g tub');
     expect(persisted.matched_item_id).toBe(existingItem.id);
   }).toPass();
@@ -114,12 +112,58 @@ test('v2: editing name/container and picking an existing item to merge into pers
   await page.reload();
   await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
   const reloadedRow = lineRow(page, firstLineId);
-  await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_NAME_INPUT)).toHaveValue('Edited Product Name');
   await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_CONTAINER_INPUT)).toHaveValue('500g tub');
   await expect(reloadedRow.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT)).toHaveValue(existingName);
 });
 
-test('v2: fast typing into the name/container fields does not drop characters (regression: every keystroke PATCHes, and a stale response used to clobber a newer one, most visibly eating spaces)', async ({ page, request }) => {
+test('v2: typing a preferred name with no existing match into the match field creates a new item under that exact name at commit', async ({ page, request }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+
+  const [importRes] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
+  ]);
+  const importBody = await importRes.json();
+  const importId = importBody.import.id;
+  const firstLineId = importBody.lines[0].id;
+  const row = lineRow(page, firstLineId);
+
+  // The product-name display is read-only, always showing the raw invoice text — the
+  // preferred short name goes in the match field instead.
+  const rawName = await row.getByTestId(INVOICE_IMPORT_LINE_NAME_DISPLAY).textContent();
+  const preferredName = `Passionfruit soft drink ${Date.now()}`;
+  const matchInput = row.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT);
+  await matchInput.fill(preferredName);
+  await matchInput.blur();
+
+  await expect(async () => {
+    const getRes = await request.get(`/api/invoices/import/${importId}`);
+    const persisted = (await getRes.json()).lines.find((l) => l.id === firstLineId);
+    expect(persisted.final_name).toBe(preferredName);
+    expect(persisted.matched_item_id).toBeNull();
+  }).toPass();
+  expect(rawName?.trim()).not.toBe(preferredName);
+
+  // Direct API PATCHes for the review-status setup — same convention the full-commit test
+  // below uses; only the match-field typing above is the behaviour under test here.
+  await requestWithRateLimitRetry(() => request.patch(`/api/invoices/import/${importId}/lines/${firstLineId}`, { data: { line_status: 'reviewed' } }));
+  for (const line of importBody.lines) {
+    if (line.id === firstLineId) continue;
+    await requestWithRateLimitRetry(() => request.patch(`/api/invoices/import/${importId}/lines/${line.id}`, { data: { line_status: 'skipped' } }));
+  }
+  await page.reload();
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await page.getByTestId(INVOICE_IMPORT_COMMIT_BUTTON).click();
+  await expect(page.getByTestId(TOAST_NOTIFICATION)).toContainText('Imported:');
+
+  const itemsRes = await request.get('/api/items');
+  const items = await itemsRes.json();
+  expect(items.find((i) => i.name === preferredName)).toBeTruthy();
+});
+
+test('v2: fast typing into the container/match fields does not drop characters (regression: every keystroke PATCHes, and a stale response used to clobber a newer one, most visibly eating spaces)', async ({ page, request }) => {
   test.setTimeout(60_000);
   await page.goto('/');
   await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
@@ -132,18 +176,21 @@ test('v2: fast typing into the name/container fields does not drop characters (r
   const firstLineId = importBody.lines[0].id;
   const row = lineRow(page, firstLineId);
 
-  const nameInput = row.getByTestId(INVOICE_IMPORT_LINE_NAME_INPUT);
-  await nameInput.click();
-  await nameInput.fill('');
-  const typedName = 'Pineapple soft drink bottle';
-  await page.keyboard.type(typedName, { delay: 0 });
-  await expect(nameInput).toHaveValue(typedName);
-
   const containerInput = row.getByTestId(INVOICE_IMPORT_LINE_CONTAINER_INPUT);
   await containerInput.click();
   const typedContainer = '1.25 L plastic bottle';
   await page.keyboard.type(typedContainer, { delay: 0 });
   await expect(containerInput).toHaveValue(typedContainer);
+
+  // This exact fixture's first line may already carry a matched_item_id from match-memory
+  // learned by an earlier test's commit (same raw_name, same shared DB) — clear it first so
+  // typing starts from blank rather than appending after a pre-filled match.
+  const matchInput = row.getByTestId(INVOICE_IMPORT_LINE_MATCH_INPUT);
+  await matchInput.click();
+  await matchInput.fill('');
+  const typedName = 'Pineapple soft drink bottle';
+  await page.keyboard.type(typedName, { delay: 0 });
+  await expect(matchInput).toHaveValue(typedName);
 });
 
 test('v2: cancelling an in-progress import clears staging server-side and does not resume on reopen', async ({ page, request }) => {

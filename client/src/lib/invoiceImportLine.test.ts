@@ -4,6 +4,7 @@ import {
   resolveLineLocationValue,
   resolveLineNameValue,
   resolveLineContainerValue,
+  resolveMatchFieldPatch,
   isCommitEnabled,
   matchLabel,
   formatSummaryLine,
@@ -70,6 +71,45 @@ describe('resolveLineNameValue / resolveLineContainerValue (fixes #40)', () => {
 
   it('returns the edited container details when set', () => {
     expect(resolveLineContainerValue(makeLine({ final_container_details: '90g bag' }))).toBe('90g bag');
+  });
+});
+
+describe('resolveMatchFieldPatch', () => {
+  const items = [{ id: 1, name: 'Pineapple soft drink' }, { id: 2, name: 'Raspberry soft drink' }];
+
+  it('merges into an existing item on an exact (case-insensitive) name match', () => {
+    expect(resolveMatchFieldPatch('pineapple soft drink', items, { matched_item_id: null, final_name: null })).toEqual({
+      matched_item_id: 1,
+      final_name: null,
+    });
+  });
+
+  it('sets final_name to the typed text when it matches no existing item, instead of falling back to the raw invoice text', () => {
+    expect(resolveMatchFieldPatch('Passionfruit soft drink', items, { matched_item_id: null, final_name: null })).toEqual({
+      matched_item_id: null,
+      final_name: 'Passionfruit soft drink',
+    });
+  });
+
+  it('clears both fields when the field is emptied', () => {
+    expect(resolveMatchFieldPatch('', items, { matched_item_id: 1, final_name: null })).toEqual({ matched_item_id: null, final_name: null });
+    expect(resolveMatchFieldPatch('   ', items, { matched_item_id: null, final_name: 'Passionfruit soft drink' })).toEqual({
+      matched_item_id: null,
+      final_name: null,
+    });
+  });
+
+  it('switches from a preferred new name to merging when the typed text is later completed into an existing item name', () => {
+    expect(resolveMatchFieldPatch('Pineapple soft drink', items, { matched_item_id: null, final_name: 'Pineapple soft dr' })).toEqual({
+      matched_item_id: 1,
+      final_name: null,
+    });
+  });
+
+  it('returns null (no patch needed) when the typed text already matches the current state', () => {
+    expect(resolveMatchFieldPatch('', items, { matched_item_id: null, final_name: null })).toBeNull();
+    expect(resolveMatchFieldPatch('Pineapple soft drink', items, { matched_item_id: 1, final_name: null })).toBeNull();
+    expect(resolveMatchFieldPatch('Passionfruit soft drink', items, { matched_item_id: null, final_name: 'Passionfruit soft drink' })).toBeNull();
   });
 });
 

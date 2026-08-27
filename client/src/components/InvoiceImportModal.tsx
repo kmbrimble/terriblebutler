@@ -16,6 +16,7 @@ import {
   resolveLineLocationValue,
   resolveLineNameValue,
   resolveLineContainerValue,
+  resolveMatchFieldPatch,
   isCommitEnabled,
   matchLabel,
   formatSummaryLine,
@@ -203,25 +204,24 @@ export function InvoiceImportLineRow({
 }) {
   const matchListId = `invoice-import-line-match-list-${line.id}`;
   const matchedItem = items.find((i) => i.id === line.matched_item_id);
-  const [matchText, setMatchText] = useState(() => matchedItem?.name ?? '');
-  // Name/container each PATCH on every keystroke; buffering the displayed text locally (rather
+  const [matchText, setMatchText] = useState(() => matchedItem?.name ?? line.final_name ?? '');
+  // Container each PATCHes on every keystroke; buffering the displayed text locally (rather
   // than deriving it straight from `line` on every render) keeps typing safe from a stale PATCH
   // response landing after a newer keystroke and clobbering it — previously the most visible
-  // symptom was dropped spaces, since a missing space reads as two words silently joining.
-  const [nameText, setNameText] = useState(() => resolveLineNameValue(line));
+  // symptom was dropped spaces, since a missing space reads as two words silently joining. The
+  // match field (below) needs the same treatment now that it also PATCHes final_name per
+  // keystroke — see matchText's own comment.
   const [containerText, setContainerText] = useState(() => resolveLineContainerValue(line));
 
-  // Re-syncs the free-text match field if the line's matched_item_id changes from outside
-  // this input (e.g. the initial parse-time fuzzy/exact match arriving after mount).
+  // Re-syncs the match field if matched_item_id changes from outside this input (e.g. the
+  // initial parse-time fuzzy/exact/memory match arriving after mount). Deliberately NOT synced
+  // on line.final_name changes — this field is what sets final_name on every keystroke, so
+  // resyncing from it would reintroduce the stale-response-clobbers-newer-keystroke race the
+  // name/container fields already had to be fixed for.
   useEffect(() => {
-    setMatchText(matchedItem?.name ?? '');
+    setMatchText(matchedItem?.name ?? line.final_name ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.matched_item_id]);
-
-  function handleNameChange(value: string) {
-    setNameText(value);
-    onPatch({ final_name: value });
-  }
 
   function handleContainerChange(value: string) {
     setContainerText(value);
@@ -230,12 +230,8 @@ export function InvoiceImportLineRow({
 
   function handleMatchTextChange(value: string) {
     setMatchText(value);
-    if (value.trim() === '') {
-      if (line.matched_item_id !== null) onPatch({ matched_item_id: null });
-      return;
-    }
-    const exact = items.find((i) => i.name.toLowerCase() === value.trim().toLowerCase());
-    if (exact && exact.id !== line.matched_item_id) onPatch({ matched_item_id: exact.id });
+    const patch = resolveMatchFieldPatch(value, items, { matched_item_id: line.matched_item_id, final_name: line.final_name });
+    if (patch) onPatch(patch);
   }
 
   const statusBadge =
@@ -255,12 +251,9 @@ export function InvoiceImportLineRow({
     >
       <div className="flex justify-between items-start gap-2">
         <div className="min-w-0 flex-1">
-          <input
-            data-testid="invoice-import-line-name-input"
-            value={nameText}
-            onChange={(e) => handleNameChange(e.target.value)}
-            className="w-full font-bold text-[15px] leading-tight bg-transparent border border-transparent hover:border-rimmy-border focus:border-rimmy-orange rounded px-1 -mx-1 text-rimmy-text"
-          />
+          <p data-testid="invoice-import-line-name-display" className="w-full font-bold text-[15px] leading-tight text-rimmy-text">
+            {resolveLineNameValue(line)}
+          </p>
           <p className="text-xs text-rimmy-textMuted mt-1">
             Qty supplied: {line.qty_supplied ?? '-'} | ${Number(line.unit_price ?? 0).toFixed(2)} ea | {line.gst_applicable ? 'GST' : 'No GST'}
           </p>
@@ -278,13 +271,13 @@ export function InvoiceImportLineRow({
         />
       </div>
       <div>
-        <label className="text-xs font-bold text-rimmy-textMuted">Merge into existing item (leave blank to add new):</label>
+        <label className="text-xs font-bold text-rimmy-textMuted">Merge into existing item, or type a new name to add one:</label>
         <input
           data-testid="invoice-import-line-match-input"
           list={matchListId}
           value={matchText}
           onChange={(e) => handleMatchTextChange(e.target.value)}
-          placeholder="Search existing items…"
+          placeholder="Search existing items, or type a new name…"
           className="w-full border border-rimmy-border rounded p-2 bg-rimmy-charcoal text-rimmy-text text-sm mt-1"
         />
         <datalist id={matchListId}>

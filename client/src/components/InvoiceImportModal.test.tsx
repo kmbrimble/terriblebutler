@@ -63,16 +63,17 @@ describe('InvoiceImportLineRow Qty confirmed step/floor', () => {
 });
 
 describe('InvoiceImportLineRow name/container editing and match override (fixes #40)', () => {
-  it('renders the name input pre-filled from raw_name when unedited', () => {
+  it('shows the raw_name as a read-only display when unedited', () => {
     const html = renderToStaticMarkup(
       <InvoiceImportLineRow line={makeLine({ raw_name: 'COLES SHRIMP CHIPS 90G' })} categories={[]} locations={[]} items={[]} onPatch={() => {}} onScanBarcode={() => {}} />
     );
-    const match = html.match(/<input[^>]*data-testid="invoice-import-line-name-input"[^>]*>/);
+    expect(html).not.toMatch(/<input[^>]*data-testid="invoice-import-line-name-input"/);
+    const match = html.match(/<p[^>]*data-testid="invoice-import-line-name-display"[^>]*>([^<]*)<\/p>/);
     expect(match).toBeTruthy();
-    expect(match![0]).toContain('value="COLES SHRIMP CHIPS 90G"');
+    expect(match![1]).toBe('COLES SHRIMP CHIPS 90G');
   });
 
-  it('renders the name input pre-filled from final_name once edited', () => {
+  it('shows the final_name (a preferred name set via the match field) instead of raw_name once set', () => {
     const html = renderToStaticMarkup(
       <InvoiceImportLineRow
         line={makeLine({ raw_name: 'COLES SHRIMP CHIPS 90G', final_name: 'Shrimp Chips' })}
@@ -83,8 +84,8 @@ describe('InvoiceImportLineRow name/container editing and match override (fixes 
         onScanBarcode={() => {}}
       />
     );
-    const match = html.match(/<input[^>]*data-testid="invoice-import-line-name-input"[^>]*>/);
-    expect(match![0]).toContain('value="Shrimp Chips"');
+    const match = html.match(/<p[^>]*data-testid="invoice-import-line-name-display"[^>]*>([^<]*)<\/p>/);
+    expect(match![1]).toBe('Shrimp Chips');
   });
 
   it('offers every known item as a match-override option in the datalist', () => {

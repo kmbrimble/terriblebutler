@@ -1,4 +1,4 @@
-import type { InvoiceImport, InvoiceImportLine } from './api';
+import type { InvoiceImport, InvoiceImportLine, Item } from './api';
 
 // Ports the pure decision logic out of renderInvoiceImportLine()/renderInvoiceImportStaging()/
 // updateInvoiceImportCommitState() in public/index.html, so it's testable without a DOM.
@@ -27,6 +27,30 @@ export function resolveLineNameValue(line: InvoiceImportLine): string {
 
 export function resolveLineContainerValue(line: InvoiceImportLine): string {
   return line.final_container_details ?? '';
+}
+
+// The "merge into existing item" field is dual-purpose: typing an existing item's name merges
+// into it; typing anything else non-empty is taken as the preferred name for a NEW item — no
+// more falling back to the raw (often branded, verbose) invoice description. Returns the patch
+// to apply, or null when the typed text already matches the line's current state (avoids a
+// redundant PATCH on every keystroke once nothing would actually change).
+export function resolveMatchFieldPatch(
+  typedValue: string,
+  items: Pick<Item, 'id' | 'name'>[],
+  current: Pick<InvoiceImportLine, 'matched_item_id' | 'final_name'>
+): { matched_item_id: number | null; final_name: string | null } | null {
+  const trimmed = typedValue.trim();
+  if (trimmed === '') {
+    if (current.matched_item_id === null && current.final_name === null) return null;
+    return { matched_item_id: null, final_name: null };
+  }
+  const exact = items.find((i) => i.name.toLowerCase() === trimmed.toLowerCase());
+  if (exact) {
+    if (exact.id === current.matched_item_id && current.final_name === null) return null;
+    return { matched_item_id: exact.id, final_name: null };
+  }
+  if (current.matched_item_id === null && current.final_name === trimmed) return null;
+  return { matched_item_id: null, final_name: trimmed };
 }
 
 export function formatSummaryLine(imp: InvoiceImport, lineCount: number): string {

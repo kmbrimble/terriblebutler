@@ -4,6 +4,31 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Type a preferred name directly in the invoice import match field to create an item under it
+
+Previously, creating a new item during invoice import always used the raw (or separately
+edited) product name — often the full branded invoice description (e.g. "Coles No Sugar Soft
+Drink Passionfruit 1.25L") when what the household actually wants stocked is a short,
+non-branded name ("Passionfruit soft drink"). There was no existing item to merge into, and no
+way to type the preferred name directly into the same control used for matching.
+
+- The "merge into existing item" field (`InvoiceImportLineRow` in `InvoiceImportModal.tsx`) is
+  now dual-purpose: typing an existing item's name still merges into it (`matched_item_id` set,
+  `final_name` cleared) exactly as before; typing anything else non-empty now sets `final_name`
+  to that exact text and clears `matched_item_id` — at commit, `POST
+  /api/invoices/import/:id/commit` already used `final_name || raw_name` as the created item's
+  name, so no backend change was needed for the creation path itself. The decision logic is a
+  new pure function, `resolveMatchFieldPatch()` in `invoiceImportLine.ts`, so it's unit-tested
+  without a DOM (matching this file's existing pattern).
+- The separate product-name field is now read-only (a `<p>` showing the effective name —
+  `final_name` if the match field set one, else `raw_name` — via the existing
+  `resolveLineNameValue()`), since the match field is now the single place that decides the
+  eventual name, whether merging or creating. Editing it directly no longer exists.
+- Match-memory recording (`invoice_line_match_memory`, keyed on `raw_name`) already worked
+  correctly regardless of what final_name/matched_item_id ended up being, so needed no changes
+  — this was purely a UI consolidation to make setting a preferred name straightforward instead
+  of split across two disconnected controls.
+
 ## 0.37 - 2026-08-27
 
 ### Cancel an in-progress invoice import + a learned product-match memory
