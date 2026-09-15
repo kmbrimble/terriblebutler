@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getItems, getLocations, getCategories, updateItemQuantity, setIgnoreGrocery, setItemOpen, type Item, type Location, type Category } from './api';
+import { getItems, getLocations, getCategories, getToken, updateItemQuantity, setIgnoreGrocery, setItemOpen, type Item, type Location, type Category } from './api';
 import { connectSocket } from './socket';
+import { showToast } from './toast';
 import type { Tab } from './filterItems';
 
 // Extracted from ItemList.tsx so every restyled variant (see issue #37) shares one copy of the
@@ -25,10 +26,22 @@ export function useInventory() {
       })
       .catch(() => setStatus('error'));
 
+  // A 401 rejects these same promises and clears the token synchronously (inside
+  // authorizedFetch, before this catch runs) — a null token here reliably means App is already
+  // redirecting to LoginScreen via onAuthExpired, so skip the toast to avoid stacking a
+  // spurious error message on top of that redirect.
+  function notifyLoadFailure(what: string) {
+    if (getToken()) showToast(`Could not load ${what}.`, 'error');
+  }
+
   useEffect(() => {
     refetchItems();
-    getLocations().then(setLocations).catch(() => {});
-    getCategories().then(setCategories).catch(() => {});
+    getLocations()
+      .then(setLocations)
+      .catch(() => notifyLoadFailure('locations'));
+    getCategories()
+      .then(setCategories)
+      .catch(() => notifyLoadFailure('categories'));
   }, []);
 
   // All three events carry empty or ignored payloads by design (confirmed in server.js's

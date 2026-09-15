@@ -4,14 +4,14 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
-### Plan: stop an expired/invalid login from silently showing an empty inventory
+### Stop an expired/invalid login from silently showing an empty inventory
 
 Diagnosed 15 Sept 2026: `device_tokens` has been empty since 1 Sept, so the browser holds a
 plain 30-day JWT that most likely expired. The API and DB are fine (confirmed against the live
-container), but the client has no way back to `LoginScreen` from a 401, so it renders "No items
+container), but the client had no way back to `LoginScreen` from a 401, so it rendered "No items
 found." instead.
 
-- `client/src/lib/api.ts` — add `onAuthExpired(cb)`/`endSession()` (mirrors `toast.ts`'s
+- `client/src/lib/api.ts` — adds `onAuthExpired(cb)`/`endSession()` (mirrors `toast.ts`'s
   pub-sub). `authorizedFetch` calls `endSession()` on any `401`, before returning the response,
   so every existing caller's `if (!res.ok) throw` is unaffected. `login()`/`rememberDevice()`
   keep using raw `fetch` so a wrong-password 401 on the login screen itself doesn't recurse.
@@ -21,18 +21,21 @@ found." instead.
   every `connect_error`, so a server restart or dropped wifi doesn't also log the household out.
 - `client/src/App.tsx` — subscribes to `onAuthExpired` once and flips `loggedIn` to `false`;
   the existing effect cleanup already calls `disconnectSocket()` when `loggedIn` changes.
-- `client/src/lib/useInventory.ts` — replaces the three initial `.catch(() => {})`s with a
-  `status: 'loading' | 'ready' | 'error'` state (no toast in the catch, since a 401 rejects
-  these same promises and would stack a spurious toast on top of the redirect). A refetch
-  failure after a successful load sets `status: 'error'` but leaves the stale list visible.
-- `client/src/components/ItemList.tsx` — "No items found." only renders when
-  `status === 'ready'` and the list is empty; `status === 'error'` renders an error message
-  instead.
+- `client/src/lib/useInventory.ts` — items get a `status: 'loading' | 'ready' | 'error'` state.
+  Locations/categories keep a `.catch()`, now surfacing a toast — but only when `getToken()` is
+  still non-null, since a 401 clears the token synchronously inside `authorizedFetch` before
+  this catch runs, and a cleared token means App is already redirecting to `LoginScreen` (no
+  need to stack a spurious toast on top of that). The socket-driven refetch variants stay
+  silent on failure — a missed live update just means the next one catches it up.
+- `client/src/components/ItemList.tsx` — "No items found." only renders on a successful,
+  genuinely empty response. A load/refetch error only replaces the list with an error message
+  when there's nothing to fall back on (`items.length === 0`); a refetch failure after a
+  successful load leaves the stale list showing instead of blanking it.
 - `client/src/components/MenuDrawer.tsx` — adds a "Log out" item calling `endSession()`.
 - Tests: `api.test.ts`, `socket.test.ts` (node-environment unit tests, no jsdom added — matches
   this repo's existing structural-only component test style), `ItemList.test.tsx` (mocks
-  `useInventory` to reach the loading/error/ready branches), plus a new e2e spec covering an
-  expired-JWT load, a 500 on `/api/items`, and the log-out button.
+  `useInventory` to reach the loading/error/ready/stale-on-error branches), plus a new e2e spec
+  covering an expired-JWT load, a 500 on `/api/items`, and the log-out button.
 - No DB schema or write-path change, so no pre-change backup is needed.
 
 ### Test-harness fix: shared e2e server's rate limits are now env-configurable

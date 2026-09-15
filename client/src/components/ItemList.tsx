@@ -110,7 +110,7 @@ export function ItemList() {
         </div>
       </div>
       <main data-testid="item-list" className="p-4 space-y-4">
-        {status === 'error' ? (
+        {status === 'error' && items.length === 0 ? (
           <p data-testid="items-error" className="text-center text-red-500 mt-8 font-bold">
             Could not load items. Check your connection and try again.
           </p>
@@ -118,7 +118,7 @@ export function ItemList() {
           <p data-testid="empty-state" className="text-center text-rimmy-textMuted mt-8 font-bold">
             No items found.
           </p>
-        ) : status === 'ready' ? (
+        ) : status !== 'loading' ? (
           <>
             {available.map((item) => (
               <ItemCard
