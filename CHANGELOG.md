@@ -35,6 +35,24 @@ found." instead.
   expired-JWT load, a 500 on `/api/items`, and the log-out button.
 - No DB schema or write-path change, so no pre-change backup is needed.
 
+### Test-harness fix: shared e2e server's rate limits are now env-configurable
+
+While verifying the above against the full e2e suite, found `test-e2e/v2-invoice-import.spec.js`
+and other specs intermittently 429ing — not LLM flakiness (the "LLM classification failed"
+lines are expected noise; no API key in tests) but the suite's single shared server + single
+client IP (`workers: 1`) accumulating GETs/mutations/logins from dozens of specs against the
+same per-IP buckets a live deployment would only ever see from one browser at a time. Confirmed
+via a clean `main` checkout run (`/tmp/e2e-main.log`): identical 27×429s, 3 failed, 6 did not
+run — entirely pre-existing, not caused by this branch's changes or the new `session-expiry`
+spec (which added only 3 tests to the shared load).
+- `lib/config.js` — `GENERAL_API_RATE_LIMIT_MAX` (240), `MUTATION_RATE_LIMIT_MAX` (90),
+  `LLM_RATE_LIMIT_MAX` (10), `LOGIN_RATE_LIMIT_MAX` (5) are now env-overridable, defaulting to
+  the exact values `lib/middleware.js` used to hardcode. `test-e2e/global-setup.mjs` sets all
+  four generously high for the spawned test server only; the live container never sets these
+  vars, so production behaviour is unchanged.
+- `test/stage3.test.js` — three new tests assert each limiter's `RateLimit-Limit` header stays
+  at its production default when the corresponding env var is unset.
+
 ## 0.38 - 2026-08-27
 
 ### Type a preferred name directly in the invoice import match field to create an item under it

@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { LoginScreen } from './components/LoginScreen';
 import { ItemList } from './components/ItemList';
 import { Toast } from './components/Toast';
-import { getToken } from './lib/api';
+import { getToken, onAuthExpired } from './lib/api';
 import { connectSocket, disconnectSocket } from './lib/socket';
 
 export function App() {
   const [loggedIn, setLoggedIn] = useState(() => Boolean(getToken()));
   const [socketConnected, setSocketConnected] = useState(false);
+
+  // Any 401 or handshake auth failure ends up here via onAuthExpired (see api.ts); the effect
+  // below already tears the socket down when loggedIn flips to false.
+  useEffect(() => onAuthExpired(() => setLoggedIn(false)), []);
 
   useEffect(() => {
     if (!loggedIn) return undefined;
