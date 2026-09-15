@@ -32,4 +32,4 @@ function signJwt(payload, secret, expiresInSeconds) {
 
 const TEST_TOKEN = signJwt({ sub: AUTH_USERNAME }, JWT_SECRET, 30 * 24 * 60 * 60);
 
-module.exports = { AUTH_USERNAME, AUTH_PASSWORD, JWT_SECRET, AUTH_PASSWORD_HASH, TEST_TOKEN };
+module.exports = { AUTH_USERNAME, AUTH_PASSWORD, JWT_SECRET, AUTH_PASSWORD_HASH, TEST_TOKEN, signJwt };

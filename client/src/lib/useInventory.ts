@@ -1,21 +1,47 @@
 import { useEffect, useState } from 'react';
-import { getItems, getLocations, getCategories, updateItemQuantity, setIgnoreGrocery, setItemOpen, type Item, type Location, type Category } from './api';
+import { getItems, getLocations, getCategories, getToken, updateItemQuantity, setIgnoreGrocery, setItemOpen, type Item, type Location, type Category } from './api';
 import { connectSocket } from './socket';
+import { showToast } from './toast';
 import type { Tab } from './filterItems';
 
 // Extracted from ItemList.tsx so every restyled variant (see issue #37) shares one copy of the
 // data-fetching/socket/mutation logic instead of reimplementing it per style.
+export type FetchStatus = 'loading' | 'ready' | 'error';
+
 export function useInventory() {
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [status, setStatus] = useState<FetchStatus>('loading');
 
-  const refetchItems = () => getItems().then(setItems).catch(() => {});
+  // A 401 rejects this same promise (see authorizedFetch in api.ts), and that already redirects
+  // to LoginScreen via onAuthExpired — so this doesn't distinguish that case, it just avoids
+  // ever turning a failed fetch into "No items found." A refetch failure after a successful
+  // load leaves the stale list showing rather than blanking it.
+  const refetchItems = () =>
+    getItems()
+      .then((data) => {
+        setItems(data);
+        setStatus('ready');
+      })
+      .catch(() => setStatus('error'));
+
+  // A 401 rejects these same promises and clears the token synchronously (inside
+  // authorizedFetch, before this catch runs) — a null token here reliably means App is already
+  // redirecting to LoginScreen via onAuthExpired, so skip the toast to avoid stacking a
+  // spurious error message on top of that redirect.
+  function notifyLoadFailure(what: string) {
+    if (getToken()) showToast(`Could not load ${what}.`, 'error');
+  }
 
   useEffect(() => {
     refetchItems();
-    getLocations().then(setLocations).catch(() => {});
-    getCategories().then(setCategories).catch(() => {});
+    getLocations()
+      .then(setLocations)
+      .catch(() => notifyLoadFailure('locations'));
+    getCategories()
+      .then(setCategories)
+      .catch(() => notifyLoadFailure('categories'));
   }, []);
 
   // All three events carry empty or ignored payloads by design (confirmed in server.js's
@@ -70,5 +96,5 @@ export function useInventory() {
     setItemOpen(item.id, isOpen, locationId).catch(() => {});
   }
 
-  return { items, locations, categories, refetchItems, quickAdjust, toggleIgnore, toggleOpen };
+  return { items, locations, categories, status, refetchItems, quickAdjust, toggleIgnore, toggleOpen };
 }

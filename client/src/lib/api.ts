@@ -12,6 +12,27 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// Plain pub-sub (mirrors toast.ts) so App.tsx can react to a session ending without
+// authorizedFetch/socket.ts importing React or DOM libraries.
+type SessionEndedListener = () => void;
+let sessionEndedListeners: SessionEndedListener[] = [];
+
+export function onAuthExpired(cb: SessionEndedListener): () => void {
+  sessionEndedListeners.push(cb);
+  return () => {
+    sessionEndedListeners = sessionEndedListeners.filter((l) => l !== cb);
+  };
+}
+
+// Called on any 401 from authorizedFetch, a Socket.IO handshake auth failure, and a voluntary
+// log-out — all three end up in the same place: clear the token, tell App.tsx to show
+// LoginScreen. login()/rememberDevice() use raw fetch rather than authorizedFetch, so a
+// wrong-password 401 on the login screen itself doesn't loop back through here.
+export function endSession(): void {
+  clearToken();
+  sessionEndedListeners.forEach((cb) => cb());
+}
+
 export async function login(username: string, password: string): Promise<void> {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
@@ -89,13 +110,15 @@ export interface Category {
 
 async function authorizedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
-  return fetch(path, {
+  const res = await fetch(path, {
     ...init,
     headers: {
       ...(init.headers as Record<string, string> | undefined),
       Authorization: `Bearer ${token ?? ''}`,
     },
   });
+  if (res.status === 401) endSession();
+  return res;
 }
 
 export async function getItems(): Promise<Item[]> {

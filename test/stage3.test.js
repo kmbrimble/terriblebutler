@@ -48,4 +48,22 @@ describe('Stage 3-lite features', () => {
 
     expect(res.headers['ratelimit-limit']).toBe('240');
   });
+
+  it('the mutation rate limit stays at its production default of 90/min when MUTATION_RATE_LIMIT_MAX is unset', async () => {
+    const res = await api(app).post('/api/locations').send({ name: `Rate Limit Default ${Date.now()}` });
+
+    expect(res.headers['ratelimit-limit']).toBe('90');
+  });
+
+  it('the general API rate limit stays at its production default of 240/min when GENERAL_API_RATE_LIMIT_MAX is unset', async () => {
+    const res = await api(app).get('/api/locations');
+
+    expect(res.headers['ratelimit-limit']).toBe('240');
+  });
+
+  it('the login rate limit stays at its production default of 5/15min when LOGIN_RATE_LIMIT_MAX is unset', async () => {
+    const res = await request(app).post('/api/auth/login').send({ username: 'nobody', password: 'wrong' });
+
+    expect(res.headers['ratelimit-limit']).toBe('5');
+  });
 });

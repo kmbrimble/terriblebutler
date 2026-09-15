@@ -28,7 +28,7 @@ import { ManageLocationsModal } from './ManageLocationsModal';
 import { ManageDevicesModal } from './ManageDevicesModal';
 
 export function ItemList() {
-  const { items, locations, categories, refetchItems, quickAdjust, toggleIgnore, toggleOpen } = useInventory();
+  const { items, locations, categories, status, refetchItems, quickAdjust, toggleIgnore, toggleOpen } = useInventory();
   const [tab, setTab] = useState<Tab>({ type: 'all', id: null });
   const [search, setSearch] = useState('');
   const [sortBy, setSortByState] = useState(getSortBy);
@@ -110,11 +110,15 @@ export function ItemList() {
         </div>
       </div>
       <main data-testid="item-list" className="p-4 space-y-4">
-        {visibleItems.length === 0 ? (
+        {status === 'error' && items.length === 0 ? (
+          <p data-testid="items-error" className="text-center text-red-500 mt-8 font-bold">
+            Could not load items. Check your connection and try again.
+          </p>
+        ) : status === 'ready' && visibleItems.length === 0 ? (
           <p data-testid="empty-state" className="text-center text-rimmy-textMuted mt-8 font-bold">
             No items found.
           </p>
-        ) : (
+        ) : status !== 'loading' ? (
           <>
             {available.map((item) => (
               <ItemCard
@@ -152,7 +156,7 @@ export function ItemList() {
               </>
             )}
           </>
-        )}
+        ) : null}
       </main>
 
       {(addOpen || editingItem) && (

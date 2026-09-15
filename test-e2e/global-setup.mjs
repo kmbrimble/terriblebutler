@@ -42,6 +42,13 @@ export default async function globalSetup() {
       // fallback's own error handling (a null suggestion, not a blocked import) is what
       // actually runs, fast.
       LLM_API_URL: 'http://127.0.0.1:1',
+      // One shared server + one client IP for the whole suite (workers: 1) means every test's
+      // GETs, mutations and logins share the same per-IP buckets a live deployment would only
+      // ever see from one browser at a time. Raised for this process only — production defaults
+      // in lib/config.js are untouched.
+      GENERAL_API_RATE_LIMIT_MAX: '10000',
+      MUTATION_RATE_LIMIT_MAX: '5000',
+      LOGIN_RATE_LIMIT_MAX: '200',
     },
     stdio: 'inherit',
   });

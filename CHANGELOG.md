@@ -4,6 +4,58 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+### Stop an expired/invalid login from silently showing an empty inventory
+
+Diagnosed 15 Sept 2026: `device_tokens` has been empty since 1 Sept, so the browser holds a
+plain 30-day JWT that most likely expired. The API and DB are fine (confirmed against the live
+container), but the client had no way back to `LoginScreen` from a 401, so it rendered "No items
+found." instead.
+
+- `client/src/lib/api.ts` — adds `onAuthExpired(cb)`/`endSession()` (mirrors `toast.ts`'s
+  pub-sub). `authorizedFetch` calls `endSession()` on any `401`, before returning the response,
+  so every existing caller's `if (!res.ok) throw` is unaffected. `login()`/`rememberDevice()`
+  keep using raw `fetch` so a wrong-password 401 on the login screen itself doesn't recurse.
+- `client/src/lib/socket.ts` — `connectSocket()` registers a `connect_error` handler (once,
+  inside the `if (!socket)` guard) that calls `endSession()` only when `err.message ===
+  'Unauthorized'` (the exact string `lib/realtime.js`'s handshake middleware sends) — not on
+  every `connect_error`, so a server restart or dropped wifi doesn't also log the household out.
+- `client/src/App.tsx` — subscribes to `onAuthExpired` once and flips `loggedIn` to `false`;
+  the existing effect cleanup already calls `disconnectSocket()` when `loggedIn` changes.
+- `client/src/lib/useInventory.ts` — items get a `status: 'loading' | 'ready' | 'error'` state.
+  Locations/categories keep a `.catch()`, now surfacing a toast — but only when `getToken()` is
+  still non-null, since a 401 clears the token synchronously inside `authorizedFetch` before
+  this catch runs, and a cleared token means App is already redirecting to `LoginScreen` (no
+  need to stack a spurious toast on top of that). The socket-driven refetch variants stay
+  silent on failure — a missed live update just means the next one catches it up.
+- `client/src/components/ItemList.tsx` — "No items found." only renders on a successful,
+  genuinely empty response. A load/refetch error only replaces the list with an error message
+  when there's nothing to fall back on (`items.length === 0`); a refetch failure after a
+  successful load leaves the stale list showing instead of blanking it.
+- `client/src/components/MenuDrawer.tsx` — adds a "Log out" item calling `endSession()`.
+- Tests: `api.test.ts`, `socket.test.ts` (node-environment unit tests, no jsdom added — matches
+  this repo's existing structural-only component test style), `ItemList.test.tsx` (mocks
+  `useInventory` to reach the loading/error/ready/stale-on-error branches), plus a new e2e spec
+  covering an expired-JWT load, a 500 on `/api/items`, and the log-out button.
+- No DB schema or write-path change, so no pre-change backup is needed.
+
+### Test-harness fix: shared e2e server's rate limits are now env-configurable
+
+While verifying the above against the full e2e suite, found `test-e2e/v2-invoice-import.spec.js`
+and other specs intermittently 429ing — not LLM flakiness (the "LLM classification failed"
+lines are expected noise; no API key in tests) but the suite's single shared server + single
+client IP (`workers: 1`) accumulating GETs/mutations/logins from dozens of specs against the
+same per-IP buckets a live deployment would only ever see from one browser at a time. Confirmed
+via a clean `main` checkout run (`/tmp/e2e-main.log`): identical 27×429s, 3 failed, 6 did not
+run — entirely pre-existing, not caused by this branch's changes or the new `session-expiry`
+spec (which added only 3 tests to the shared load).
+- `lib/config.js` — `GENERAL_API_RATE_LIMIT_MAX` (240), `MUTATION_RATE_LIMIT_MAX` (90),
+  `LLM_RATE_LIMIT_MAX` (10), `LOGIN_RATE_LIMIT_MAX` (5) are now env-overridable, defaulting to
+  the exact values `lib/middleware.js` used to hardcode. `test-e2e/global-setup.mjs` sets all
+  four generously high for the spawned test server only; the live container never sets these
+  vars, so production behaviour is unchanged.
+- `test/stage3.test.js` — three new tests assert each limiter's `RateLimit-Limit` header stays
+  at its production default when the corresponding env var is unset.
+
 ## 0.38 - 2026-08-27
 
 ### Type a preferred name directly in the invoice import match field to create an item under it

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getTheme, setTheme } from '../lib/theme';
+import { endSession } from '../lib/api';
 
 // issue #37: manifest of alternate-style variant pages (public/variants.json), fetched lazily so
 // removing/adding a variant doesn't need a code change here.
@@ -10,7 +11,8 @@ type DesignVariant = { slug: string; name: string };
 // chrome no React-rewrite stage ever picked up (see CHANGELOG). Sort By/Sort Direction/Expanded
 // View live in legacy's drawer too, but are deliberately NOT duplicated here — they're already
 // inline in ItemList.tsx. "Upload Invoice" (the plain-LLM flow) is deliberately not ported at
-// all — see CHANGELOG. Legacy has no logout button, so none is added here either.
+// all — see CHANGELOG. Legacy has no logout button; this one exists to recover from an
+// expired session, which legacy's single-page-reload model never needed a control for.
 export function MenuDrawer({
   onOpenInvoiceImport,
   onOpenManageCategories,
@@ -126,6 +128,17 @@ export function MenuDrawer({
             className="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm text-sm"
           >
             Manage Devices
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3 mt-2 border-t border-rimmy-border pt-4 shrink-0">
+          <button
+            type="button"
+            onClick={() => pick(endSession)}
+            data-testid="menu-logout-button"
+            className="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm text-sm"
+          >
+            Log out
           </button>
         </div>
 
