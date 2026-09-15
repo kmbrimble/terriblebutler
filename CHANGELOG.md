@@ -4,6 +4,8 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.39 - 2026-09-15
+
 ### Stop an expired/invalid login from silently showing an empty inventory
 
 Diagnosed 15 Sept 2026: `device_tokens` has been empty since 1 Sept, so the browser holds a
