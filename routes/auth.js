@@ -6,7 +6,8 @@ const crypto = require('crypto');
 function registerLoginRoute(app, { loginRateLimiter, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_SECRET }) {
   app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
     const { username, password } = req.body || {};
-    if (!username || !password) {
+    // bcrypt.compare rejects on non-strings, and an unhandled rejection kills the process.
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
       return res.status(400).json({ error: 'Username and password are required.' });
     }
 
