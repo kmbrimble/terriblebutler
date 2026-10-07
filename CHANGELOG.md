@@ -4,6 +4,29 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.40 - 2026-10-07
+
+### Stop non-string login credentials and socket tokens crashing the server
+
+`POST /api/auth/login` passed `req.body.password` straight to `bcrypt.compare`, which rejects on
+non-strings; the async Express 4 handler had no catch, so the rejection went unhandled and Node
+exited. Reproduced against unfixed code with `{"username":"x","password":1}`: no HTTP response
+and the process exited with code 1. Unauthenticated, so anyone who could reach the port could
+take the app down until the container restarted.
+
+- `routes/auth.js` — returns 400 unless both `username` and `password` are non-empty strings.
+- `test/login-non-string.test.js` — numeric, object and array passwords and a numeric username
+  all return 400, and the server still answers the next request.
+- Second crash found in the audit, same class: a Socket.IO handshake with a non-string
+  `auth.token` (e.g. `{auth:{token:123}}`) made `hashDeviceToken` throw `ERR_INVALID_ARG_TYPE`
+  inside `io.use`, uncaught, and the process exited with code 1 (reproduced live, unauthenticated).
+  `lib/middleware.js` `authenticateToken` now returns `false` for any non-string token, which
+  covers both the handshake and `requireAuth`. Test: `test/auth-token-types.test.js`.
+- Audited every other async handler (`/api/invoices/parse`, `/api/invoices/import`,
+  `/api/parse-label-llm`, `runBackup`) and async LLM helper: all are inside try/catch or have a
+  `.catch`, and all except `runBackup` sit behind `requireAuth`. No other change needed.
+- No schema change.
+
 ## 0.39 - 2026-09-15
 
 ### Stop an expired/invalid login from silently showing an empty inventory
