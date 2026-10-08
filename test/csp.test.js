@@ -49,6 +49,17 @@ describe('Content-Security-Policy', () => {
     expect(res.headers['content-security-policy']).not.toMatch(/https?:\/\//);
   });
 
+  // The dark-only styles used to set data-theme-locked inline; it must survive the move to
+  // external scripts or MenuDrawer shows a no-op Dark Mode toggle.
+  it('dark-only variant pages load the locked theme script, the rest the normal one', () => {
+    const src = (page) => fs.readFileSync(path.join(__dirname, '..', 'client', page), 'utf8').match(/<script src="(\/theme-init[^"]*)">/)[1];
+    expect(src('pixelart.html')).toBe('/theme-init-locked.js');
+    expect(src('moderndark.html')).toBe('/theme-init-locked.js');
+    for (const page of ['index.html', 'claymorphism.html', 'enterprisesaas.html', 'flatdesign.html', 'material3.html', 'tactile.html']) {
+      expect(src(page), page).toBe('/theme-init.js');
+    }
+  });
+
   it('keeps camera allowed in Permissions-Policy alongside the CSP', async () => {
     const res = await request(app).get('/healthz');
     expect(res.headers['permissions-policy']).toContain('camera=(self)');
