@@ -15,8 +15,9 @@ export async function requestWithRateLimitRetry(makeRequest, maxAttempts = 3) {
     const response = await makeRequest();
     if (response.status() !== 429) return response;
     lastResponse = response;
-    const resetAtSeconds = Number(response.headers()['ratelimit-reset']);
-    const waitMs = Number.isFinite(resetAtSeconds) ? Math.max(0, resetAtSeconds * 1000 - Date.now()) + 500 : 2000;
+    // RateLimit-Reset is the number of seconds until the window resets.
+    const resetSeconds = Number(response.headers()['ratelimit-reset']);
+    const waitMs = Number.isFinite(resetSeconds) ? resetSeconds * 1000 + 500 : 2000;
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
   return lastResponse;
@@ -29,9 +30,9 @@ export async function requestWithRateLimitRetry(makeRequest, maxAttempts = 3) {
 // headroom, and otherwise waits out the whole window rather than trying to fine-tune a margin.
 export async function waitForMutationBudget(probeResponse, neededHeadroom = 25) {
   const remaining = Number(probeResponse.headers()['ratelimit-remaining']);
-  const resetAtSeconds = Number(probeResponse.headers()['ratelimit-reset']);
-  if (!Number.isFinite(remaining) || !Number.isFinite(resetAtSeconds) || remaining < neededHeadroom) {
-    const waitMs = Number.isFinite(resetAtSeconds) ? Math.max(0, resetAtSeconds * 1000 - Date.now()) + 500 : 2000;
+  const resetSeconds = Number(probeResponse.headers()['ratelimit-reset']);
+  if (!Number.isFinite(remaining) || !Number.isFinite(resetSeconds) || remaining < neededHeadroom) {
+    const waitMs = Number.isFinite(resetSeconds) ? resetSeconds * 1000 + 500 : 2000;
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
 }

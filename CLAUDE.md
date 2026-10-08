@@ -98,7 +98,13 @@ from outside this project without checking against this list.
    except `/api/auth/login` and `/api/health` (status only; the version is shown only to an authenticated caller).
    Login is rate-limited to 5 attempts/15min per client (IPv6 keyed on its /64), plus an account-wide
    progressive delay (`lib/login-backoff.js`; a delay, deliberately not a lockout, so an attacker cannot lock the family out).
-   Device-token holders may list/revoke devices and "Sign out everywhere" (owner decision: a remembered tablet cuts off a lost phone); only minting needs a household JWT.
+   Revoking a device and "Sign out everywhere" require a FRESH LOGIN (owner decision): the household password is
+   re-entered in that request, for every credential type, so a stolen device token alone cannot revoke anything. A
+   remembered tablet can still cut off a lost phone, but only by someone who knows the password. The check is bcrypt,
+   shares the login rate limit and account backoff (a failed re-auth counts as a failed login), answers 403 (never 401,
+   which the client reads as an expired session) and is never logged. Listing devices needs any valid credential;
+   minting needs a household JWT. The client prompts via `PasswordConfirmDialog`.
+   `Authorization` is read in one place (`parseBearerToken`): exactly `Bearer <token>`, anything else is unauthenticated.
    Socket.IO validates the token on handshake (`lib/realtime.js`). Household JWTs carry a
    `jti` and the token epoch `ver` (`lib/auth-state.js`); a stale epoch is rejected, so
    `POST /api/auth/revoke-all` or a changed `AUTH_USERNAME`/`AUTH_PASSWORD_HASH` (detected at
@@ -185,7 +191,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
   list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
   so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
-  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
+  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.

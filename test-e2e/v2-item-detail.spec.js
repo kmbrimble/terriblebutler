@@ -129,9 +129,9 @@ test.beforeAll(async ({ request }) => {
   locA = await probeRes.json();
 
   const remaining = Number(probeRes.headers()['ratelimit-remaining']);
-  const resetAtSeconds = Number(probeRes.headers()['ratelimit-reset']);
-  if (Number.isFinite(remaining) && Number.isFinite(resetAtSeconds) && remaining < NEEDED_HEADROOM) {
-    const waitMs = Math.max(0, resetAtSeconds * 1000 - Date.now()) + 500;
+  const resetSeconds = Number(probeRes.headers()['ratelimit-reset']); // seconds until the window resets
+  if (Number.isFinite(remaining) && Number.isFinite(resetSeconds) && remaining < NEEDED_HEADROOM) {
+    const waitMs = resetSeconds * 1000 + 500;
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
 

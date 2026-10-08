@@ -7,8 +7,15 @@
 - **Socket.IO origin check compares scheme + host + port.** Without `APP_ORIGIN`, the expected origin is the socket's own scheme + `Host`, or `X-Forwarded-Proto`/`X-Forwarded-Host` when the direct peer is trusted per `TRUST_PROXY`. A missing Origin is still allowed (browsers omit it on same-origin polling GETs, native clients never send one; the token is still required).
 - **Public health endpoints no longer disclose the version.** `/healthz` and unauthenticated `/api/health` return `{status:"ok"}`; `/api/health` with a valid bearer credential also returns `version`. (Neither the client nor e2e used the version; e2e readiness only needs status.)
 - **Guard tests:** JWT algorithm pin (HS384/HS512/`alg:none` rejected), a route sweep generated from the live route table (every `/api/*` route but login/health is 401 unauthenticated and with a bad token; case / trailing slash / double slash / percent-encoded variants never serve data), and a test pinning the owner decision that device-token holders may list/revoke devices and sign out everywhere.
+- Superseded: the "device tokens may revoke" behaviour above; see Follow-up.
 - Household JWTs must now carry a finite `exp` (login always issues one); per-client 429s now send `Retry-After`.
 - No schema change, no migration.
+
+## Follow-up (owner corrections)
+- **Revocation requires a fresh login (supersedes the earlier "device tokens may revoke" decision).** `POST /api/auth/devices/:id/revoke` and `POST /api/auth/revoke-all` need `{ "password": <household password> }` in the body, for JWTs and device tokens alike. Verified with bcrypt through the same account backoff as login, behind the shared `loginRateLimiter`, so a failed re-auth counts as a failed login. Missing/non-string/wrong password = **403** (not 401: the client treats 401 as an expired session); queue-full = 429 + `Retry-After`. The password is redacted from the action log (test). Listing devices is unchanged; minting is still household-JWT-only. Route table unchanged.
+- **React client:** Manage Devices now opens `PasswordConfirmDialog` for both Revoke and Sign out everywhere (password held only in component state, cleared after each attempt and on close; wrong password shows the server's message in the dialog). `revokeDevice(id, password)` / `revokeAllSessions(password)` in `client/src/lib/api.ts`.
+- **`RateLimit-Reset` is now seconds until the window resets** (was an epoch timestamp) on every limiter; 429s send the same value as `Retry-After`. The e2e helpers that read it (`test-e2e/rateLimitWait.js`, `v2-item-detail.spec.js`) were updated; any other consumer of the old epoch value must change too.
+- **Strict `Authorization` parsing:** one `parseBearerToken` in `lib/middleware.js` (`Bearer`, case-insensitive, one or more spaces, a single RFC 7235 token68, nothing else) used by `requireAuth` and `/api/health`.
 
 ## Decisions
 - Backoff is **in memory** (resets on restart) because migrations are out of scope; the per-client limiter and bcrypt remain the primary defence. Residual trade-off is documented in `lib/login-backoff.js`: an attacker who keeps the wait queue full can make login slow or intermittently 429; existing sessions/device tokens are unaffected. A hard lockout would be strictly worse.
@@ -27,3 +34,8 @@
   - `loginAuditLogger` finish handler throwing: **false positive**, `logAction` catches internally (`logger.js:133-143`).
   - `RateLimit-Reset` is an absolute epoch, not seconds: pre-existing, **deferred** (changing the header semantics affects clients; `Retry-After` now added instead).
   - Loose `Authorization` split: pre-existing, **deferred**; parsing is now one shared `credentialFromRequest`.
+
+## Follow-up flags
+- The per-client login limit (5/15 min) is shared by login and by revoke/sign-out attempts, as specified. Logging in and then revoking several devices in one sitting can reach it; the user sees a 429 message and waits.
+- The test suite sets `LOGIN_RATE_LIMIT_MAX=1000` in `test/setup.js`; tests of the limiter load a fresh app with the production 5.
+- The sibling r2-client branch also edits client code (`ManageDevicesModal.tsx`, `api.ts`); expect to reconcile on integration.
