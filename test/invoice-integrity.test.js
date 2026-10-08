@@ -300,3 +300,28 @@ describe('review follow-ups', () => {
     expect(patched.status).toBe(400);
   });
 });
+
+describe('parsed line values are validated (#42)', () => {
+  it.each([
+    ['qty_supplied', -5],
+    ['qty_supplied', 1000001],
+    ['unit_price', -1],
+  ])('rejects an invoice whose parsed %s is %s, staging nothing', async (field, value) => {
+    const { app: fresh, db: freshDb } = loadFreshApp({ INVOICE_IMPORT_MAX_LINES: undefined }, {
+      beforeLoad(req) {
+        const router = req('../parsers/router.js');
+        const real = router.parseInvoice;
+        router.parseInvoice = (text) => {
+          const parsed = real(text);
+          return { ...parsed, lines: parsed.lines.map((l, i) => (i === 0 ? { ...l, [field]: value } : l)) };
+        };
+      },
+    });
+    clearInvoiceImports();
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('unreachable'));
+    const res = await importPdf(fresh, COLES_PDF);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/could not be read safely/);
+    expect(freshDb.prepare('SELECT COUNT(*) AS n FROM invoice_imports').get().n).toBe(0);
+  });
+});

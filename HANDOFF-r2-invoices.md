@@ -30,12 +30,12 @@ Idempotent; every step guarded by `hasTable`/`hasColumn`/`IF NOT EXISTS`. Also i
 Leak test failed before the change (plain Error returned 409/400 with its text). The other new server tests exercise behaviour that did not exist (columns, 409s, flags), so they could not pass before by construction; I did not run each against the old code.
 
 ## Results (final tree)
-See the commit/issue comment; `npm test`, client unit, client build, full e2e all green (numbers in the final summary).
+Backend `npm test`: 42 files / 475 tests pass. Client unit: 18 files / 140 pass. Client `npm run build`: OK (and `tsc --noEmit` clean). Playwright e2e (locked): 62 pass.
 
 ## Review
-`code-diff-reviewer`: score 12 (CALL). 3 Sonnet + 1 Mythos passes: all four returned NO FINDINGS (the known failure mode, so not taken as clean) → counsel `openai/gpt-5.6-terra` called, seeded with the nine changed source files only (no CHANGELOG/CLAUDE.md/commit messages, `issues_found: []`). Counsel found 7; acted on 4 (drain hid failed edits; loose foreign-key parsing; non-object PATCH body; double-commit), declined 3: parser-derived values are not validated (pre-existing, trusted deterministic parsers; the new trigger now stops negative stock), stale `tb_active_import_id` (a 404 already clears it), migration with a pre-existing `dedupe_key` column (never shipped). Cost of passes US$3.45 + counsel. Advisor ranked last (below).
+`code-diff-reviewer`: score 12 (CALL). 3 Sonnet + 1 Mythos passes: all four returned NO FINDINGS (the known failure mode, so not taken as clean) → counsel `openai/gpt-5.6-terra` called, seeded with the nine changed source files only (no CHANGELOG/CLAUDE.md/commit messages, `issues_found: []`). Counsel found 7; acted on 4 (drain hid failed edits; loose foreign-key parsing; non-object PATCH body; double-commit), declined 2: stale `tb_active_import_id` (a 404 already clears it), migration with a pre-existing `dedupe_key` column (never shipped). Cost of passes US$3.45 + counsel. Advisor (last) reversed my initial decline of counsel's parser-values finding (parsed `qty_supplied` is the default commit quantity and bypassed `QUANTITY_MAX`): imported lines are now validated (422 `could not be read safely`) with tests. It also had the quantity-guard triggers moved after `runMigrations`, and the `drain()` message reworded.
 
 ## Not done / notes
 - Legacy `/api/invoices/parse` + `/commit` flow: only validation added; it has no duplicate detection (no staging table to key on).
-- Prices have no upper bound (only quantities were asked for).
+- Prices have no upper bound (only non-negative is enforced; only quantities were asked for).
 - `null` quantity is still treated as 0 by `finiteNumber` (existing behaviour, all routes).

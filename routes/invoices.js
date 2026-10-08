@@ -212,6 +212,22 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           error: `This invoice has ${parsed.lines.length} lines, more than the ${config.INVOICE_IMPORT_MAX_LINES} an import accepts.`,
         });
       }
+      // The lines come from an uploaded file, so they are validated like any client input: an
+      // unbounded or negative parsed quantity would otherwise be committed as the default
+      // quantity of every line the reviewer does not retype.
+      try {
+        parsed.lines = parsed.lines.map((line) => ({
+          ...line,
+          raw_name: cleanText(line.raw_name, { required: true, max: 500 }),
+          qty_ordered: finiteNumber(line.qty_ordered, { name: 'Ordered quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
+          qty_supplied: finiteNumber(line.qty_supplied, { name: 'Supplied quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
+          unit_price: finiteNumber(line.unit_price, { name: 'Unit price', min: 0, allowNull: true }),
+          line_total: finiteNumber(line.line_total, { name: 'Line total', min: 0, allowNull: true }),
+        }));
+      } catch (err) {
+        if (!(err instanceof ValidationError)) throw err;
+        return res.status(422).json({ error: `This invoice could not be read safely: ${err.message}.` });
+      }
       // The same invoice twice would add its stock and price history twice (#44). Checked before
       // any LLM spend; the UNIQUE index on dedupe_key is what actually guarantees it, and also
       // catches two uploads racing past this check.

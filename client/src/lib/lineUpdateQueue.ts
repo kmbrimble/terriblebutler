@@ -54,7 +54,7 @@ export function createLineUpdateQueue<Fields, Row>({
     },
     async drain() {
       await Promise.all([...tails.values()]);
-      if (failed.size) throw new Error('Some changes could not be saved. Check the highlighted lines and try again.');
+      if (failed.size) throw new Error('Some changes could not be saved, so the import was reloaded from the server. Review it and try again.');
     },
   };
 }
