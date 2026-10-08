@@ -10,7 +10,7 @@ const { openDatabase } = require('./lib/database');
 const { createAuthState } = require('./lib/auth-state');
 const { createRealtime } = require('./lib/realtime');
 const middleware = require('./lib/middleware');
-const { createDomainHelpers, checkDuplicateBarcodes } = require('./lib/domain-helpers');
+const { createDomainHelpers, checkDuplicateBarcodes, sendServerError } = require('./lib/domain-helpers');
 const { setupGracefulShutdown } = require('./lib/shutdown');
 const uploads = require('./lib/uploads');
 
@@ -27,6 +27,8 @@ const APP_VERSION = config.APP_VERSION;
 const app = express();
 
 app.disable('x-powered-by');
+// Forwarded-header trust is explicit and off by default (#53); see lib/config.js TRUST_PROXY.
+app.set('trust proxy', config.TRUST_PROXY);
 
 app.use(middleware.securityHeaders);
 
@@ -57,9 +59,6 @@ uploads.registerMediaRoute(app);
 app.use('/legacy', uploads.denyUploadsUnder(path.join(__dirname, 'public')));
 app.use('/legacy', express.static(path.join(__dirname, 'public')));
 
-// Verbose action logging (#14): every mutating /api/* call, request + response body.
-app.use('/api', middleware.actionLogger(logAction));
-
 registerHealthzRoute(app, { APP_VERSION });
 
 app.use('/api', middleware.generalApiRateLimiter);
@@ -67,6 +66,13 @@ app.use('/api', middleware.generalApiRateLimiter);
 app.use(
   ['/api/parse-label-llm', '/api/invoices/parse'],
   middleware.llmRateLimiter
+);
+
+// Starting an invoice import (POST only) also drives LLM calls (#55). Gated by method and
+// exact path so the import's review endpoints (GET/PATCH/DELETE/commit under the same prefix)
+// are not throttled by the LLM budget.
+app.use('/api/invoices/import', (req, res, next) =>
+  req.method === 'POST' && req.path === '/' ? middleware.llmRateLimiter(req, res, next) : next()
 );
 
 app.use('/api', middleware.mutationRateLimiterMiddleware);
@@ -90,6 +96,8 @@ const { authenticateToken, requireAuth, requireHouseholdJwt, credentialExpiry } 
 const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry);
 
 // --- AUTH ---
+// Login runs before requireAuth, so it is audited (outcome + IP, no body) rather than logged.
+app.use('/api/auth/login', middleware.loginAuditLogger(logAction));
 registerLoginRoute(app, {
   loginRateLimiter: middleware.loginRateLimiter,
   AUTH_USERNAME: config.AUTH_USERNAME,
@@ -101,6 +109,10 @@ registerLoginRoute(app, {
 registerApiHealthRoute(app, { APP_VERSION });
 
 app.use('/api', requireAuth);
+
+// Verbose action logging (#14, #52): mounted after the rate limiters and requireAuth so only
+// authenticated, non-throttled requests have their bodies logged.
+app.use('/api', middleware.actionLogger(logAction));
 
 registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets });
 
@@ -127,12 +139,27 @@ app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'));
 });
 
-// Return controlled errors for uploads and malformed JSON.
+// Controlled errors for uploads and malformed requests keep their (deliberate) messages;
+// anything else is an unexpected failure, so the client gets a generic 500 with a correlation
+// id and the detail stays in the server log (#61).
 app.use((err, req, res, next) => {
-  console.error(err);
+  if (!err) return next();
+  if (res.headersSent) return next(err);
   if (err instanceof multer.MulterError) return res.status(400).json({ error: err.message });
-  if (err) return res.status(400).json({ error: err.message || 'Request failed' });
-  next();
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Malformed JSON in request body.' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large.' });
+  // Router param decoding (a bad %-escape in the path) sets status 400 without expose.
+  if (err instanceof URIError) return res.status(400).json({ error: 'Malformed request path.' });
+  // Multipart parse failures from busboy (via multer) are plain Errors with fixed messages.
+  // ponytail: message match; a busboy upgrade that rewords these flips them back to 500 (the
+  // multipart tests in test/error-hardening.test.js would catch it). Upgrade path: a tagging
+  // wrapper around the multer instances in lib/middleware.js.
+  if (/^(Unexpected end of form|Malformed (part header|urlencoded form)|Multipart: |Part terminated early|Unexpected end of multipart data)/.test(err.message)) {
+    return res.status(400).json({ error: 'Malformed upload request.' });
+  }
+  const status = err.status || err.statusCode;
+  if (status >= 400 && status < 500 && err.expose) return res.status(status).json({ error: err.message || 'Request failed' });
+  return sendServerError(res, err, 'Request failed');
 });
 
 checkDuplicateBarcodes(db);
@@ -144,6 +171,7 @@ const PORT = config.PORT;
 if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Terrible Butler server listening on port ${PORT}`);
+    console.log(`[Config] trust proxy: ${JSON.stringify(config.TRUST_PROXY)}`);
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));
 }

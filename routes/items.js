@@ -8,6 +8,7 @@ const {
   finiteNumber,
   normaliseBarcode,
   sendMutationError,
+  sendServerError,
 } = require('../lib/domain-helpers');
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
@@ -247,7 +248,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       broadcastUpdate('update_ignore', updatedItem);
       res.json(updatedItem);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, 'Failed to update item');
     }
   });
 

@@ -54,6 +54,7 @@ export default async function globalSetup() {
       GENERAL_API_RATE_LIMIT_MAX: '10000',
       MUTATION_RATE_LIMIT_MAX: '5000',
       LOGIN_RATE_LIMIT_MAX: '200',
+      LLM_RATE_LIMIT_MAX: '1000',
     },
     stdio: 'inherit',
   });

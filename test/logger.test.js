@@ -12,7 +12,9 @@ beforeEach(async () => {
   vi.resetModules();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const { flush } = await import('../logger.js');
+  await flush();
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env.LOG_DIR;
 });
@@ -29,10 +31,11 @@ describe('weekStartLabel', () => {
 
 describe('logAction', () => {
   it('writes a JSON line to both the weekly log file and stdout', async () => {
-    const { logAction, currentLogFile } = await import('../logger.js');
+    const { logAction, currentLogFile, flush } = await import('../logger.js');
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     logAction({ method: 'POST', path: '/api/items', status: 201 });
+    await flush();
 
     expect(consoleSpy).toHaveBeenCalled();
     const logFile = currentLogFile();
@@ -46,7 +49,7 @@ describe('logAction', () => {
   });
 
   it('redacts password and token fields before logging', async () => {
-    const { logAction, currentLogFile } = await import('../logger.js');
+    const { logAction, currentLogFile, flush } = await import('../logger.js');
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
     logAction({
@@ -56,6 +59,7 @@ describe('logAction', () => {
       request_body: { username: 'kieren', password: 'hunter2' },
       response_body: { token: 'secret.jwt.token' },
     });
+    await flush();
 
     const entry = JSON.parse(fs.readFileSync(currentLogFile(), 'utf8').trim().split('\n').pop());
     expect(entry.request_body.password).toBe('***');
@@ -80,5 +84,50 @@ describe('pruneOldLogs', () => {
 
     expect(fs.existsSync(oldFile)).toBe(false);
     expect(fs.existsSync(recentFile)).toBe(true);
+  });
+});
+
+describe('write buffering', () => {
+  it('drops entries past the buffer bound, counts them, and records the loss once it drains', async () => {
+    const { logAction, currentLogFile, flush, MAX_BUFFERED_BYTES } = await import('../logger.js');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    // Synchronous burst: the stream cannot drain between calls, so the buffer fills.
+    const chunk = 'z'.repeat(3000);
+    for (let i = 0; i < 2000; i++) logAction({ method: 'POST', path: '/api/items', status: 201, request_body: { note: chunk.slice(0, 2000), i } });
+    await flush();
+    const lines = fs.readFileSync(currentLogFile(), 'utf8').trim().split('\n');
+    expect(lines.length).toBeLessThan(2000);
+    expect(Buffer.byteLength(lines.join('\n'))).toBeLessThan(MAX_BUFFERED_BYTES + 64 * 1024);
+
+    logAction({ method: 'POST', path: '/api/items', status: 201 });
+    await flush();
+    const after = fs.readFileSync(currentLogFile(), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    const overflow = after.find((e) => e.event === 'log_overflow');
+    expect(overflow.dropped).toBe(2000 - lines.length);
+  });
+
+  it('survives an unwritable log directory without throwing', async () => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.writeFileSync(tmpDir, 'not a directory');
+    const { logAction } = await import('../logger.js');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => logAction({ method: 'POST', path: '/api/items', status: 201 })).not.toThrow();
+    expect(errSpy).toHaveBeenCalled();
+    fs.rmSync(tmpDir, { force: true });
+    fs.mkdirSync(tmpDir);
+  });
+});
+
+describe('pruneOldLogs failures', () => {
+  it('logs and carries on when a stale log cannot be removed', async () => {
+    const { pruneOldLogs } = await import('../logger.js');
+    const stale = path.join(tmpDir, 'actions-2020-01-06.log');
+    fs.mkdirSync(stale); // unlinkSync on a directory fails
+    const old = (Date.now() - 40 * 24 * 60 * 60 * 1000) / 1000;
+    fs.utimesSync(stale, old, old);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => pruneOldLogs(30)).not.toThrow();
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('actions-2020-01-06.log'), expect.any(String));
   });
 });
