@@ -20,7 +20,7 @@ milestone itself.
 - GitHub: `kmbrimble/terriblebutler`
 - Live container: `terrible-butler`, port 2626, `https://butler.kiztigs.com`
 - Live data: `/mnt/user/appdata/butler/data/inventory.db` (host) — **never touched by tests**
-- Live uploads: `/mnt/user/appdata/butler/uploads` (host)
+- Live uploads: `/mnt/user/appdata/butler/uploads` (host) → `/app/public/uploads` in the container = `UPLOADS_DIR`
 
 ## Test commands
 
@@ -39,7 +39,7 @@ write the live database or uploads directory.
 re-exports `{ app, server, db }`. It does not itself contain route handlers, DB setup, or
 middleware logic. The actual code lives in:
 
-- `lib/config.js` — env-derived constants (`APP_VERSION`, `JWT_SECRET`, `AUTH_USERNAME`,
+- `lib/config.js` — env-derived constants (`APP_VERSION`, `UPLOADS_DIR`, `JWT_SECRET`, `AUTH_USERNAME`,
   `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`).
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
 - `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
@@ -49,7 +49,7 @@ middleware logic. The actual code lives in:
   registering any routes.
 - `lib/middleware.js` — security headers, the rate-limiter factory and its configured
   instances (`generalApiRateLimiter`, `mutationRateLimiterMiddleware`, `llmRateLimiter`,
-  `loginRateLimiter`), the multer upload configs, and `createAuth(db)` (`authenticateToken`,
+  `loginRateLimiter`), and `createAuth(db)` (`authenticateToken`,
   `requireAuth`, `hashDeviceToken`).
 - `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
   helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
@@ -57,6 +57,12 @@ middleware logic. The actual code lives in:
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
   Messages API), `classifyLineWithLLM`.
+- `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
+  (`UPLOAD_TMP_DIR`), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
+  other than jpeg/png/webp/heif blocked), `UPLOADS_DIR` storage, signed `/media/:name` delivery
+  (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound.
+  `items.image_path` holds the stored id; API/Socket.IO payloads carry a signed URL instead (via
+  `parseItemLocations`). There is no static `/uploads`.
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
@@ -125,7 +131,7 @@ from outside this project without checking against this list.
 ## Container runtime (non-root)
 
 The image starts `docker-entrypoint.sh` as root only to `chown` the writable paths
-(`/app/data` or the dir of `DB_PATH`, `/app/uploads`, `/app/public/uploads`, `LOG_DIR` /
+(`/app/data` or the dir of `DB_PATH`, `UPLOADS_DIR` (default `/app/public/uploads`), `LOG_DIR` /
 `/app/logs`) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
 runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 

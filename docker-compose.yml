@@ -15,4 +15,5 @@ services:
       - PGID=100
     volumes:
       - ./data:/app/data
+      # Must match UPLOADS_DIR (set in the Dockerfile to /app/public/uploads).
       - ./uploads:/app/public/uploads

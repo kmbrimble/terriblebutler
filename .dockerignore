@@ -6,6 +6,7 @@ client/dist
 /inventory.db-shm
 /inventory.db-wal
 data/
+# Default UPLOADS_DIR (stored images) and the older top-level path: never baked into the image.
 public/uploads/
 .mcp.json
 docker-compose.yml

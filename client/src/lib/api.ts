@@ -88,6 +88,8 @@ export interface Item {
   quantity: number;
   reorder_threshold: number;
   is_ignored_grocery: number | null;
+  /** Signed, expiring URL (`/media/<id>?exp=&sig=`), valid 1-2 hours; null if no image. Usable directly
+   *  as an `<img src>` / RN `Image` uri. Never persist it: refetch the item to get a fresh one. */
   image_path: string | null;
   last_price: number | null;
   lowest_price: number | null;

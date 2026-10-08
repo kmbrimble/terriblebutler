@@ -39,9 +39,12 @@ RUN npm run build
 
 FROM ${NODE_IMAGE}
 
+# UPLOADS_DIR is the single directory processed images are stored in; it is the path the
+# container bind-mounts, so it must match the volume in the unRAID template / docker-compose.yml.
 ENV NODE_ENV=production \
     PUID=99 \
-    PGID=100
+    PGID=100 \
+    UPLOADS_DIR=/app/public/uploads
 
 WORKDIR /app
 
@@ -51,6 +54,10 @@ COPY --from=builder /app/package.json /app/package-lock.json ./
 
 # Copy application source (root-owned and read-only to the app user)
 COPY . .
+
+# .dockerignore keeps local uploads out of the build context, so create the (empty) directory the
+# volume mounts over; the entrypoint chowns it to PUID:PGID.
+RUN mkdir -p "$UPLOADS_DIR"
 
 # Copy the built React client — only the built output, not the client's source or devDependencies
 COPY --from=client-builder /app/client/dist ./client/dist
