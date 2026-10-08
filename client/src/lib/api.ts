@@ -303,6 +303,10 @@ export interface InvoiceImportLine {
   final_container_details: string | null;
   barcode_scanned: string | null;
   qty_confirmed: number | null;
+  // 1 when the reviewer explicitly cleared the category/location (final_* is then null on
+  // purpose and must not fall back to the suggestion).
+  category_cleared: number;
+  location_cleared: number;
   line_status: 'pending' | 'reviewed' | 'skipped';
 }
 
@@ -314,11 +318,23 @@ export interface InvoiceImportState {
   warnings?: string[];
 }
 
+// The server recognised this invoice (same retailer + number, or same content) from an earlier
+// import. existing_import lets the UI offer to reopen it while it is still awaiting review.
+export class DuplicateInvoiceError extends Error {
+  existing: Pick<InvoiceImport, 'id' | 'retailer' | 'invoice_number' | 'invoice_date' | 'status'>;
+  constructor(message: string, existing: DuplicateInvoiceError['existing']) {
+    super(message);
+    this.name = 'DuplicateInvoiceError';
+    this.existing = existing;
+  }
+}
+
 export async function startInvoiceImport(file: File): Promise<InvoiceImportState> {
   const formData = new FormData();
   formData.append('invoice', file);
   const res = await authorizedFetch('/api/invoices/import', { method: 'POST', body: formData });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409 && data.code === 'duplicate_invoice') throw new DuplicateInvoiceError(data.error, data.existing_import);
   if (!res.ok) throw new Error(data.error || 'Failed to import invoice.');
   return data;
 }

@@ -93,6 +93,9 @@ export const INVOICE_IMPORT_LINE_NAME_DISPLAY = 'invoice-import-line-name-displa
 export const INVOICE_IMPORT_LINE_CONTAINER_INPUT = 'invoice-import-line-container-input';
 export const INVOICE_IMPORT_LINE_MATCH_INPUT = 'invoice-import-line-match-input';
 export const INVOICE_IMPORT_WARNINGS = 'invoice-import-warnings';
+export const INVOICE_IMPORT_DUPLICATE = 'invoice-import-duplicate';
+export const INVOICE_IMPORT_OPEN_EXISTING = 'invoice-import-open-existing';
+export const INVOICE_IMPORT_EMPTY = 'invoice-import-empty';
 export const INVOICE_IMPORT_CANCEL_BUTTON = 'invoice-import-cancel-button';
 
 // Stage 5 (React client price history) — new fields/controls. DETAILS_MODAL/DETAILS_TITLE

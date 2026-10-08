@@ -6,6 +6,7 @@ import {
   resolveLineContainerValue,
   resolveMatchFieldPatch,
   isCommitEnabled,
+  applyLinePatch,
   matchLabel,
   formatSummaryLine,
 } from './invoiceImportLine';
@@ -30,6 +31,8 @@ function makeLine(overrides: Partial<InvoiceImportLine> = {}): InvoiceImportLine
     final_container_details: null,
     barcode_scanned: null,
     qty_confirmed: null,
+    category_cleared: 0,
+    location_cleared: 0,
     line_status: 'pending',
     ...overrides,
   };
@@ -148,5 +151,28 @@ describe('formatSummaryLine', () => {
     expect(formatSummaryLine(makeImport({ retailer: null, invoice_number: null, invoice_date: null }), 5)).toBe(
       'Unknown retailer — invoice ? (unknown date) — 5 lines'
     );
+  });
+});
+
+describe('explicitly cleared category/location (#46)', () => {
+  it('a cleared category stays blank instead of reverting to the suggestion', () => {
+    expect(resolveLineCategoryValue(makeLine({ final_category_id: null, category_cleared: 1, suggested_category_id: 9 }))).toBe('');
+    expect(resolveLineLocationValue(makeLine({ final_location_id: null, location_cleared: 1, suggested_location_id: 4 }))).toBe('');
+  });
+
+  it('applyLinePatch mirrors the server: null sets the flag, a value clears it', () => {
+    const cleared = applyLinePatch(makeLine({ suggested_category_id: 9 }), { final_category_id: null });
+    expect(cleared.category_cleared).toBe(1);
+    expect(resolveLineCategoryValue(cleared)).toBe('');
+    const chosen = applyLinePatch(cleared, { final_category_id: 2 });
+    expect(chosen.category_cleared).toBe(0);
+    expect(resolveLineCategoryValue(chosen)).toBe(2);
+    expect(applyLinePatch(cleared, { line_status: 'reviewed' }).category_cleared).toBe(1);
+  });
+});
+
+describe('isCommitEnabled with no lines (#47)', () => {
+  it('is disabled for an import with nothing in it', () => {
+    expect(isCommitEnabled([])).toBe(false);
   });
 });

@@ -61,7 +61,7 @@ middleware logic. The actual code lives in:
   configs live in `lib/uploads.js`.
 - `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
   helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
-  `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
+  `sendMutationError` (only a `ValidationError` carries its message to the client; anything else is a correlation-id 500), `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
   Messages API), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
@@ -143,10 +143,15 @@ loosening one is a normal, deliberate change rather than a stop-and-ask.
 ## Database notes (read before any schema change)
 
 - Schema versioning is `PRAGMA user_version` via `db-migrations.js`: an append-only list of
-  numbered migrations (currently 5), each idempotent and safe on a populated database. Never
+  numbered migrations (currently 6), each idempotent and safe on a populated database. Never
   edit an applied migration; add a new one, and state the schema change in the changelog.
   Migration 5 added `auth_state` (a single row: token epoch + credential fingerprint, never the
   hash) and `device_tokens.issued_by_jti` (which household JWT minted each device token).
+  Migration 6 added `invoice_imports.dedupe_key` (UNIQUE index; `retailer|no:<invoice number>`, else
+  `retailer|sha256:<normalised PDF text>`, so a re-import gets a 409 `duplicate_invoice`),
+  `invoice_import_lines.category_cleared` / `location_cleared` (an explicit "none" must not revert to the
+  suggestion at commit), and triggers rejecting negative `item_locations.quantity` (SQLite cannot add a
+  CHECK without a table rebuild). Cancelling an in-progress import frees its key; a committed one keeps it.
 - Live schema tables: `items`, `locations`, `categories`, `price_history`, `device_tokens`,
   `auth_state`, the invoice-import staging tables, plus a **vestigial `inventory` table**
   (`description, size, quantity`) left over from an early version. Confirm nothing references
