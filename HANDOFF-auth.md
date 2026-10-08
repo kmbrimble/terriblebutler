@@ -14,6 +14,7 @@
 - **Fail fast on bad auth config.** `lib/config.js` now throws at load (process exits non-zero before touching the DB) unless: `AUTH_USERNAME` set; `AUTH_PASSWORD_HASH` matches the bcrypt format (`$2a/2b/2y$`, 2-digit cost, 53 chars); `JWT_SECRET` set and **at least 32 characters**. Messages name the variable only, never its value.
 - **DEPLOY WARNING:** if the live container's `JWT_SECRET` is shorter than 32 characters, or `AUTH_PASSWORD_HASH` is not a bcrypt hash, the container will refuse to start after this deploy (deliberately at deploy time). Check both env values in the unRAID template before force-updating; if the secret is short, set a new one (`openssl rand -hex 32`), which logs JWT sessions out once, as the epoch change already does.
 - Tests: `test/socket-expiry.test.js` (6; fake timers incl. a 30-day token, timer cleanup, sliding expiry, revoked, lookup failure), a real short-lived-JWT socket test in `test/realtime.test.js`, `credentialExpiry` tests in `test/auth-token-types.test.js`, `test/config-validation.test.js` (pure validator plus child-process boots that must exit non-zero without echoing the values).
+- Review of this follow-up: `code-diff-reviewer` score 5 (OWN band, 3 Sonnet, no advisor call): NO FINDINGS on all three (weak evidence). Own check: a credential without `expiresAt` makes `watchExpiry` drop the socket at once (fails closed).
 - Decision kept: device-token holders can list/revoke devices and revoke-all.
 
 ## Schema change (migration #5, `PRAGMA user_version` 4 -> 5; idempotent)
