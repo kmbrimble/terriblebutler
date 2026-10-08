@@ -167,7 +167,8 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 - The entrypoint validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` before chowning anything: absolute,
   normalised (letters, digits, `.`, `_`, `-`), strictly inside `/app`, not in the application code
   (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`), and mutually disjoint — otherwise
-  it exits non-zero with a message. `lib/config.js` `validateStoragePaths` applies the same rules
+  it exits non-zero with a message. `UPLOAD_TMP_DIR`, if set, is validated by the app (well-formed, and
+  not overlapping those directories inside the container, since it is swept at startup). `lib/config.js` `validateStoragePaths` applies the same rules
   (containment when `WRITABLE_ROOT` is set; the Dockerfile sets `/app`). `test/entrypoint.test.js`
   runs the script with stubs and checks both agree; `scripts/docker-smoke.sh` is the manual
   end-to-end image check (uses only `smoketest-` names and named volumes).

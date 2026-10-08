@@ -236,3 +236,12 @@ describe('Anthropic client limits', () => {
     expect(res.body.name).toBe('');
   });
 });
+
+describe('matchLinesWithLLM output budget', () => {
+  it('scales max_tokens with the number of lines so a 250-line import is not truncated', async () => {
+    const { matchLinesWithLLM } = await import('../lib/llm-client.js');
+    vi.spyOn(global, 'fetch').mockResolvedValue(mockToolUseResponse('invoice_line_matches', { matches: [] }));
+    await matchLinesWithLLM([{ id: 1, name: 'X' }], Array.from({ length: 250 }, (_, i) => ({ raw_name: `L${i}` })));
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).max_tokens).toBeGreaterThanOrEqual(250 * 12 * 2);
+  });
+});

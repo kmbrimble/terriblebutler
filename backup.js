@@ -55,8 +55,10 @@ function msUntilNextHour(hour) {
 // ponytail: setTimeout-chain scheduler, not a cron lib — good enough for one nightly job.
 function scheduleNightlyBackup(db, backupDir, hour = 2) {
   function runAndReschedule() {
-    runBackup(db, backupDir).catch((err) => console.error('[Backup] nightly backup failed:', err));
-    setTimeout(runAndReschedule, 24 * 60 * 60 * 1000);
+    // Reschedule only once this run settles, so a slow backup can never overlap the next one.
+    runBackup(db, backupDir)
+      .catch((err) => console.error('[Backup] nightly backup failed:', err))
+      .finally(() => setTimeout(runAndReschedule, 24 * 60 * 60 * 1000));
   }
   setTimeout(runAndReschedule, msUntilNextHour(hour));
 }

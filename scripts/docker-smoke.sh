@@ -11,7 +11,6 @@ SUFFIX="$$"
 NAME="smoketest-butler-$SUFFIX"
 VOL_DATA="smoketest-data-$SUFFIX"
 VOL_UPLOADS="smoketest-uploads-$SUFFIX"
-PORT="${SMOKE_PORT:-2699}"
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 
 cleanup() {
@@ -29,13 +28,22 @@ JWT="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 
 docker volume create "$VOL_DATA" >/dev/null
 docker volume create "$VOL_UPLOADS" >/dev/null
-docker run -d --name "$NAME" -p "$PORT:2626" \
+docker run -d --name "$NAME" \
   -e AUTH_USERNAME=smoketest -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" \
   -e ANTHROPIC_API_KEY=sk-ant-smoketest-dummy -e PUID=1234 -e PGID=5678 \
   -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" >/dev/null
 
+# Requests run inside the container (node's fetch), so they hit the app itself whatever the
+# host's port mapping or proxying looks like.
+call() { docker exec -e "T=${3:-}" "$NAME" node -e '
+  const [method, path, body] = process.argv.slice(1);
+  const headers = { "content-type": "application/json" };
+  if (process.env.T) headers.authorization = `Bearer ${process.env.T}`;
+  fetch(`http://127.0.0.1:2626${path}`, { method, headers, body: body || undefined }).then(async (r) => {
+    process.stdout.write(await r.text()); process.exit(r.ok ? 0 : 1);
+  }).catch((e) => { console.error(e.message); process.exit(1); });' "$1" "$2" "$4"; }
 i=0
-until curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; do
+until call GET /api/health "" "" >/dev/null 2>&1; do
   i=$((i + 1)); [ "$i" -le 30 ] || { docker logs "$NAME" >&2; fail "health check never passed"; }
   sleep 1
 done
@@ -55,6 +63,15 @@ done
 docker exec "$NAME" test ! -e /app/client/src || fail "client source present in the runtime image"
 docker exec "$NAME" test -f /app/client/dist/index.html || fail "client build output missing"
 echo "ok: ownership and image contents"
+
+# A mutating call must reach the action log on stdout (what `docker logs` shows).
+LOGIN="$(call POST /api/auth/login '' '{"username":"smoketest","password":"smoketest-password"}' || true)"
+TOKEN="$(printf '%s' "$LOGIN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+[ -n "$TOKEN" ] || { docker logs "$NAME" >&2; fail "login failed: $LOGIN"; }
+call POST /api/locations "$TOKEN" '{"name":"Smoke location"}' >/dev/null || fail "POST /api/locations failed"
+sleep 1
+docker logs "$NAME" 2>&1 | grep -q '^\[Action\] .*"path":"/api/locations"' || { docker logs "$NAME" >&2; fail "action log line missing from docker logs"; }
+echo "ok: action log reaches docker logs"
 
 # A mistyped DB_PATH must stop the container, not chown the filesystem.
 set +e

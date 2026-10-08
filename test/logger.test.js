@@ -9,13 +9,13 @@ let tmpDir;
 let slowOut = null;
 
 // A stand-in for fd 1: `slow` holds writes until released, like a stalled `docker logs` reader.
-function fakeStdout({ slow = false } = {}) {
+function fakeStdout({ slow = false, stallAll = false } = {}) {
   const chunks = [];
   const pending = [];
   const stream = new Writable({
     write(chunk, _enc, cb) {
       chunks.push(chunk.toString());
-      if (slow && chunk.length) pending.push(cb); else cb();
+      if (slow && (chunk.length || stallAll)) pending.push(cb); else cb();
     },
   });
   const release = () => pending.splice(0).forEach((cb) => cb());
@@ -220,6 +220,17 @@ describe('stdout copy', () => {
     child.stderr.on('data', (d) => { err += d; });
     await new Promise((resolve) => child.on('exit', resolve));
     expect(err).toBe('alive'); // no "stdout action log disabled" and no crash
+  });
+});
+
+describe('flush with a stalled stdout', () => {
+  it('still resolves promptly so shutdown is not held up', async () => {
+    const { logAction, flush, setStdoutStream } = await import('../logger.js');
+    setStdoutStream(fakeStdout({ slow: true, stallAll: true }).stream);
+    logAction({ method: 'POST', path: '/api/items', status: 201 });
+    const started = performance.now();
+    await flush();
+    expect(performance.now() - started).toBeLessThan(4000);
   });
 });
 

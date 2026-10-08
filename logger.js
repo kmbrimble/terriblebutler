@@ -19,6 +19,7 @@ const path = require('path');
 const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'logs');
 const MAX_AGE_DAYS = 30;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
+const STDOUT_FLUSH_TIMEOUT_MS = 1500;
 const MAX_BODY_CHARS = 4096;
 const PREVIEW_CHARS = 1024;
 const MAX_REDACT_DEPTH = 8;
@@ -191,7 +192,11 @@ function logAction(entry) {
 // stdout is never closed; an empty write's callback fires once the writes before it are done.
 function flush() {
   const out = stdoutStream;
-  const stdoutDone = out ? new Promise((resolve) => out.write('', () => resolve())) : Promise.resolve();
+  // A stalled reader must not hold up shutdown: wait for stdout only briefly (the file stream's
+  // flush is unbounded, as it is local disk).
+  const stdoutDone = out
+    ? Promise.race([new Promise((resolve) => out.write('', () => resolve())), new Promise((resolve) => setTimeout(resolve, STDOUT_FLUSH_TIMEOUT_MS).unref())])
+    : Promise.resolve();
   return Promise.all([closeStream(), stdoutDone]).then(() => undefined);
 }
 
