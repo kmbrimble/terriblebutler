@@ -48,7 +48,7 @@ middleware logic. The actual code lives in:
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
   dependency cycle — the composition root builds `server` from `app`, then calls this before
   registering any routes.
-- `lib/middleware.js` — security headers, the rate-limiter factory and its configured
+- `lib/middleware.js` — security headers (incl. the CSP), the rate-limiter factory and its configured
   instances (`generalApiRateLimiter`, `mutationRateLimiterMiddleware`, `llmRateLimiter`,
   `loginRateLimiter`), the multer upload configs, and `createAuth(db)` (`authenticateToken`,
   `requireAuth`, `hashDeviceToken`).
@@ -106,6 +106,14 @@ from outside this project without checking against this list.
    again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
    header/auth settings were removed, so NPM now passes straight through) →
    `terrible-butler` on its unique port → app's own JWT auth.
+9. **Strict CSP, no third-party runtime assets.** `securityHeaders` sends a
+   `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`, no `unsafe-inline`/`unsafe-eval`).
+   Nothing may load from a third-party origin: fonts are bundled (`@fontsource/*`, OFL licences in
+   `client/public/font-licences`), and the pre-paint theme bootstrap is the external
+   `client/public/theme-init*.js`, not an inline script. Every e2e spec imports `test` from
+   `test-e2e/csp-guard.js`, which fails the test on any CSP violation; never import from
+   `@playwright/test` directly. A new feature needing a looser directive must widen it deliberately in
+   `lib/middleware.js` and `test/csp.test.js`.
 
 ## Database notes (read before any schema change)
 
