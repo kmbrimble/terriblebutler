@@ -171,6 +171,11 @@ if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Terrible Butler server listening on port ${PORT}`);
     console.log(`[Config] trust proxy: ${JSON.stringify(config.TRUST_PROXY)}`);
+    // Without either, the Socket.IO origin check expects the Node port's own plain-http origin, so
+    // browsers behind a TLS-terminating proxy lose live updates (the page itself still loads).
+    if (!process.env.APP_ORIGIN && !config.TRUST_PROXY) {
+      console.warn('[Config] Neither APP_ORIGIN nor TRUST_PROXY is set: behind a TLS proxy, browser Socket.IO connections will be refused. Set APP_ORIGIN=https://<your host> (or TRUST_PROXY).');
+    }
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));
   scheduleImportPurge(db, config.INVOICE_IMPORT_RETENTION_DAYS);

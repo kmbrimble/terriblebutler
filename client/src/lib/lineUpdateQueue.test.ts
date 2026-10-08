@@ -8,7 +8,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function setup() {
+function setup(onFailure?: (lineId: number, err: unknown, latest: boolean, failureId: number) => void) {
   const sent: Array<{ lineId: number; fields: string; d: ReturnType<typeof deferred<string>> }> = [];
   const log: string[] = [];
   const queue = createLineUpdateQueue<string, string>({
@@ -19,7 +19,10 @@ function setup() {
     },
     onOptimistic: (id, f) => log.push(`opt:${id}:${f}`),
     onSettled: (id, row) => log.push(`set:${id}:${row}`),
-    onError: (id, err, latest) => log.push(`err:${id}:${(err as Error).message}:${latest}`),
+    onError: (id, err, latest, failureId) => {
+      log.push(`err:${id}:${(err as Error).message}:${latest}`);
+      onFailure?.(id, err, latest, failureId);
+    },
   });
   return { queue, sent, log };
 }
@@ -104,6 +107,26 @@ describe('drain after a failed edit', () => {
     queue.enqueue(1, 'b');
     await tick();
     sent[1].d.resolve('row-b');
+    await expect(queue.drain()).resolves.toBeUndefined();
+  });
+
+  it('a resync after the failure unblocks drain; a newer failure still blocks it', async () => {
+    const failureIds: number[] = [];
+    const { queue, sent } = setup((_l, _e, _latest, id) => failureIds.push(id));
+    queue.enqueue(1, 'a');
+    await tick();
+    sent[0].d.reject(new Error('nope'));
+    await expect(queue.drain()).rejects.toThrow();
+    queue.resolve(1, failureIds[0]);
+    await expect(queue.drain()).resolves.toBeUndefined();
+
+    queue.enqueue(1, 'b');
+    await tick();
+    sent[1].d.reject(new Error('again'));
+    await tick();
+    queue.resolve(1, failureIds[0]); // stale id from the first failure: ignored
+    await expect(queue.drain()).rejects.toThrow();
+    queue.resolve(1, failureIds[1]);
     await expect(queue.drain()).resolves.toBeUndefined();
   });
 });

@@ -7,6 +7,10 @@ export interface LineUpdateQueue<Fields> {
   // Resolves once every edit queued so far has settled; rejects if a line's latest edit failed
   // and was not since replaced by a successful one, so a commit never proceeds on stale server state.
   drain(): Promise<void>;
+  // The caller has resynced the line from the server after the failure identified by `failureId`
+  // (the onError argument), so its screen is no longer stale. Ignored if a newer edit has failed
+  // since, so a later failure still blocks the commit.
+  resolve(lineId: number, failureId: number): void;
 }
 
 export function createLineUpdateQueue<Fields, Row>({
@@ -20,12 +24,14 @@ export function createLineUpdateQueue<Fields, Row>({
   onOptimistic: (lineId: number, fields: Fields) => void;
   // The authoritative row, only once no newer edit for the line is outstanding.
   onSettled: (lineId: number, row: Row) => void;
-  // A failed edit, with whether it was the line's last outstanding one (a good moment to resync).
-  onError: (lineId: number, err: unknown, isLatest: boolean) => void;
+  // A failed edit, with whether it was the line's last outstanding one (a good moment to resync,
+  // then call resolve(lineId, failureId)).
+  onError: (lineId: number, err: unknown, isLatest: boolean, failureId: number) => void;
 }): LineUpdateQueue<Fields> {
   const tails = new Map<number, Promise<void>>();
   const outstanding = new Map<number, number>();
-  const failed = new Set<number>();
+  const failed = new Map<number, number>();
+  let failures = 0;
 
   return {
     enqueue(lineId, fields) {
@@ -42,8 +48,9 @@ export function createLineUpdateQueue<Fields, Row>({
         if (left === 0) outstanding.delete(lineId);
         else outstanding.set(lineId, left);
         if ('err' in result) {
-          if (left === 0) failed.add(lineId);
-          onError(lineId, result.err, left === 0);
+          failures += 1;
+          if (left === 0) failed.set(lineId, failures);
+          onError(lineId, result.err, left === 0, failures);
         } else {
           if (left === 0) failed.delete(lineId);
           if (left === 0) onSettled(lineId, result.row);
@@ -51,6 +58,9 @@ export function createLineUpdateQueue<Fields, Row>({
       });
       tails.set(lineId, run);
       return run;
+    },
+    resolve(lineId, failureId) {
+      if (failed.get(lineId) === failureId) failed.delete(lineId);
     },
     async drain() {
       await Promise.all([...tails.values()]);

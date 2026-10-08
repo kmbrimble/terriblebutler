@@ -66,24 +66,29 @@ export function InvoiceImportModal({
   // Edits to a line are sent one at a time, in order, and only the newest response is applied
   // (#48); a failed edit is reported and the screen is resynced from the server.
   const lineQueue = useMemo(
-    () =>
-      createLineUpdateQueue<Partial<InvoiceImportLine>, InvoiceImportLine>({
+    () => {
+      const queue = createLineUpdateQueue<Partial<InvoiceImportLine>, InvoiceImportLine>({
         send: (lineId, fields) => patchInvoiceImportLine(importIdRef.current as number, lineId, fields),
         onOptimistic: (lineId, fields) =>
           setState((cur) => (cur ? { ...cur, lines: cur.lines.map((l) => (l.id === lineId ? applyLinePatch(l, fields) : l)) } : cur)),
         onSettled: (lineId, row) =>
           setState((cur) => (cur ? { ...cur, lines: cur.lines.map((l) => (l.id === lineId ? row : l)) } : cur)),
-        onError: (_lineId, err, isLatest) => {
+        onError: (lineId, err, isLatest, failureId) => {
           showToast(err instanceof Error ? err.message : 'Failed to update the invoice line.', 'error');
           const id = importIdRef.current;
           if (!isLatest || id === null) return;
           getInvoiceImport(id)
             .then((fresh) => {
-              if (fresh) setState((cur) => (cur ? { ...fresh, warnings: cur.warnings } : cur));
+              if (!fresh) return;
+              setState((cur) => (cur ? { ...fresh, warnings: cur.warnings } : cur));
+              // The screen now shows the server's row again, so the failed edit no longer blocks Commit.
+              queue.resolve(lineId, failureId);
             })
             .catch(() => {});
         },
-      }),
+      });
+      return queue;
+    },
     []
   );
 
