@@ -169,7 +169,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   start; already-correct entries are skipped.
 - The entrypoint validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` before chowning anything: absolute,
   normalised (letters, digits, `.`, `_`, `-`), strictly inside `/app`, not in the application code
-  (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`), and mutually disjoint (`LOG_DIR` may sit
+  (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`, and `/app/public` itself — its `uploads/` child is fine), and mutually disjoint (`LOG_DIR` may sit
   inside the data directory, as the default does, but not be or contain it) — otherwise
   it exits non-zero with a message. `UPLOAD_TMP_DIR`, if set, is validated by the app (well-formed, and
   not overlapping those directories inside the container, since it is swept at startup). `lib/config.js` `validateStoragePaths` applies the same rules
