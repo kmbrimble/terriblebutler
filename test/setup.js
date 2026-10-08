@@ -13,6 +13,13 @@ process.env.DB_PATH = tmpDbPath;
 const tmpLogDir = path.join(os.tmpdir(), `butler-test-logs-${crypto.randomBytes(8).toString('hex')}`);
 process.env.LOG_DIR = tmpLogDir;
 
+// Uploads never touch the real directories: stored images and multer scratch files both go
+// to throwaway directories, removed in afterAll.
+export const tmpUploadsDir = path.join(os.tmpdir(), `butler-test-uploads-${crypto.randomBytes(8).toString('hex')}`);
+export const tmpUploadScratchDir = path.join(os.tmpdir(), `butler-test-upload-tmp-${crypto.randomBytes(8).toString('hex')}`);
+process.env.UPLOADS_DIR = tmpUploadsDir;
+process.env.UPLOAD_TMP_DIR = tmpUploadScratchDir;
+
 export const TEST_USERNAME = 'testuser';
 export const TEST_PASSWORD = 'testpass123';
 
@@ -43,4 +50,6 @@ afterAll(() => {
     }
   }
   fs.rmSync(tmpLogDir, { recursive: true, force: true });
+  fs.rmSync(tmpUploadsDir, { recursive: true, force: true });
+  fs.rmSync(tmpUploadScratchDir, { recursive: true, force: true });
 });
