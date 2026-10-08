@@ -42,8 +42,6 @@ const EXPECTED_ROUTES = [
   'DELETE /api/items/:id',
   'DELETE /api/price-history/:id',
   'POST /api/parse-label-llm',
-  'POST /api/invoices/parse',
-  'POST /api/invoices/commit',
   'POST /api/invoices/import',
   'GET /api/invoices/import/:id',
   'DELETE /api/invoices/import/:id',

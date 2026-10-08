@@ -1,11 +1,10 @@
 const Fuse = require('fuse.js');
 const { findMatch, normaliseName } = require('../item-matching');
-const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
-const { callClaudeForJSON, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
+const { classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
 const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
-const { cleanText, finiteNumber, normaliseBarcode, sendMutationError, sendServerError, ValidationError, QUANTITY_MAX } = require('../lib/domain-helpers');
+const { cleanText, finiteNumber, sendMutationError, sendServerError, ValidationError, QUANTITY_MAX } = require('../lib/domain-helpers');
 const { invoiceDedupeKey } = require('../lib/invoice-dedupe');
 
 function findImportByDedupeKey(db, key) {
@@ -52,145 +51,6 @@ const INVOICE_LINE_PATCH_FIELDS = (validForeignId) => ({
 });
 
 function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validForeignId, upsertItemLocationQuantity }) {
-  app.post('/api/invoices/parse', invoiceUpload.single('invoice'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No invoice uploaded' });
-    }
-    try {
-      const rawText = await extractPdfText(req.file.path);
-      const parsedJson = await callClaudeForJSON({
-        userContent: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).\n\n${rawText}`,
-        toolName: 'invoice_items',
-        toolDescription: 'Record the invoice line items extracted from the supplied invoice text.',
-        schema: {
-          type: 'object',
-          properties: {
-            items: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  container_details: { type: 'string' },
-                  quantity: { type: 'number' },
-                  price: { type: 'number' },
-                  vendor: { type: 'string' },
-                },
-                required: ['name', 'container_details', 'quantity', 'price', 'vendor'],
-                additionalProperties: false,
-              },
-            },
-          },
-          required: ['items'],
-          additionalProperties: false,
-        },
-        maxTokens: 4096,
-      });
-      const { items, errors } = validateInvoiceItems(parsedJson);
-      if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
-      res.json(items);
-    } catch (err) {
-      const status = uploadErrorStatus(err);
-      if (status) return res.status(status).json({ error: err.message });
-      sendServerError(res, err, 'Failed to parse invoice');
-    } finally {
-      await discardUpload(req.file);
-    }
-  });
-
-  app.post('/api/invoices/commit', (req, res) => {
-    if (!Array.isArray(req.body.items)) {
-      return res.status(400).json({ error: 'Expected an array of items' });
-    }
-    if (req.body.items.length === 0) {
-      return res.status(400).json({ error: 'There are no invoice items to commit' });
-    }
-    // The client supplies every field here, so validate before anything is written: a negative
-    // quantity would otherwise subtract stock, and unbounded text or arrays would be stored as sent.
-    let itemsToCommit;
-    try {
-      if (req.body.items.length > config.INVOICE_IMPORT_MAX_LINES) {
-        throw new ValidationError(`An invoice commit accepts at most ${config.INVOICE_IMPORT_MAX_LINES} items.`);
-      }
-      itemsToCommit = req.body.items.map((item) => {
-        if (!item || typeof item !== 'object') throw new ValidationError('Each item must be an object');
-        return {
-          ...item,
-          name: cleanText(item.name, { required: true, max: 200 }),
-          barcode: normaliseBarcode(item.barcode),
-          container_details: cleanText(item.container_details, { max: 500 }),
-          quantity: finiteNumber(item.quantity, { name: 'Quantity', min: 0, max: QUANTITY_MAX }),
-          location_id: validForeignId('locations', item.location_id, 'Location'),
-          price: finiteNumber(item.price, { name: 'Price', min: 0 }),
-          vendor: cleanText(item.vendor, { max: 200 }),
-        };
-      });
-    } catch (err) {
-      return sendMutationError(res, err, 'Failed to commit invoice');
-    }
-    const existingItems = db.prepare('SELECT id, name, barcode, lowest_price FROM items').all();
-    const fuse = new Fuse(existingItems, {
-      keys: ['name'],
-      threshold: 0.3
-    });
-    const insertItem = db.prepare(`
-      INSERT INTO items (name, barcode, container_details, last_price, lowest_price)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const touchItem = db.prepare('UPDATE items SET last_price = ?, lowest_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-    const insertPriceHistory = db.prepare(`
-      INSERT INTO price_history (item_id, price, vendor)
-      VALUES (?, ?, ?)
-    `);
-    try {
-      db.transaction(() => {
-        for (const item of itemsToCommit) {
-          // Match hierarchy: barcode > exact normalised name > user-confirmed (matchDecision) >
-          // fuzzy (suggestion only, never auto-applied). See item-matching.js.
-          let matchedItem = null;
-          if (item.matchDecision && item.matchDecision !== 'new') {
-            matchedItem = existingItems.find((i) => i.id === Number(item.matchDecision)) || null;
-          } else if (item.matchDecision !== 'new') {
-            const match = findMatch(existingItems, { barcode: item.barcode || null, name: item.name }, fuse);
-            if (match.type === 'barcode' || match.type === 'exact_name') matchedItem = match.item;
-          }
-
-          const locationId = item.location_id;
-          let itemId;
-          if (matchedItem) {
-            itemId = matchedItem.id;
-            let newLowest = matchedItem.lowest_price;
-            if (newLowest === 0 || item.price < newLowest) {
-              newLowest = item.price;
-            }
-            touchItem.run(item.price, newLowest, itemId);
-            matchedItem.lowest_price = newLowest;
-            upsertItemLocationQuantity(itemId, locationId, 'add', item.quantity);
-          } else {
-            const info = insertItem.run(
-              item.name,
-              item.barcode || null,
-              item.container_details || '',
-              item.price,
-              item.price
-            );
-            itemId = info.lastInsertRowid;
-            upsertItemLocationQuantity(itemId, locationId, 'add', item.quantity);
-            // Update the in-memory match set so later line items in this same commit can
-            // match against items just inserted, without re-querying the database.
-            existingItems.push({ id: itemId, name: item.name, barcode: item.barcode || null, lowest_price: item.price });
-            fuse.setCollection(existingItems);
-          }
-          insertPriceHistory.run(itemId, item.price, item.vendor);
-        }
-      })();
-      broadcastUpdate('invoice_commit', {});
-      res.json({ message: 'Invoice items committed successfully' });
-    } catch (err) {
-      sendServerError(res, err, 'Failed to commit invoice');
-    }
-  });
-
   // --- INVOICE IMPORT (Coles/Woolworths deterministic parsers + review staging) ---
   app.post('/api/invoices/import', invoiceUpload.single('invoice'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No invoice uploaded' });

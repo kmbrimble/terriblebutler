@@ -30,46 +30,7 @@ afterEach(() => {
 const importPdf = (a, file) => api(a).post('/api/invoices/import').attach('invoice', file);
 const importRows = () => db.prepare('SELECT COUNT(*) AS n FROM invoice_imports').get().n;
 
-describe('POST /api/invoices/commit validation (#42)', () => {
-  const commit = (items) => api(app).post('/api/invoices/commit').send({ items });
-  const item = (over = {}) => ({ name: `Commit Probe ${Math.random()}`, quantity: 1, price: 1, vendor: 'Test', ...over });
-  const itemCount = () => db.prepare('SELECT COUNT(*) AS n FROM items').get().n;
-
-  it('rejects a location_id that does not exist, writing nothing', async () => {
-    const before = itemCount();
-    const res = await commit([item({ location_id: 987654 })]);
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Location does not exist/);
-    expect(itemCount()).toBe(before);
-  });
-
-  it('stores stock at a valid location_id given as a string', async () => {
-    const loc = db.prepare('SELECT id FROM locations LIMIT 1').get().id;
-    const name = `Commit Located ${Date.now()}`;
-    const res = await commit([item({ name, location_id: String(loc) })]);
-    expect(res.status).toBe(200);
-    const row = db.prepare('SELECT il.location_id FROM items i JOIN item_locations il ON il.item_id = i.id WHERE i.name = ?').get(name);
-    expect(row.location_id).toBe(loc);
-  });
-
-  it.each([[-1], [1000001], ['abc']])('rejects quantity %s', async (quantity) => {
-    const before = itemCount();
-    const res = await commit([item({ quantity })]);
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Quantity/);
-    expect(itemCount()).toBe(before);
-  });
-
-  it('accepts the maximum quantity', async () => {
-    expect((await commit([item({ quantity: 1000000 })])).status).toBe(200);
-  });
-
-  it('rejects an empty commit rather than reporting success (#47)', async () => {
-    const res = await commit([]);
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/no invoice items/i);
-  });
-
+describe('stock quantity bounds (#42)', () => {
   it('the database itself refuses negative stock', () => {
     const id = db.prepare("INSERT INTO items (name) VALUES ('Trigger probe')").run().lastInsertRowid;
     expect(() => db.prepare('INSERT INTO item_locations (item_id, location_id, quantity) VALUES (?, NULL, -1)').run(id)).toThrow(/negative/);
@@ -287,7 +248,7 @@ describe('import line quantity bound (#42)', () => {
 
 describe('review follow-ups', () => {
   it.each(['1abc', '1.9', '1e2', -1, 0, {}])('a malformed foreign id %j is rejected, not coerced to another row', async (bad) => {
-    const res = await api(app).post('/api/invoices/commit').send({ items: [{ name: 'Bad id', quantity: 1, price: 1, vendor: 'T', location_id: bad }] });
+    const res = await api(app).post('/api/items').send({ name: 'Bad id', location_id: bad });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Location/);
   });

@@ -159,10 +159,10 @@ loosening one is a normal, deliberate change rather than a stop-and-ask.
   are vestigial too: `item_locations` is the source of truth.
 - `invoice_imports` and `invoice_import_lines` hold the deterministic Coles/Woolworths
   import's server-side staging state (added alongside that flow; confirmed live-empty at the
-  time of the stage-4 React port, 0 rows in each). The plain LLM-parse invoice upload
-  (`/api/invoices/parse` + `/api/invoices/commit`) is unrelated and keeps its staging list
-  entirely client-side — no table backs it. There is still no dedicated `vendor` table;
-  vendors are free-text in `price_history.vendor`.
+  time of the stage-4 React port, 0 rows in each). It is the only invoice path: the old plain
+  LLM-parse upload (`/api/invoices/parse` + `/api/invoices/commit`) was removed because nothing
+  used it after `/legacy` was retired and it had no duplicate protection. There is still no
+  dedicated `vendor` table; vendors are free-text in `price_history.vendor`.
 
 ## Container runtime (non-root)
 
