@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import './setup.js';
+import { loadFreshApp } from './fresh-app.js';
 
+// The suite raises the login limit; these tests need the production 5, on a freshly loaded module.
+loadFreshApp({ LOGIN_RATE_LIMIT_MAX: '5' });
 const middleware = createRequire(import.meta.url)('../lib/middleware.js');
 const { clientKey, loginRateLimiter, MAX_RATE_LIMIT_BUCKETS } = middleware;
 const reqFor = (ip) => ({ ip, socket: {} });

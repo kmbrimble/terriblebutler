@@ -3,6 +3,7 @@ import request from 'supertest';
 import './setup.js';
 import { api } from './setup.js';
 import pkg from '../server.js';
+import { loadFreshApp } from './fresh-app.js';
 
 const { app } = pkg;
 
@@ -68,7 +69,8 @@ describe('Stage 3-lite features', () => {
   });
 
   it('the login rate limit stays at its production default of 5/15min when LOGIN_RATE_LIMIT_MAX is unset', async () => {
-    const res = await request(app).post('/api/auth/login').send({ username: 'nobody', password: 'wrong' });
+    const { app: freshApp } = loadFreshApp({ LOGIN_RATE_LIMIT_MAX: undefined });
+    const res = await request(freshApp).post('/api/auth/login').send({ username: 'nobody', password: 'wrong' });
 
     expect(res.headers['ratelimit-limit']).toBe('5');
   });

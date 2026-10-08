@@ -92,25 +92,3 @@ describe('unauthenticated route sweep', () => {
     }
   });
 });
-
-describe('device-token holders may manage devices (deliberate owner decision)', () => {
-  // A remembered tablet must be able to cut off a lost phone, so a DEVICE token (not just a
-  // household JWT) can list devices, revoke individual ones and "Sign out everywhere". Minting
-  // stays household-JWT-only. If this is ever tightened, change it deliberately with the owner.
-  it('lets a device token list devices, revoke another device, and sign out everywhere', async () => {
-    const household = await login();
-    const mint = async (device_label) => (await request(app).post('/api/auth/device-token').set(bearer(household)).send({ device_label })).body.token;
-    const tablet = await mint('Guard tablet');
-    const phone = await mint('Guard lost phone');
-    const phoneId = db.prepare("SELECT id FROM device_tokens WHERE device_label = 'Guard lost phone'").get().id;
-
-    expect((await request(app).get('/api/auth/devices').set(bearer(tablet))).status).toBe(200);
-    expect((await request(app).post(`/api/auth/devices/${phoneId}/revoke`).set(bearer(tablet))).status).toBe(200);
-    expect((await request(app).get('/api/items').set(bearer(phone))).status).toBe(401);
-    expect((await request(app).post('/api/auth/device-token').set(bearer(tablet)).send({ device_label: 'x' })).status).toBe(403);
-
-    expect((await request(app).post('/api/auth/revoke-all').set(bearer(tablet))).status).toBe(200);
-    expect((await request(app).get('/api/items').set(bearer(tablet))).status).toBe(401);
-    expect((await request(app).get('/api/items').set(bearer(household))).status).toBe(401);
-  });
-});

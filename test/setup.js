@@ -29,6 +29,11 @@ export const TEST_PASSWORD = 'testpass123';
 // that from one address. Tests of the limiter itself set their own maximum on a fresh app.
 process.env.LLM_RATE_LIMIT_MAX ??= '1000';
 
+// Login and step-up re-authentication (revoke, sign out everywhere) share the 5-per-15-minutes
+// login limiter, and the suite does far more of both from one address. Tests of the limiter
+// itself load a fresh app with LOGIN_RATE_LIMIT_MAX=5.
+process.env.LOGIN_RATE_LIMIT_MAX ??= '1000';
+
 process.env.AUTH_USERNAME = TEST_USERNAME;
 process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 4);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');

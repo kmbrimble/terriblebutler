@@ -116,7 +116,7 @@ describe('Socket.IO sessions end with their credential (#56)', () => {
 
     const gone = disconnected(sockA);
     const idA = db.prepare("SELECT id FROM device_tokens WHERE device_label = 'Socket A'").get().id;
-    expect((await post(`/api/auth/devices/${idA}/revoke`, jwtToken).send()).status).toBe(200);
+    expect((await post(`/api/auth/devices/${idA}/revoke`, jwtToken).send({ password: TEST_PASSWORD })).status).toBe(200);
     await gone;
 
     expect(sockA.connected).toBe(false);
@@ -133,7 +133,7 @@ describe('Socket.IO sessions end with their credential (#56)', () => {
     const sockJwt = await openSocket(jwtToken);
 
     const gone = Promise.all([disconnected(sockDevice), disconnected(sockJwt)]);
-    expect((await post('/api/auth/revoke-all', jwtToken).send()).status).toBe(200);
+    expect((await post('/api/auth/revoke-all', jwtToken).send({ password: TEST_PASSWORD })).status).toBe(200);
     await gone;
 
     expect(sockDevice.connected).toBe(false);

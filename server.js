@@ -88,11 +88,13 @@ const { authenticateToken, credentialFromRequest, requireAuth, requireHouseholdJ
 const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry, app.get('trust proxy fn'));
 
 // --- AUTH ---
+// One backoff for login and for step-up re-authentication, so a failed re-auth counts as a failed login.
+const loginBackoff = createLoginBackoff();
 // Login runs before requireAuth, so it is audited (outcome + IP, no body) rather than logged.
 app.use('/api/auth/login', middleware.loginAuditLogger(logAction));
 registerLoginRoute(app, {
   loginRateLimiter: middleware.loginRateLimiter,
-  loginBackoff: createLoginBackoff(),
+  loginBackoff,
   AUTH_USERNAME: config.AUTH_USERNAME,
   AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
   JWT_SECRET: config.JWT_SECRET,
@@ -107,7 +109,7 @@ app.use('/api', requireAuth);
 // authenticated, non-throttled requests have their bodies logged.
 app.use('/api', middleware.actionLogger(logAction));
 
-registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets });
+registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter: middleware.loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH });
 
 // --- LOCATION ENDPOINTS ---
 registerLocationRoutes(app, { db, broadcastUpdate });
