@@ -50,9 +50,6 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // it can't shadow /api or /uploads regardless of registration order.
 app.use('/legacy', express.static(path.join(__dirname, 'public')));
 
-// Verbose action logging (#14): every mutating /api/* call, request + response body.
-app.use('/api', middleware.actionLogger(logAction));
-
 registerHealthzRoute(app, { APP_VERSION });
 
 app.use('/api', middleware.generalApiRateLimiter);
@@ -76,6 +73,8 @@ const { authenticateToken, requireAuth } = middleware.createAuth(db);
 const { io, broadcastUpdate } = createRealtime(server, authenticateToken);
 
 // --- AUTH ---
+// Login runs before requireAuth, so it is audited (outcome + IP, no body) rather than logged.
+app.use('/api/auth/login', middleware.loginAuditLogger(logAction));
 registerLoginRoute(app, {
   loginRateLimiter: middleware.loginRateLimiter,
   AUTH_USERNAME: config.AUTH_USERNAME,
@@ -86,6 +85,10 @@ registerLoginRoute(app, {
 registerApiHealthRoute(app, { APP_VERSION });
 
 app.use('/api', requireAuth);
+
+// Verbose action logging (#14, #52): mounted after the rate limiters and requireAuth so only
+// authenticated, non-throttled requests have their bodies logged.
+app.use('/api', middleware.actionLogger(logAction));
 
 registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken });
 
