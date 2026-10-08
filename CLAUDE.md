@@ -137,6 +137,21 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   Dependabot bumps it. Debian apt packages are deliberately not version-pinned (builder stage
   only, discarded; pinned apt versions disappear from mirrors and break builds).
 
+## Client IP and rate limits
+
+- `TRUST_PROXY` (`lib/config.js`, validated at startup, logged at listen): unset = trust no
+  forwarded headers (`req.ip` is the socket peer). Accepts a hop count or a comma-separated
+  list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
+  list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
+  so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
+  (IPv4-mapped IPv6 folded). Recommended value for this deployment: see `HANDOFF-pipeline.md`.
+- `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
+  (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
+  flight) and failures come back as `warnings` in the import response.
+- The action log (`logger.js`) records only authenticated, non-throttled mutating calls
+  (bodies redacted recursively and truncated); logins are body-less `event: login` audit lines.
+  500 responses carry a `correlation_id`; the full error is in the server log under that id.
+
 ## Pre-change backup
 
 Before any change that alters the database schema or write paths, take the snapshot yourself
