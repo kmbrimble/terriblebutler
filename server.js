@@ -43,11 +43,6 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'client/dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// legacy: the original front end, kept live at /legacy as a one-week rollback safety net
-// after the cutover to the React client (see CHANGELOG). Scoped entirely under /legacy, so
-// it can't shadow /api or /uploads regardless of registration order.
-app.use('/legacy', express.static(path.join(__dirname, 'public')));
-
 // Verbose action logging (#14): every mutating /api/* call, request + response body.
 app.use('/api', middleware.actionLogger(logAction));
 
@@ -103,7 +98,7 @@ registerUploadRoutes(app, { db, imageUpload: middleware.imageUpload });
 
 registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: middleware.invoiceUpload, validForeignId, upsertItemLocationQuantity });
 
-// React client SPA fallback. Registered after every /api route (and /uploads, /legacy above)
+// React client SPA fallback. Registered after every /api route (and /uploads above)
 // so this wildcard can't shadow them — any request that fell through all of those is a
 // client-side route or a hard refresh/deep link into the React app.
 app.get('/{*splat}', (req, res) => {

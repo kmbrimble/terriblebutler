@@ -2,8 +2,9 @@
 
 Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `engines`,
 `.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
-Socket.IO, with a single large `public/index.html` front end (Tailwind via CDN, html5-qrcode
-barcode scanning, Cropper.js, Chart.js). Product labels and invoices are parsed via a local
+Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
+html5-qrcode barcode scanning, Cropper.js 2, Chart.js). The old single-file `public/index.html` front end and its
+`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed via a local
 vision LLM.
 
 Use British/Australian English in all writing, comments, and UI text.
@@ -27,7 +28,7 @@ milestone itself.
 - **Backend (Vitest + supertest):** `npm test` — tests in `test/`
 - **Frontend (Playwright):** `npm run test:e2e` — tests in `test-e2e/`
 
-Run `npm test` for any change. Also run `npm run test:e2e` if `public/index.html` or anything
+Run `npm test` for any change. Also run `npm run test:e2e` if `client/` or anything
 affecting browser behaviour changed.
 
 Tests use a temporary database via the `DB_PATH` environment variable. They must never read or
@@ -210,5 +211,3 @@ username/password, and this is intentionally the only recovery path:
 
 - Do not modify `.github/workflows/` unless the request is explicitly about CI.
 - Do not modify the live container, live database, or live uploads directory.
-- `public/index.html` is large; use `repository-reader` to locate the relevant section rather
-  than reading the whole file into context.

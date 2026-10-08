@@ -17,7 +17,7 @@ import { requestWithRateLimitRetry } from './rateLimitWait.js';
 // server.js applies real rate limiters shared across the WHOLE e2e run — a mutationRateLimiter
 // (90 POST/PUT/PATCH/DELETE per 60s per IP) and a generalApiRateLimiter (240 /api requests per
 // 60s per IP, GETs included) — confirmed in server.js, not something this stage may touch. The
-// legacy 24-spec suite alone consumes 69 of the mutation budget, so this file creates fixtures
+// suite as a whole shares that mutation budget, so this file creates fixtures
 // ONCE in beforeAll, multi-purposes them heavily (one item often serves several assertions),
 // and merges independent read-only checks into as few page.goto() calls as practical (each
 // page load costs 3 GETs). Every test still isolates its own assertions from other specs'
