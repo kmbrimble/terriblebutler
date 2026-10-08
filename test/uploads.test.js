@@ -366,13 +366,11 @@ describe('invoice PDFs are bounded and never stored (#41/#60)', () => {
   const send = (route, buf) =>
     api(app).post(route).attach('invoice', buf, { filename: 'invoice.pdf', contentType: 'application/pdf' });
 
-  it('rejects a PDF over the page limit on /api/invoices/import and /api/invoices/parse', async () => {
+  it('rejects a PDF over the page limit on /api/invoices/import', async () => {
     const tooLong = pdf(uploads.MAX_PDF_PAGES + 1);
-    for (const route of ['/api/invoices/import', '/api/invoices/parse']) {
-      const res = await send(route, tooLong);
-      expect(res.status, route).toBe(422);
-      expect(res.body.error).toMatch(/pages/i);
-    }
+    const res = await send('/api/invoices/import', tooLong);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/pages/i);
     await scratchEmpty();
   });
 

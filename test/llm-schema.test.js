@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateLabelResult, validateInvoiceItems } from '../llm-schema.js';
+import { validateLabelResult } from '../llm-schema.js';
 
 describe('validateLabelResult', () => {
   it('passes through a well-formed response, trimmed', () => {
@@ -79,50 +79,3 @@ describe('validateLabelResult', () => {
   });
 });
 
-describe('validateInvoiceItems', () => {
-  it('accepts a bare array of well-formed items', () => {
-    const { items, errors } = validateInvoiceItems([
-      { name: 'Milk 2L', quantity: 2, price: 4.5, vendor: 'Coles', container_details: '2L' },
-    ]);
-    expect(errors).toEqual([]);
-    expect(items).toEqual([{ name: 'Milk 2L', container_details: '2L', quantity: 2, price: 4.5, vendor: 'Coles', barcode: null }]);
-  });
-
-  it('unwraps an { items: [...] } envelope', () => {
-    const { items } = validateInvoiceItems({ items: [{ name: 'Bread', quantity: 1, price: 3 }] });
-    expect(items).toHaveLength(1);
-    expect(items[0].name).toBe('Bread');
-  });
-
-  it('drops an item missing a name', () => {
-    const { items, errors } = validateInvoiceItems([{ quantity: 1, price: 1 }]);
-    expect(items).toEqual([]);
-    expect(errors[0]).toMatch(/missing or invalid name/);
-  });
-
-  it('drops an item with a non-numeric or negative quantity', () => {
-    const { items, errors } = validateInvoiceItems([
-      { name: 'A', quantity: 'two', price: 1 },
-      { name: 'B', quantity: -1, price: 1 },
-      { name: 'C', quantity: null, price: 1 },
-    ]);
-    expect(items).toEqual([]);
-    expect(errors).toHaveLength(3);
-  });
-
-  it('defaults an invalid price to 0 rather than dropping the item', () => {
-    const { items, errors } = validateInvoiceItems([{ name: 'A', quantity: 1, price: 'free' }]);
-    expect(items).toHaveLength(1);
-    expect(items[0].price).toBe(0);
-    expect(errors).toEqual([]);
-  });
-
-  it('returns an empty result for completely malformed input instead of throwing', () => {
-    for (const bad of [null, 'a string', 42, { foo: 'bar' }, [null, 'x', 5]]) {
-      const { items, errors } = validateInvoiceItems(bad);
-      expect(Array.isArray(items)).toBe(true);
-      expect(items.every((i) => typeof i.name === 'string')).toBe(true);
-      expect(Array.isArray(errors)).toBe(true);
-    }
-  });
-});

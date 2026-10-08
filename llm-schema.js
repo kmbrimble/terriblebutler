@@ -1,10 +1,6 @@
 // LLM output is untrusted input: validate its shape explicitly rather than trusting
 // whatever JSON the model returns. Malformed/missing/wrong-typed fields are dropped or
 // defaulted here rather than flowing straight into inventory data.
-function isFiniteNumber(value) {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -42,39 +38,6 @@ function validateLabelResult(data) {
   };
 }
 
-// Invoice line items — drops any item missing a name or a valid quantity rather than
-// passing malformed data through to the DB. Returns { items, errors } so the caller can
-// log what was dropped and why.
-function validateInvoiceItems(data) {
-  const rawItems = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
-  const items = [];
-  const errors = [];
-  rawItems.forEach((raw, idx) => {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-      errors.push(`item ${idx}: not an object`);
-      return;
-    }
-    const name = cleanString(raw.name);
-    if (!name) {
-      errors.push(`item ${idx}: missing or invalid name`);
-      return;
-    }
-    if (!isFiniteNumber(raw.quantity) || raw.quantity < 0) {
-      errors.push(`item ${idx} (${name}): missing or invalid quantity`);
-      return;
-    }
-    items.push({
-      name,
-      container_details: cleanString(raw.container_details),
-      quantity: raw.quantity,
-      price: isFiniteNumber(raw.price) && raw.price >= 0 ? raw.price : 0,
-      vendor: cleanString(raw.vendor),
-      barcode: cleanString(raw.barcode) || null,
-    });
-  });
-  return { items, errors };
-}
-
 // Text-only classification result (invoice-import Stage B: category/location suggestion
 // for a line item with no deterministic existing-item match). Same drop-or-default
 // philosophy as validateLabelResult, minus the fields that call doesn't ask the LLM for.
@@ -91,4 +54,4 @@ function validateClassifyResult(data) {
   return { category_name: categoryName, location_name: locationName, errors };
 }
 
-module.exports = { validateLabelResult, validateInvoiceItems, validateClassifyResult };
+module.exports = { validateLabelResult, validateClassifyResult };

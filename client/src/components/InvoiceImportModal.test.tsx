@@ -22,6 +22,8 @@ function makeLine(overrides: Partial<InvoiceImportLine> = {}): InvoiceImportLine
     final_container_details: null,
     barcode_scanned: null,
     qty_confirmed: null,
+    category_cleared: 0,
+    location_cleared: 0,
     line_status: 'pending',
     ...overrides,
   };

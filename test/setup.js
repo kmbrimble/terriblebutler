@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 import { afterAll } from 'vitest';
 
 const tmpDbPath = path.join(os.tmpdir(), `butler-test-${crypto.randomBytes(8).toString('hex')}.db`);
@@ -64,3 +65,17 @@ afterAll(() => {
   fs.rmSync(tmpUploadsDir, { recursive: true, force: true });
   fs.rmSync(tmpUploadScratchDir, { recursive: true, force: true });
 });
+
+// The invoice fixtures are reused across many tests, and a duplicate invoice is now refused
+// (#44), so tests that import the same PDF repeatedly start from no staged imports.
+export function clearInvoiceImports() {
+  const conn = new Database(process.env.DB_PATH);
+  try {
+    // A file that has not opened the app yet has no tables to clear.
+    if (conn.prepare("SELECT 1 FROM sqlite_master WHERE name = 'invoice_imports'").get()) {
+      conn.exec('DELETE FROM invoice_import_lines; DELETE FROM invoice_imports;');
+    }
+  } finally {
+    conn.close();
+  }
+}

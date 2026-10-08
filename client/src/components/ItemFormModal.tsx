@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { numberOrZero } from '../lib/numberInput';
 import { createItem, updateItem, updateItemQuantity, matchItem, parseLabelImage, createCategory, createLocation } from '../lib/api';
 import type { Item, Location, Category, ItemPayload, MatchResult } from '../lib/api';
 import { deriveLabelScanUpdate } from '../lib/labelScan';
@@ -60,7 +61,7 @@ export function ItemFormModal({
       name,
       category_id: categoryId,
       container_details: containerDetails,
-      reorder_threshold: parseFloat(threshold),
+      reorder_threshold: numberOrZero(threshold),
     };
     if (mode === 'add') {
       payload.location_id = locationId;

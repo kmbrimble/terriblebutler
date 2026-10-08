@@ -1,11 +1,26 @@
 const Fuse = require('fuse.js');
 const { findMatch, normaliseName } = require('../item-matching');
-const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
-const { callClaudeForJSON, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
+const { classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
 const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
-const { cleanText, finiteNumber, normaliseBarcode, sendMutationError, sendServerError } = require('../lib/domain-helpers');
+const { cleanText, finiteNumber, sendMutationError, sendServerError, ValidationError, QUANTITY_MAX, PRICE_MAX, LINE_TOTAL_MAX } = require('../lib/domain-helpers');
+const { invoiceDedupeKey } = require('../lib/invoice-dedupe');
+
+function findImportByDedupeKey(db, key) {
+  return db.prepare('SELECT id, retailer, invoice_number, invoice_date, status FROM invoice_imports WHERE dedupe_key = ?').get(key);
+}
+
+function sendDuplicateInvoice(res, existing) {
+  const inProgress = existing.status !== 'committed';
+  return res.status(409).json({
+    code: 'duplicate_invoice',
+    error: inProgress
+      ? 'This invoice has already been uploaded and is waiting for review.'
+      : 'This invoice has already been imported.',
+    existing_import: existing,
+  });
+}
 
 function getImportWithLines(db, importId) {
   const importRow = db.prepare('SELECT * FROM invoice_imports WHERE id = ?').get(importId);
@@ -13,6 +28,10 @@ function getImportWithLines(db, importId) {
   const lines = db.prepare('SELECT * FROM invoice_import_lines WHERE import_id = ? ORDER BY id').all(importId);
   return { import: importRow, lines };
 }
+
+// Patching a final category/location to null is an explicit "none", not "fall back to the
+// suggestion" (#46), so the matching *_cleared flag is derived from it in the same UPDATE.
+const CLEARED_FLAG = { final_category_id: 'category_cleared', final_location_id: 'location_cleared' };
 
 const INVOICE_LINE_PATCH_FIELDS = (validForeignId) => ({
   final_category_id: (v) => validForeignId('categories', v, 'Category'),
@@ -23,153 +42,19 @@ const INVOICE_LINE_PATCH_FIELDS = (validForeignId) => ({
   // UI's "merge into existing item" control patches this straight through; null means
   // "add as new", same as an unmatched line at parse time.
   matched_item_id: (v) => validForeignId('items', v, 'Matched item'),
-  qty_confirmed: (v) => finiteNumber(v, { name: 'Confirmed quantity', min: 0, allowNull: true }),
+  qty_confirmed: (v) => finiteNumber(v, { name: 'Confirmed quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
   barcode_scanned: (v) => cleanText(v, { max: 128 }) || null,
   line_status: (v) => {
-    if (!['pending', 'reviewed', 'skipped'].includes(v)) throw new Error('Invalid line_status');
+    if (!['pending', 'reviewed', 'skipped'].includes(v)) throw new ValidationError('Invalid line_status');
     return v;
   },
 });
 
 function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validForeignId, upsertItemLocationQuantity }) {
-  app.post('/api/invoices/parse', invoiceUpload.single('invoice'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No invoice uploaded' });
-    }
-    try {
-      const rawText = await extractPdfText(req.file.path);
-      const parsedJson = await callClaudeForJSON({
-        userContent: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).\n\n${rawText}`,
-        toolName: 'invoice_items',
-        toolDescription: 'Record the invoice line items extracted from the supplied invoice text.',
-        schema: {
-          type: 'object',
-          properties: {
-            items: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  container_details: { type: 'string' },
-                  quantity: { type: 'number' },
-                  price: { type: 'number' },
-                  vendor: { type: 'string' },
-                },
-                required: ['name', 'container_details', 'quantity', 'price', 'vendor'],
-                additionalProperties: false,
-              },
-            },
-          },
-          required: ['items'],
-          additionalProperties: false,
-        },
-        maxTokens: 4096,
-      });
-      const { items, errors } = validateInvoiceItems(parsedJson);
-      if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
-      res.json(items);
-    } catch (err) {
-      const status = uploadErrorStatus(err);
-      if (status) return res.status(status).json({ error: err.message });
-      sendServerError(res, err, 'Failed to parse invoice');
-    } finally {
-      await discardUpload(req.file);
-    }
-  });
-
-  app.post('/api/invoices/commit', (req, res) => {
-    if (!Array.isArray(req.body.items)) {
-      return res.status(400).json({ error: 'Expected an array of items' });
-    }
-    // The client supplies every field here, so validate before anything is written: a negative
-    // quantity would otherwise subtract stock, and unbounded text or arrays would be stored as sent.
-    let itemsToCommit;
-    try {
-      if (req.body.items.length > config.INVOICE_IMPORT_MAX_LINES) {
-        throw new Error(`An invoice commit accepts at most ${config.INVOICE_IMPORT_MAX_LINES} items.`);
-      }
-      itemsToCommit = req.body.items.map((item) => {
-        if (!item || typeof item !== 'object') throw new Error('Each item must be an object');
-        return {
-          ...item,
-          name: cleanText(item.name, { required: true, max: 200 }),
-          barcode: normaliseBarcode(item.barcode),
-          container_details: cleanText(item.container_details, { max: 500 }),
-          quantity: finiteNumber(item.quantity, { name: 'Quantity', min: 0 }),
-          price: finiteNumber(item.price, { name: 'Price', min: 0 }),
-          vendor: cleanText(item.vendor, { max: 200 }),
-        };
-      });
-    } catch (err) {
-      return sendMutationError(res, err);
-    }
-    const existingItems = db.prepare('SELECT id, name, barcode, lowest_price FROM items').all();
-    const fuse = new Fuse(existingItems, {
-      keys: ['name'],
-      threshold: 0.3
-    });
-    const insertItem = db.prepare(`
-      INSERT INTO items (name, barcode, container_details, last_price, lowest_price)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const touchItem = db.prepare('UPDATE items SET last_price = ?, lowest_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-    const insertPriceHistory = db.prepare(`
-      INSERT INTO price_history (item_id, price, vendor)
-      VALUES (?, ?, ?)
-    `);
-    try {
-      db.transaction(() => {
-        for (const item of itemsToCommit) {
-          // Match hierarchy: barcode > exact normalised name > user-confirmed (matchDecision) >
-          // fuzzy (suggestion only, never auto-applied). See item-matching.js.
-          let matchedItem = null;
-          if (item.matchDecision && item.matchDecision !== 'new') {
-            matchedItem = existingItems.find((i) => i.id === Number(item.matchDecision)) || null;
-          } else if (item.matchDecision !== 'new') {
-            const match = findMatch(existingItems, { barcode: item.barcode || null, name: item.name }, fuse);
-            if (match.type === 'barcode' || match.type === 'exact_name') matchedItem = match.item;
-          }
-
-          const locationId = item.location_id ? parseInt(item.location_id) : null;
-          let itemId;
-          if (matchedItem) {
-            itemId = matchedItem.id;
-            let newLowest = matchedItem.lowest_price;
-            if (newLowest === 0 || item.price < newLowest) {
-              newLowest = item.price;
-            }
-            touchItem.run(item.price, newLowest, itemId);
-            matchedItem.lowest_price = newLowest;
-            upsertItemLocationQuantity(itemId, locationId, 'add', item.quantity);
-          } else {
-            const info = insertItem.run(
-              item.name,
-              item.barcode || null,
-              item.container_details || '',
-              item.price,
-              item.price
-            );
-            itemId = info.lastInsertRowid;
-            upsertItemLocationQuantity(itemId, locationId, 'add', item.quantity);
-            // Update the in-memory match set so later line items in this same commit can
-            // match against items just inserted, without re-querying the database.
-            existingItems.push({ id: itemId, name: item.name, barcode: item.barcode || null, lowest_price: item.price });
-            fuse.setCollection(existingItems);
-          }
-          insertPriceHistory.run(itemId, item.price, item.vendor);
-        }
-      })();
-      broadcastUpdate('invoice_commit', {});
-      res.json({ message: 'Invoice items committed successfully' });
-    } catch (err) {
-      sendServerError(res, err, 'Failed to commit invoice');
-    }
-  });
-
   // --- INVOICE IMPORT (Coles/Woolworths deterministic parsers + review staging) ---
   app.post('/api/invoices/import', invoiceUpload.single('invoice'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No invoice uploaded' });
+    let dedupeKey = null;
     try {
       const text = await extractPdfText(req.file.path);
 
@@ -177,12 +62,38 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       if (!parsed.retailer) {
         return res.status(422).json({ error: parsed.error || 'Could not detect retailer from this PDF.' });
       }
+      // A header with nothing under it can only be committed as an empty "success" (#47).
+      if (parsed.lines.length === 0) {
+        return res.status(422).json({ error: 'No line items could be found in this invoice, so there is nothing to import.' });
+      }
       // Bounds the LLM work and staging rows one upload can cause (#55).
       if (parsed.lines.length > config.INVOICE_IMPORT_MAX_LINES) {
         return res.status(422).json({
           error: `This invoice has ${parsed.lines.length} lines, more than the ${config.INVOICE_IMPORT_MAX_LINES} an import accepts.`,
         });
       }
+      // The lines come from an uploaded file, so they are validated like any client input: an
+      // unbounded or negative parsed quantity would otherwise be committed as the default
+      // quantity of every line the reviewer does not retype.
+      try {
+        parsed.lines = parsed.lines.map((line) => ({
+          ...line,
+          raw_name: cleanText(line.raw_name, { required: true, max: 500 }),
+          qty_ordered: finiteNumber(line.qty_ordered, { name: 'Ordered quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
+          qty_supplied: finiteNumber(line.qty_supplied, { name: 'Supplied quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
+          unit_price: finiteNumber(line.unit_price, { name: 'Unit price', min: 0, max: PRICE_MAX, allowNull: true }),
+          line_total: finiteNumber(line.line_total, { name: 'Line total', min: 0, max: LINE_TOTAL_MAX, allowNull: true }),
+        }));
+      } catch (err) {
+        if (!(err instanceof ValidationError)) throw err;
+        return res.status(422).json({ error: `This invoice could not be read safely: ${err.message}.` });
+      }
+      // The same invoice twice would add its stock and price history twice (#44). Checked before
+      // any LLM spend; the UNIQUE index on dedupe_key is what actually guarantees it, and also
+      // catches two uploads racing past this check.
+      dedupeKey = invoiceDedupeKey(parsed.retailer, parsed.invoice_number, text);
+      const duplicate = findImportByDedupeKey(db, dedupeKey);
+      if (duplicate) return sendDuplicateInvoice(res, duplicate);
       const warnings = [];
 
       // items.location_id is a vestigial column POST /api/items deliberately never writes —
@@ -271,9 +182,9 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       // transaction: a failure can never leave an empty or partial import to be reviewed.
       const stageImport = db.transaction(() => {
         const info = db.prepare(`
-          INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename)
-          VALUES (?, ?, ?, ?)
-        `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname);
+          INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename, dedupe_key)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname, dedupeKey);
         const id = Number(info.lastInsertRowid);
         for (const r of resolved) {
           insertLine.run(
@@ -289,6 +200,10 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     } catch (err) {
       const status = uploadErrorStatus(err);
       if (status) return res.status(status).json({ error: err.message });
+      if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE' && dedupeKey) {
+        const duplicate = findImportByDedupeKey(db, dedupeKey);
+        if (duplicate) return sendDuplicateInvoice(res, duplicate);
+      }
       sendServerError(res, err, 'Failed to import invoice');
     } finally {
       await discardUpload(req.file);
@@ -325,17 +240,25 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     const importRow = db.prepare('SELECT status FROM invoice_imports WHERE id = ?').get(importId);
     if (importRow.status === 'committed') return res.status(409).json({ error: 'This import has already been committed' });
 
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Expected an object containing invoice-line fields' });
+    }
     const updates = [];
     const values = [];
     try {
       for (const [field, validate] of Object.entries(patchFields)) {
         if (field in req.body) {
+          const value = validate(req.body[field]);
           updates.push(`${field} = ?`);
-          values.push(validate(req.body[field]));
+          values.push(value);
+          if (CLEARED_FLAG[field]) {
+            updates.push(`${CLEARED_FLAG[field]} = ?`);
+            values.push(value === null ? 1 : 0);
+          }
         }
       }
     } catch (err) {
-      return sendMutationError(res, err);
+      return sendMutationError(res, err, 'Failed to update invoice line');
     }
     if (!updates.length) return res.status(400).json({ error: 'No valid fields to update' });
 
@@ -352,6 +275,14 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     if (importRow.status === 'committed') return res.status(409).json({ error: 'This import has already been committed' });
 
     const lines = db.prepare('SELECT * FROM invoice_import_lines WHERE import_id = ?').all(importId);
+    if (lines.length === 0) {
+      return res.status(400).json({ error: 'This import has no lines, so there is nothing to commit. Cancel it instead.' });
+    }
+    // A kept line needs a quantity, from the invoice or confirmed by the reviewer; one with
+    // neither is not committed as 0 stock. A missing price is 0 (free or unpriced items).
+    if (lines.some((l) => l.line_status !== 'skipped' && l.qty_confirmed === null && l.qty_supplied === null)) {
+      return res.status(400).json({ error: 'Every line being imported needs a quantity: confirm one or skip the line' });
+    }
     if (lines.some((l) => l.line_status === 'pending')) {
       return res.status(400).json({ error: 'All lines must be reviewed or skipped before committing' });
     }
@@ -383,9 +314,11 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         for (const line of lines) {
           if (line.line_status === 'skipped') continue;
 
-          const categoryId = line.final_category_id ?? line.suggested_category_id;
-          const locationId = line.final_location_id ?? line.suggested_location_id;
-          const qty = line.qty_confirmed ?? line.qty_supplied ?? 0;
+          // An explicitly cleared category/location stays cleared; only "not overridden" falls
+          // back to the suggestion (#46).
+          const categoryId = line.category_cleared ? null : (line.final_category_id ?? line.suggested_category_id);
+          const locationId = line.location_cleared ? null : (line.final_location_id ?? line.suggested_location_id);
+          const qty = line.qty_confirmed ?? line.qty_supplied; // never null: checked above
           const price = line.unit_price ?? 0;
           const name = line.final_name || line.raw_name;
           const containerDetails = line.final_container_details || '';
@@ -425,13 +358,15 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           rememberMatch.run(normaliseName(line.raw_name), itemId);
           totalValue += line.line_total || 0;
         }
-        db.prepare("UPDATE invoice_imports SET status = 'committed' WHERE id = ?").run(importId);
+        // Conditional, as the last step: a commit that lost a race rolls everything back.
+        const flipped = db.prepare("UPDATE invoice_imports SET status = 'committed' WHERE id = ? AND status <> 'committed'").run(importId);
+        if (flipped.changes !== 1) throw new ValidationError('This import has already been committed', 409);
       })();
 
       broadcastUpdate('invoice_commit', {});
       res.json({ items_added: itemsAdded, items_matched: itemsMatched, total_value: Math.round(totalValue * 100) / 100 });
     } catch (err) {
-      sendServerError(res, err, 'Failed to commit invoice import');
+      sendMutationError(res, err, 'Failed to commit invoice import');
     }
   });
 }

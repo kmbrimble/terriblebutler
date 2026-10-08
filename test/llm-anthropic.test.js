@@ -145,32 +145,3 @@ describe('POST /api/parse-label-llm', () => {
     expect(consoleSpy).toHaveBeenCalled();
   });
 });
-
-describe('POST /api/invoices/parse', () => {
-  it('sends the PDF text to Anthropic and returns validated line items', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue(
-      mockToolUseResponse('invoice_items', {
-        items: [
-          { name: 'Milk 2L', container_details: '2L', quantity: 1, price: 4.5, vendor: 'Woolworths' },
-        ],
-      }),
-    );
-    const pdfPath = path.join(process.cwd(), 'test/fixtures/invoices/woolworths-example.pdf');
-    const res = await request(app)
-      .post('/api/invoices/parse')
-      .set('Authorization', `Bearer ${(await import('./setup.js')).TEST_TOKEN}`)
-      .attach('invoice', pdfPath);
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([
-      { name: 'Milk 2L', container_details: '2L', quantity: 1, price: 4.5, vendor: 'Woolworths', barcode: null },
-    ]);
-  });
-
-  it('returns a clear 500 error when the Anthropic call fails, rather than swallowing it', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network unreachable'));
-    const pdfPath = path.join(process.cwd(), 'test/fixtures/invoices/woolworths-example.pdf');
-    const res = await api(app).post('/api/invoices/parse').attach('invoice', pdfPath);
-    expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/Failed to parse invoice/);
-  });
-});

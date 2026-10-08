@@ -1,3 +1,5 @@
+const { numberKey } = require('./lib/invoice-dedupe');
+
 // Migrations runner using SQLite's native PRAGMA user_version — no migrations table needed.
 // Add future ad-hoc schema changes here instead of hand-editing the live DB.
 function hasColumn(db, table, column) {
@@ -7,6 +9,25 @@ function hasColumn(db, table, column) {
 function hasTable(db, table) {
   return Boolean(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
 }
+
+// SQLite cannot add a CHECK constraint to an existing table without rebuilding it, so the
+// non-negative stock rule is enforced with triggers (identical on fresh and migrated DBs).
+// UPDATE OF quantity means writes that leave quantity alone (e.g. is_open) are never blocked
+// by a legacy negative row.
+const QUANTITY_GUARD_SQL = `
+  CREATE TRIGGER IF NOT EXISTS item_locations_quantity_nonneg_insert
+  BEFORE INSERT ON item_locations WHEN NEW.quantity < 0
+  BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not be negative'); END;
+  CREATE TRIGGER IF NOT EXISTS item_locations_quantity_nonneg_update
+  BEFORE UPDATE OF quantity ON item_locations WHEN NEW.quantity < 0
+  BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not be negative'); END;
+`;
+
+// Duplicate-invoice enforcement (#44). Run after the migrations on every start: on an existing
+// DB the column only exists once migration 6 has run, so the base CREATE TABLE block cannot
+// create it.
+const INVOICE_DEDUPE_INDEX_SQL =
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_imports_dedupe_key ON invoice_imports(dedupe_key)';
 
 // On a fresh DB, server.js's CREATE TABLE already reflects the latest schema, so nothing
 // needs replaying — just mark it caught up. On an existing DB, run pending migrations in
@@ -101,6 +122,46 @@ const migrations = [
       db.exec('ALTER TABLE device_tokens ADD COLUMN issued_by_jti TEXT');
     }
   },
+  // #6: invoice integrity.
+  //  - invoice_imports.dedupe_key + UNIQUE index (#44): one import per invoice. Existing rows
+  //    with an invoice number are keyed retailer|no:<number>; where several already share one
+  //    key, the committed row (else the oldest) keeps it and the rest stay NULL (NULLs never
+  //    collide), so history is untouched and the index can always be built. Rows without a
+  //    number stay NULL — the hash fallback applies to future imports only.
+  //  - invoice_import_lines.category_cleared / location_cleared (#46): an explicitly cleared
+  //    category/location is distinct from "not overridden", so commit no longer reverts it to
+  //    the suggestion. Existing rows default to 0 (not cleared), which is their old behaviour.
+  //  - item_locations non-negative quantity triggers (#42), see QUANTITY_GUARD_SQL.
+  // All also live in lib/database.js's base CREATE TABLE block for fresh installs.
+  (db) => {
+    if (hasTable(db, 'invoice_imports')) {
+      if (!hasColumn(db, 'invoice_imports', 'dedupe_key')) {
+        db.exec('ALTER TABLE invoice_imports ADD COLUMN dedupe_key TEXT');
+        const rows = db.prepare(`
+          SELECT id, retailer, invoice_number FROM invoice_imports
+          ORDER BY (status = 'committed') DESC, id ASC
+        `).all();
+        const setKey = db.prepare('UPDATE invoice_imports SET dedupe_key = ? WHERE id = ?');
+        const seen = new Set();
+        for (const row of rows) {
+          const key = numberKey(row.retailer, row.invoice_number);
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          setKey.run(key, row.id);
+        }
+      }
+      db.exec(INVOICE_DEDUPE_INDEX_SQL);
+    }
+    if (hasTable(db, 'invoice_import_lines')) {
+      if (!hasColumn(db, 'invoice_import_lines', 'category_cleared')) {
+        db.exec('ALTER TABLE invoice_import_lines ADD COLUMN category_cleared INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!hasColumn(db, 'invoice_import_lines', 'location_cleared')) {
+        db.exec('ALTER TABLE invoice_import_lines ADD COLUMN location_cleared INTEGER NOT NULL DEFAULT 0');
+      }
+    }
+    if (hasTable(db, 'item_locations')) db.exec(QUANTITY_GUARD_SQL);
+  },
 ];
 
-module.exports = { runMigrations, hasColumn, hasTable, migrations };
+module.exports = { runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL };

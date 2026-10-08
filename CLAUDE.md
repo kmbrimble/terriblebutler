@@ -4,8 +4,9 @@ Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `e
 `.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
 Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
 html5-qrcode barcode scanning, Cropper.js 2). The old single-file `public/index.html` front end and its
-`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed by
-Claude through the Anthropic Messages API (see constraint 6).
+`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels are parsed by
+Claude through the Anthropic Messages API (see constraint 6); invoices by the deterministic Coles/Woolworths
+parsers, with Claude only classifying/matching lines they cannot place.
 
 Use British/Australian English in all writing, comments, and UI text.
 
@@ -61,7 +62,7 @@ middleware logic. The actual code lives in:
   configs live in `lib/uploads.js`.
 - `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
   helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
-  `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
+  `sendMutationError` (only a `ValidationError` carries its message to the client; anything else is a correlation-id 500), `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
   Messages API), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
@@ -143,10 +144,15 @@ loosening one is a normal, deliberate change rather than a stop-and-ask.
 ## Database notes (read before any schema change)
 
 - Schema versioning is `PRAGMA user_version` via `db-migrations.js`: an append-only list of
-  numbered migrations (currently 5), each idempotent and safe on a populated database. Never
+  numbered migrations (currently 6), each idempotent and safe on a populated database. Never
   edit an applied migration; add a new one, and state the schema change in the changelog.
   Migration 5 added `auth_state` (a single row: token epoch + credential fingerprint, never the
   hash) and `device_tokens.issued_by_jti` (which household JWT minted each device token).
+  Migration 6 added `invoice_imports.dedupe_key` (UNIQUE index; `retailer|no:<invoice number>`, else
+  `retailer|sha256:<normalised PDF text>`, so a re-import gets a 409 `duplicate_invoice`),
+  `invoice_import_lines.category_cleared` / `location_cleared` (an explicit "none" must not revert to the
+  suggestion at commit), and triggers rejecting negative `item_locations.quantity` (SQLite cannot add a
+  CHECK without a table rebuild). Cancelling an in-progress import frees its key; a committed one keeps it.
 - Live schema tables: `items`, `locations`, `categories`, `price_history`, `device_tokens`,
   `auth_state`, the invoice-import staging tables, plus a **vestigial `inventory` table**
   (`description, size, quantity`) left over from an early version. Confirm nothing references
@@ -154,10 +160,10 @@ loosening one is a normal, deliberate change rather than a stop-and-ask.
   are vestigial too: `item_locations` is the source of truth.
 - `invoice_imports` and `invoice_import_lines` hold the deterministic Coles/Woolworths
   import's server-side staging state (added alongside that flow; confirmed live-empty at the
-  time of the stage-4 React port, 0 rows in each). The plain LLM-parse invoice upload
-  (`/api/invoices/parse` + `/api/invoices/commit`) is unrelated and keeps its staging list
-  entirely client-side — no table backs it. There is still no dedicated `vendor` table;
-  vendors are free-text in `price_history.vendor`.
+  time of the stage-4 React port, 0 rows in each). It is the only invoice path: the old plain
+  LLM-parse upload (`/api/invoices/parse` + `/api/invoices/commit`) was removed because nothing
+  used it after `/legacy` was retired and it had no duplicate protection. There is still no
+  dedicated `vendor` table; vendors are free-text in `price_history.vendor`.
 
 ## Container runtime (non-root)
 

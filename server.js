@@ -54,10 +54,7 @@ registerHealthzRoute(app, { APP_VERSION });
 
 app.use('/api', middleware.generalApiRateLimiter);
 
-app.use(
-  ['/api/parse-label-llm', '/api/invoices/parse'],
-  middleware.llmRateLimiter
-);
+app.use('/api/parse-label-llm', middleware.llmRateLimiter);
 
 // Starting an invoice import (POST only) also drives LLM calls (#55). Gated by method and
 // exact path so the import's review endpoints (GET/PATCH/DELETE/commit under the same prefix)

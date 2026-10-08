@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   startInvoiceImport,
   getInvoiceImport,
   patchInvoiceImportLine,
   cancelInvoiceImport,
   commitInvoiceImport,
+  DuplicateInvoiceError,
   type InvoiceImportState,
   type InvoiceImportLine,
   type Category,
@@ -18,9 +19,11 @@ import {
   resolveLineContainerValue,
   resolveMatchFieldPatch,
   isCommitEnabled,
+  applyLinePatch,
   matchLabel,
   formatSummaryLine,
 } from '../lib/invoiceImportLine';
+import { createLineUpdateQueue } from '../lib/lineUpdateQueue';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -51,7 +54,35 @@ export function InvoiceImportModal({
   const [state, setState] = useState<InvoiceImportState | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanningLineId, setScanningLineId] = useState<number | null>(null);
+  const [committing, setCommitting] = useState(false);
+  const [duplicate, setDuplicate] = useState<DuplicateInvoiceError | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importIdRef = useRef<number | null>(null);
+  importIdRef.current = state?.import.id ?? null;
+
+  // Edits to a line are sent one at a time, in order, and only the newest response is applied
+  // (#48); a failed edit is reported and the screen is resynced from the server.
+  const lineQueue = useMemo(
+    () =>
+      createLineUpdateQueue<Partial<InvoiceImportLine>, InvoiceImportLine>({
+        send: (lineId, fields) => patchInvoiceImportLine(importIdRef.current as number, lineId, fields),
+        onOptimistic: (lineId, fields) =>
+          setState((cur) => (cur ? { ...cur, lines: cur.lines.map((l) => (l.id === lineId ? applyLinePatch(l, fields) : l)) } : cur)),
+        onSettled: (lineId, row) =>
+          setState((cur) => (cur ? { ...cur, lines: cur.lines.map((l) => (l.id === lineId ? row : l)) } : cur)),
+        onError: (_lineId, err, isLatest) => {
+          showToast(err instanceof Error ? err.message : 'Failed to update the invoice line.', 'error');
+          const id = importIdRef.current;
+          if (!isLatest || id === null) return;
+          getInvoiceImport(id)
+            .then((fresh) => {
+              if (fresh) setState((cur) => (cur ? { ...fresh, warnings: cur.warnings } : cur));
+            })
+            .catch(() => {});
+        },
+      }),
+    []
+  );
 
   useEffect(() => {
     const activeId = localStorage.getItem(ACTIVE_IMPORT_KEY);
@@ -68,23 +99,38 @@ export function InvoiceImportModal({
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
+    setDuplicate(null);
     try {
       const result = await startInvoiceImport(file);
       localStorage.setItem(ACTIVE_IMPORT_KEY, String(result.import.id));
       setState(result);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to import invoice.', 'error');
+      if (err instanceof DuplicateInvoiceError) setDuplicate(err);
+      else showToast(err instanceof Error ? err.message : 'Failed to import invoice.', 'error');
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
-  async function patchLine(lineId: number, fields: Partial<InvoiceImportLine>) {
-    if (!state) return;
-    const updated = await patchInvoiceImportLine(state.import.id, lineId, fields).catch(() => null);
-    if (!updated) return;
-    setState({ ...state, lines: state.lines.map((l) => (l.id === lineId ? updated : l)) });
+  function patchLine(lineId: number, fields: Partial<InvoiceImportLine>) {
+    if (!state) return Promise.resolve();
+    return lineQueue.enqueue(lineId, fields);
+  }
+
+  async function openExistingImport(id: number) {
+    try {
+      const existing = await getInvoiceImport(id);
+      if (!existing || existing.import.status === 'committed') {
+        showToast('That import is no longer available to review.', 'error');
+        return;
+      }
+      localStorage.setItem(ACTIVE_IMPORT_KEY, String(id));
+      setDuplicate(null);
+      setState(existing);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to open the existing import.', 'error');
+    }
   }
 
   async function handleScan(barcode: string) {
@@ -108,8 +154,10 @@ export function InvoiceImportModal({
   }
 
   async function handleCommit() {
-    if (!state) return;
+    if (!state || committing) return;
+    setCommitting(true);
     try {
+      await lineQueue.drain(); // commit only after every edit has reached the server
       const summary = await commitInvoiceImport(state.import.id);
       showToast(`Imported: ${summary.items_added} new, ${summary.items_matched} merged, $${summary.total_value.toFixed(2)} total`);
       localStorage.removeItem(ACTIVE_IMPORT_KEY);
@@ -117,6 +165,8 @@ export function InvoiceImportModal({
       onCommitted();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to commit the invoice import.', 'error');
+    } finally {
+      setCommitting(false);
     }
   }
 
@@ -141,6 +191,25 @@ export function InvoiceImportModal({
               className="w-full bg-rimmy-black border border-rimmy-border rounded p-2 text-rimmy-text"
             />
             {loading && <p className="text-sm text-rimmy-textMuted mt-2">Parsing invoice…</p>}
+            {duplicate && (
+              <div
+                role="alert"
+                data-testid="invoice-import-duplicate"
+                className="mt-3 rounded border border-rimmy-orange/60 bg-rimmy-orange/10 px-3 py-2 text-sm text-rimmy-text"
+              >
+                <p>{duplicate.message}</p>
+                {duplicate.existing.status !== 'committed' && (
+                  <button
+                    type="button"
+                    data-testid="invoice-import-open-existing"
+                    onClick={() => openExistingImport(duplicate.existing.id)}
+                    className="mt-2 underline font-bold text-rimmy-orange"
+                  >
+                    Open the existing import
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div data-testid="invoice-import-staging-container" className="flex flex-col gap-3 overflow-hidden flex-1">
@@ -158,6 +227,11 @@ export function InvoiceImportModal({
                 Cancel import
               </button>
             </div>
+            {state.lines.length === 0 && (
+              <p role="alert" data-testid="invoice-import-empty" className="shrink-0 text-sm text-rimmy-text">
+                This import has no lines, so there is nothing to commit. Cancel it and upload the invoice again.
+              </p>
+            )}
             <div className="flex flex-col gap-3 overflow-y-auto pr-2 pb-2">
               {state.lines.map((line) => (
                 <InvoiceImportLineRow
@@ -174,7 +248,7 @@ export function InvoiceImportModal({
             <button
               type="button"
               data-testid="invoice-import-commit-button"
-              disabled={!isCommitEnabled(state.lines)}
+              disabled={committing || !isCommitEnabled(state.lines)}
               onClick={handleCommit}
               className="touch-target shrink-0 w-full bg-rimmy-orange hover:bg-rimmy-orangeHover disabled:opacity-40 disabled:cursor-not-allowed text-white rounded font-bold py-3 mt-2"
             >

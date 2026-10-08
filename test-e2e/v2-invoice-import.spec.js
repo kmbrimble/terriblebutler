@@ -1,5 +1,7 @@
 import { test, expect } from './csp-guard.js';
 import path from 'node:path';
+import fs from 'node:fs';
+import Database from 'better-sqlite3';
 import {
   INVOICE_IMPORT_OPEN_BUTTON,
   INVOICE_IMPORT_FILE_INPUT,
@@ -12,6 +14,9 @@ import {
   INVOICE_IMPORT_LINE_CONTAINER_INPUT,
   INVOICE_IMPORT_LINE_MATCH_INPUT,
   INVOICE_IMPORT_CANCEL_BUTTON,
+  INVOICE_IMPORT_DUPLICATE,
+  INVOICE_IMPORT_OPEN_EXISTING,
+  INVOICE_IMPORT_EMPTY,
   INVOICE_IMPORT_MODAL,
   INVOICE_IMPORT_WARNINGS,
   TOAST_NOTIFICATION,
@@ -26,6 +31,22 @@ import { waitForMutationBudget, requestWithRateLimitRetry } from './rateLimitWai
 
 const WOOLWORTHS_PDF = path.join(process.cwd(), 'test/fixtures/invoices/woolworths-example.pdf');
 const COLES_PDF = path.join(process.cwd(), 'test/fixtures/invoices/coles-example.pdf');
+
+// The same invoice is refused a second time (#44) and every test here imports the same two
+// fixtures, so each starts with no staged or committed imports. Goes straight to the throwaway
+// e2e database (E2E_DB_PATH, set by global-setup), never the API.
+function withE2eDb(fn) {
+  const conn = new Database(process.env.E2E_DB_PATH);
+  try {
+    return fn(conn);
+  } finally {
+    conn.close();
+  }
+}
+
+test.beforeEach(() => {
+  withE2eDb((conn) => conn.exec('DELETE FROM invoice_import_lines; DELETE FROM invoice_imports;'));
+});
 
 function lineRow(page, lineId) {
   return page.getByTestId(INVOICE_IMPORT_LINE).and(page.locator(`[data-line-id="${lineId}"]`));
@@ -299,4 +320,107 @@ test('v2: completing a review and committing shows a summary and creates the exp
   await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
   await expect(page.getByTestId(INVOICE_IMPORT_MODAL)).toBeVisible();
   await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeHidden();
+});
+
+test('v2: re-uploading an invoice that is already staged offers to open the existing import (#44)', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const probe = await request.post('/api/locations', { data: { name: `E2E V2 Duplicate Probe ${Date.now()}` } });
+  await waitForMutationBudget(probe);
+  const first = await requestWithRateLimitRetry(() =>
+    request.post('/api/invoices/import', {
+      multipart: { invoice: { name: 'woolworths-example.pdf', mimeType: 'application/pdf', buffer: fs.readFileSync(WOOLWORTHS_PDF) } },
+    })
+  );
+  expect(first.status()).toBe(200);
+
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
+
+  await expect(page.getByTestId(INVOICE_IMPORT_DUPLICATE)).toContainText('already been uploaded');
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toHaveCount(0);
+  await page.getByTestId(INVOICE_IMPORT_OPEN_EXISTING).click();
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await expect(page.getByTestId(INVOICE_IMPORT_LINE)).toHaveCount(32);
+});
+
+test('v2: a committed invoice is refused on re-upload with no option to reopen it (#44)', async ({ page }) => {
+  test.setTimeout(60_000);
+  withE2eDb((conn) => {
+    const key = 'woolworths|no:310473367';
+    conn.prepare("INSERT INTO invoice_imports (retailer, invoice_number, status, dedupe_key) VALUES ('woolworths', '310473367', 'committed', ?)").run(key);
+  });
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
+  await expect(page.getByTestId(INVOICE_IMPORT_DUPLICATE)).toContainText('already been imported');
+  await expect(page.getByTestId(INVOICE_IMPORT_OPEN_EXISTING)).toHaveCount(0);
+});
+
+test('v2: clearing a line\'s suggested category stays cleared across a reload instead of reverting (#46)', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const probe = await request.post('/api/locations', { data: { name: `E2E V2 Clear Probe ${Date.now()}` } });
+  await waitForMutationBudget(probe);
+  const catRes = await requestWithRateLimitRetry(() => request.post('/api/categories', { data: { name: `E2E V2 Suggested ${Date.now()}` } }));
+  const category = await catRes.json();
+
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  const [importRes] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
+  ]);
+  const lineId = (await importRes.json()).lines[0].id;
+  withE2eDb((conn) => conn.prepare('UPDATE invoice_import_lines SET suggested_category_id = ? WHERE id = ?').run(category.id, lineId));
+  await page.reload();
+
+  const select = lineRow(page, lineId).getByTestId(INVOICE_IMPORT_LINE_CATEGORY_SELECT);
+  await expect(select).toHaveValue(String(category.id));
+  const patched = page.waitForResponse((res) => res.url().includes(`/lines/${lineId}`) && res.request().method() === 'PATCH');
+  await select.selectOption('');
+  await patched;
+  await page.reload();
+  await expect(lineRow(page, lineId).getByTestId(INVOICE_IMPORT_LINE_CATEGORY_SELECT)).toHaveValue('');
+});
+
+test('v2: a failed line update is reported and the line is resynced from the server (#48)', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const probe = await request.post('/api/locations', { data: { name: `E2E V2 Patch Fail Probe ${Date.now()}` } });
+  await waitForMutationBudget(probe);
+  const catRes = await requestWithRateLimitRetry(() => request.post('/api/categories', { data: { name: `E2E V2 Fail Cat ${Date.now()}` } }));
+  const category = await catRes.json();
+
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  const [importRes] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith('/api/invoices/import') && res.request().method() === 'POST'),
+    page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF),
+  ]);
+  const lineId = (await importRes.json()).lines[0].id;
+
+  await page.route(`**/lines/${lineId}`, (route) =>
+    route.request().method() === 'PATCH' ? route.fulfill({ status: 400, json: { error: 'Category does not exist' } }) : route.fallback()
+  );
+  const select = lineRow(page, lineId).getByTestId(INVOICE_IMPORT_LINE_CATEGORY_SELECT);
+  await select.selectOption(String(category.id));
+
+  await expect(page.getByTestId(TOAST_NOTIFICATION).filter({ hasText: 'Category does not exist' })).toBeVisible();
+  // The optimistic choice is rolled back to what the server actually holds.
+  await expect(select).toHaveValue('');
+});
+
+test('v2: an import with no lines cannot be committed and says why (#47)', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.route('**/api/invoices/import', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      json: { import: { id: 987655, retailer: 'coles', invoice_number: null, invoice_date: null, status: 'in_progress' }, lines: [] },
+    });
+  });
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
+  await expect(page.getByTestId(INVOICE_IMPORT_EMPTY)).toContainText('no lines');
+  await expect(page.getByTestId(INVOICE_IMPORT_COMMIT_BUTTON)).toBeDisabled();
 });
