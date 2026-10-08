@@ -243,3 +243,16 @@ describe('sanitize primitives', () => {
     expect(JSON.stringify(big).length).toBeLessThan(2000);
   });
 });
+
+describe('default LOG_DIR', () => {
+  it('lives beside the database (the persistent data mount), not under the app code', async () => {
+    delete process.env.LOG_DIR;
+    process.env.DB_PATH = path.join(tmpDir, 'data', 'inventory.db');
+    try {
+      const { LOG_DIR } = await import('../logger.js');
+      expect(LOG_DIR).toBe(path.join(tmpDir, 'data', 'logs'));
+    } finally {
+      delete process.env.DB_PATH;
+    }
+  });
+});

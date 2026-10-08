@@ -55,7 +55,7 @@ docker exec "$NAME" sh -c 'grep -q "^NoNewPrivs:[[:space:]]*1" /proc/1/status' |
 [ "$(docker exec "$NAME" cat /proc/1/cmdline | tr '\0' ' ')" = "node server.js " ] || fail "PID 1 is not node"
 echo "ok: app is PID 1, uid 1234, no-new-privs"
 
-for d in /app/data /app/public/uploads /app/logs; do
+for d in /app/data /app/public/uploads /app/data/logs; do
   OWNER="$(docker exec "$NAME" stat -c '%u:%g' "$d")"
   [ "$OWNER" = 1234:5678 ] || fail "$d owned by $OWNER"
 done
@@ -88,4 +88,8 @@ docker stop -t 15 "$NAME" >/dev/null
 CODE="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"
 [ "$CODE" = 0 ] || { docker logs "$NAME" >&2; fail "graceful stop exited $CODE"; }
 echo "ok: graceful stop (exit 0)"
+
+# The action log must be on the persistent data volume, so it survives the container.
+docker run --rm --entrypoint ls -v "$VOL_DATA:/d:ro" "$TAG" /d/logs | grep -q '^actions-.*\.log$' || fail "no action log on the data volume"
+echo "ok: action log persisted on the data volume"
 echo "SMOKE PASS"

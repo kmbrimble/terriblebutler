@@ -6,6 +6,7 @@
 # Environment:
 #   PUID  numeric user id to run as   (default 99  — unRAID "nobody")
 #   PGID  numeric group id to run as  (default 100 — unRAID "users")
+#   LOG_DIR defaults to <dir of DB_PATH>/logs, i.e. /app/data/logs on the persistent data mount.
 #   DB_PATH, LOG_DIR, UPLOADS_DIR  honoured if set, so their directories are prepared too — but
 #   only inside /app (validated below; the container refuses to start otherwise).
 #   UPLOADS_DIR defaults to /app/public/uploads, the path unRAID bind-mounts (same default as
@@ -70,12 +71,14 @@ DB_FILE="${DB_PATH:-$APP_ROOT/data/inventory.db}"
 check_path DB_PATH "$DB_FILE"
 DATA_DIR="$(dirname "$DB_FILE")"
 UPLOADS="${UPLOADS_DIR:-$APP_ROOT/public/uploads}"
-LOGS="${LOG_DIR:-$APP_ROOT/logs}"
+LOGS="${LOG_DIR:-$DATA_DIR/logs}"
 check_path "the DB_PATH directory" "$DATA_DIR"
 check_path UPLOADS_DIR "$UPLOADS"
 check_path LOG_DIR "$LOGS"
 check_disjoint "the DB_PATH directory" "$DATA_DIR" UPLOADS_DIR "$UPLOADS"
-check_disjoint "the DB_PATH directory" "$DATA_DIR" LOG_DIR "$LOGS"
+# The logs live on the persistent data mount by default, so LOG_DIR may sit inside the data
+# directory; it may not be, or contain, the data directory itself.
+case "$DATA_DIR/" in "$LOGS"/*) echo "entrypoint: LOG_DIR must not be, or contain, the DB_PATH directory" >&2; exit 1 ;; esac
 check_disjoint UPLOADS_DIR "$UPLOADS" LOG_DIR "$LOGS"
 
 REAL_ROOT="$(realpath "$APP_ROOT")"

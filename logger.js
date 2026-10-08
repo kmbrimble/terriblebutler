@@ -8,15 +8,17 @@
 // than queued, so a slow disk can never grow memory or stall the event loop. The first entry
 // accepted after a drop is preceded by a `log_overflow` record saying how many were lost.
 //
-// The stdout copy (what `docker logs` shows, and the only copy that survives the container, since
-// LOG_DIR is not a mounted volume) is kept, but no longer a synchronous console.log: stdout to a
-// or file can stall when the reader is slow. It is process.stdout (asynchronous for pipes) with
-// the same bound and overflow record (prefixed `[Action] `), so the two copies behave alike.
+// The stdout copy (what `docker logs` shows) is kept alongside the file. It writes through
+// process.stdout (asynchronous for pipes), not a synchronous console.log, with the same bound and
+// overflow record (prefixed `[Action] `), so the two copies behave alike.
 // ACTION_LOG_STDOUT=0 turns the copy off (the test suite does, to keep its output readable).
 const fs = require('fs');
 const path = require('path');
 
-const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'logs');
+// Defaults to <database dir>/logs, i.e. /app/data/logs in the container: the persistent data mount,
+// next to the backups, so the 30-day retention survives container recreation.
+const LOG_DIR = process.env.LOG_DIR
+  || path.join(path.dirname(process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db')), 'logs');
 const MAX_AGE_DAYS = 30;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 const STDOUT_FLUSH_TIMEOUT_MS = 1500;

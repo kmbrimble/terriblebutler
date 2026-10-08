@@ -94,12 +94,18 @@ describe('chown scope', () => {
   it('prepares exactly the data, uploads and log directories by default', () => {
     const res = run();
     const finds = res.calls.filter((c) => c.startsWith('find'));
-    expect(finds.map((c) => c.split(' ')[1])).toEqual([`${root}/data`, `${root}/public/uploads`, `${root}/logs`]);
+    expect(finds.map((c) => c.split(' ')[1])).toEqual([`${root}/data`, `${root}/public/uploads`, `${root}/data/logs`]);
     for (const f of finds) {
       expect(f).toContain('-xdev');
       expect(f).toContain('chown -h 99:100 {} +');
     }
-    for (const d of ['data', 'public/uploads', 'logs']) expect(fs.statSync(path.join(root, d)).isDirectory()).toBe(true);
+    for (const d of ['data', 'public/uploads', 'data/logs']) expect(fs.statSync(path.join(root, d)).isDirectory()).toBe(true);
+  });
+
+  it('keeps the action logs on the persistent data mount, following a custom DB_PATH', () => {
+    const res = run({ DB_PATH: `${root}/storage/inv.db` });
+    expect(res.status).toBe(0);
+    expect(res.calls.filter((c) => c.startsWith('find')).map((c) => c.split(' ')[1]).at(-1)).toBe(`${root}/storage/logs`);
   });
 
   it('honours DB_PATH, UPLOADS_DIR and LOG_DIR inside the app root', () => {
@@ -150,6 +156,9 @@ const cases = [
   ['UPLOADS_DIR is inside the data dir', { UPLOADS_DIR: `${R}/data/uploads` }, false],
   ['UPLOADS_DIR is the data dir', { UPLOADS_DIR: `${R}/data` }, false],
   ['LOG_DIR inside uploads', { LOG_DIR: `${R}/public/uploads/logs` }, false],
+  ['LOG_DIR inside the data dir (the default layout)', { LOG_DIR: `${R}/data/logs` }, true],
+  ['LOG_DIR is an ancestor of a custom data dir', { DB_PATH: `${R}/a/b/inv.db`, LOG_DIR: `${R}/a` }, false],
+  ['custom data dir with the default logs beside the database', { DB_PATH: `${R}/storage/inv.db`, UPLOADS_DIR: `${R}/media` }, true],
   ['separate nested-looking names are fine', { UPLOADS_DIR: `${R}/data2`, LOG_DIR: `${R}/data-logs` }, true],
 ];
 
