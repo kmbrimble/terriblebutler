@@ -6,7 +6,7 @@ const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
 const { callClaudeForJSON, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
-const { cleanText, finiteNumber, sendMutationError } = require('../lib/domain-helpers');
+const { cleanText, finiteNumber, sendMutationError, sendServerError } = require('../lib/domain-helpers');
 
 function getImportWithLines(db, importId) {
   const importRow = db.prepare('SELECT * FROM invoice_imports WHERE id = ?').get(importId);
@@ -73,8 +73,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
       res.json(items);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to parse invoice: ' + err.message });
+      sendServerError(res, err, 'Failed to parse invoice');
     } finally {
       if (req.file) fs.unlink(req.file.path, () => {});
     }
@@ -144,8 +143,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       broadcastUpdate('invoice_commit', {});
       res.json({ message: 'Invoice items committed successfully' });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to commit invoice: ' + err.message });
+      sendServerError(res, err, 'Failed to commit invoice');
     }
   });
 
@@ -266,8 +264,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
 
       res.json({ ...getImportWithLines(db, importId), warnings });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to import invoice: ' + err.message });
+      sendServerError(res, err, 'Failed to import invoice');
     } finally {
       if (req.file) fs.unlink(req.file.path, () => {});
     }
@@ -409,8 +406,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       broadcastUpdate('invoice_commit', {});
       res.json({ items_added: itemsAdded, items_matched: itemsMatched, total_value: Math.round(totalValue * 100) / 100 });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to commit invoice import: ' + err.message });
+      sendServerError(res, err, 'Failed to commit invoice import');
     }
   });
 }

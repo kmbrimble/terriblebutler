@@ -9,7 +9,7 @@ const config = require('./lib/config');
 const { openDatabase } = require('./lib/database');
 const { createRealtime } = require('./lib/realtime');
 const middleware = require('./lib/middleware');
-const { createDomainHelpers, checkDuplicateBarcodes } = require('./lib/domain-helpers');
+const { createDomainHelpers, checkDuplicateBarcodes, sendServerError } = require('./lib/domain-helpers');
 const { setupGracefulShutdown } = require('./lib/shutdown');
 
 const { registerHealthzRoute, registerApiHealthRoute } = require('./routes/health');
@@ -122,12 +122,18 @@ app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'));
 });
 
-// Return controlled errors for uploads and malformed JSON.
+// Controlled errors for uploads and malformed requests keep their (deliberate) messages;
+// anything else is an unexpected failure, so the client gets a generic 500 with a correlation
+// id and the detail stays in the server log (#61).
 app.use((err, req, res, next) => {
-  console.error(err);
+  if (!err) return next();
+  if (res.headersSent) return next(err);
   if (err instanceof multer.MulterError) return res.status(400).json({ error: err.message });
-  if (err) return res.status(400).json({ error: err.message || 'Request failed' });
-  next();
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Malformed JSON in request body.' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large.' });
+  const status = err.status || err.statusCode;
+  if (status >= 400 && status < 500 && err.expose) return res.status(status).json({ error: err.message || 'Request failed' });
+  return sendServerError(res, err, 'Request failed');
 });
 
 checkDuplicateBarcodes(db);

@@ -23,7 +23,11 @@ function pruneOldBackups(backupDir, maxAgeDays = MAX_AGE_DAYS) {
   for (const file of fs.readdirSync(backupDir)) {
     if (!/^inventory-\d{4}-\d{2}-\d{2}\.db$/.test(file)) continue;
     const full = path.join(backupDir, file);
-    if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
+    try {
+      if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
+    } catch (err) {
+      console.error(`[Backup] failed to prune old backup ${file}:`, err.message);
+    }
   }
 }
 
