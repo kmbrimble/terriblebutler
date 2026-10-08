@@ -410,6 +410,25 @@ export async function updateItem(id: number, payload: ItemPayload): Promise<Item
   return data;
 }
 
+// "Use this" on a duplicate prompt: one server transaction applies the pending add-form payload
+// (stock at the chosen location plus any purchase record) to an existing item (#50).
+export async function mergeIntoItem(id: number, payload: ItemPayload): Promise<Item> {
+  const res = await authorizedFetch(`/api/items/${id}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      quantity: payload.quantity || 0,
+      location_id: payload.location_id || null,
+      price: payload.price,
+      vendor: payload.vendor,
+      purchase_date: payload.purchase_date,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to add to the existing item.');
+  return data;
+}
+
 export type QuantityAction = 'add' | 'subtract' | 'set';
 
 export async function updateItemQuantity(

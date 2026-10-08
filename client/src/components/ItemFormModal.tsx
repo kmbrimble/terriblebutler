@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
-import { createItem, updateItem, updateItemQuantity, matchItem, parseLabelImage, createCategory, createLocation } from '../lib/api';
+import { createItem, updateItem, mergeIntoItem, matchItem, parseLabelImage, createCategory, createLocation } from '../lib/api';
 import type { Item, Location, Category, ItemPayload, MatchResult } from '../lib/api';
 import { deriveLabelScanUpdate } from '../lib/labelScan';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CropModal } from './CropModal';
 import { SuggestBlock } from './SuggestBlock';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { showToast } from '../lib/toast';
 
 // Ports openEditModal()/buildItemPayload()/handleItemSubmit() from public/index.html.
 // category_id can be genuinely NULL on live rows despite category_name being set (a category
@@ -105,8 +106,13 @@ export function ItemFormModal({
     else onClose();
   }
 
-  async function mergeQuantityInto(existingId: number, payload: ItemPayload, keepOpen: boolean) {
-    await updateItemQuantity(existingId, payload.quantity || 0, 'add', payload.location_id || null);
+  async function mergeInto(existingId: number, payload: ItemPayload, keepOpen: boolean) {
+    try {
+      await mergeIntoItem(existingId, payload);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to add to the existing item.', 'error');
+      return;
+    }
     if (keepOpen) resetForm();
     else onClose();
   }
@@ -124,7 +130,7 @@ export function ItemFormModal({
       // An exact case-insensitive name match is unambiguous, so it auto-merges without asking
       // — unlike barcode/fuzzy matches, which can't be that certain and still show the panel.
       if (match && match.type === 'exact_name' && match.candidates.length === 1) {
-        await mergeQuantityInto(match.candidates[0].id, payload, addAnother);
+        await mergeInto(match.candidates[0].id, payload, addAnother);
         return;
       }
       if (match && match.type) {
@@ -139,7 +145,7 @@ export function ItemFormModal({
 
   async function useExisting(existingId: number) {
     if (!pendingPayload) return;
-    await mergeQuantityInto(existingId, pendingPayload, pendingKeepOpen);
+    await mergeInto(existingId, pendingPayload, pendingKeepOpen);
   }
 
   async function proceedAsNew() {

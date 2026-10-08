@@ -4,6 +4,7 @@ import type { Item } from '../lib/api';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { defaultDeductChoice, deductLocationChoice, deductLocationId } from '../lib/deductLocation';
 
 // Ports openDeductModal()/filterDeductItems()/submitDeduct() from public/index.html: search
 // the already-loaded item list client-side (no extra API call), then deduct from a single
@@ -35,7 +36,7 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
 
   function selectItem(item: Item) {
     setSelected(item);
-    setLocationId('');
+    setLocationId(defaultDeductChoice(item.locations));
     setAmount('1');
   }
 
@@ -52,8 +53,12 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) return;
     const multiLocation = selected.locations.length > 1;
+    if (multiLocation && !locationId) {
+      showToast('Choose which location to deduct from.', 'error');
+      return;
+    }
     try {
-      await deductItem(selected.id, val, multiLocation ? locationId || null : undefined);
+      await deductItem(selected.id, val, multiLocation ? deductLocationId(locationId) : undefined);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to deduct item.', 'error');
       return;
@@ -112,9 +117,9 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
               <div>
                 <label className="block text-sm font-bold mb-1 text-rimmy-text">Location</label>
                 <select data-testid="deduct-location-select" value={locationId} onChange={(e) => setLocationId(e.target.value)} className="w-full bg-rimmy-black border border-rimmy-border rounded p-3 text-rimmy-text">
-                  <option value="">Select...</option>
+                  <option value="" disabled>Select...</option>
                   {selected.locations.map((l) => (
-                    <option key={l.location_id ?? 'unassigned'} value={l.location_id ?? ''}>
+                    <option key={deductLocationChoice(l)} value={deductLocationChoice(l)}>
                       {l.location_name || 'Unassigned'} (qty {l.quantity})
                     </option>
                   ))}
