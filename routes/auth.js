@@ -53,6 +53,7 @@ function registerLoginRoute(app, { loginRateLimiter, loginBackoff, AUTH_USERNAME
       jwtid: crypto.randomUUID(),
       algorithm: 'HS256',
     });
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ token });
   });
 }
@@ -101,6 +102,7 @@ function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJ
     const token = crypto.randomBytes(32).toString('hex');
     db.prepare('INSERT INTO device_tokens (token_hash, device_label, issued_by_jti) VALUES (?, ?, ?)')
       .run(hashDeviceToken(token), label, req.credential.jti);
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ token });
   });
 

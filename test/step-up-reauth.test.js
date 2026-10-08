@@ -100,6 +100,16 @@ describe('revocation needs the household password', () => {
   });
 });
 
+describe('credential-issuing responses are not cacheable', () => {
+  it('login and device-token minting send Cache-Control: no-store', async () => {
+    const { app } = pkg;
+    const login = await request(app).post('/api/auth/login').send({ username: TEST_USERNAME, password: TEST_PASSWORD });
+    expect(login.headers['cache-control']).toBe('no-store');
+    const minted = await request(app).post('/api/auth/device-token').set(bearer(login.body.token)).send({ device_label: 'No-store tablet' });
+    expect(minted.headers['cache-control']).toBe('no-store');
+  });
+});
+
 describe('re-authentication shares the login limits', () => {
   it('failed re-auth attempts spend the per-client login limit, so login is throttled too', async () => {
     const { app, db } = loadFreshApp({ LOGIN_RATE_LIMIT_MAX: '3' });

@@ -39,3 +39,11 @@
 - The per-client login limit (5/15 min) is shared by login and by revoke/sign-out attempts, as specified. Logging in and then revoking several devices in one sitting can reach it; the user sees a 429 message and waits.
 - The test suite sets `LOGIN_RATE_LIMIT_MAX=1000` in `test/setup.js`; tests of the limiter load a fresh app with the production 5.
 - The sibling r2-client branch also edits client code (`ManageDevicesModal.tsx`, `api.ts`); expect to reconcile on integration.
+
+## Review of the follow-up (range fe8ac77..HEAD)
+- Score 11, CALL band. 3 Sonnet + 1 Mythos passes: all NO FINDINGS (a known failure mode, so not read as clean). Counsel (gpt-5.6-terra) raised 5:
+  - Password/token written to the action log (rated critical): **false positive**. `logger.js` redacts keys matching `pass|token|...` before writing, and `test/step-up-reauth.test.js` proves the re-entered password never reaches the log file. Counsel saw `middleware.js` but not `logger.js`.
+  - `Cache-Control: no-store` on login and device-token responses: **fixed** (+ test).
+  - O(n) eviction scan when all 50,000 buckets are locked: **accepted**, already marked with a `ponytail:` comment. Reaching it needs more than 5 attempts from each of 50,000 distinct /64s; the account backoff still protects the password in that case.
+  - Authenticated unknown `/api/*` GETs return the SPA HTML with 200 instead of a JSON 404: pre-existing, **deferred** (server.js route order; unauthenticated callers still get 401).
+  - `setDevices` after unmount in `ManageDevicesModal`: low, **deferred** (r2-client edits that file; no warning in React 19).
