@@ -93,6 +93,9 @@ export const INVOICE_IMPORT_LINE_NAME_DISPLAY = 'invoice-import-line-name-displa
 export const INVOICE_IMPORT_LINE_CONTAINER_INPUT = 'invoice-import-line-container-input';
 export const INVOICE_IMPORT_LINE_MATCH_INPUT = 'invoice-import-line-match-input';
 export const INVOICE_IMPORT_WARNINGS = 'invoice-import-warnings';
+export const INVOICE_IMPORT_DUPLICATE = 'invoice-import-duplicate';
+export const INVOICE_IMPORT_OPEN_EXISTING = 'invoice-import-open-existing';
+export const INVOICE_IMPORT_EMPTY = 'invoice-import-empty';
 export const INVOICE_IMPORT_CANCEL_BUTTON = 'invoice-import-cancel-button';
 
 // Stage 5 (React client price history) — new fields/controls. DETAILS_MODAL/DETAILS_TITLE
@@ -147,6 +150,13 @@ export const MENU_LOGOUT_BUTTON = 'menu-logout-button';
 export const MENU_MANAGE_DEVICES_BUTTON = 'menu-manage-devices-button';
 export const MANAGE_DEVICES_MODAL = 'manage-devices-modal';
 export const MANAGE_DEVICES_SIGN_OUT_EVERYWHERE = 'manage-devices-sign-out-everywhere';
+export const MANAGE_DEVICE_ROW = 'manage-device-row';
+export const MANAGE_DEVICE_REVOKE_BUTTON = 'manage-device-revoke-button';
+export const PASSWORD_CONFIRM_DIALOG = 'password-confirm-dialog';
+export const PASSWORD_CONFIRM_INPUT = 'password-confirm-input';
+export const PASSWORD_CONFIRM_ERROR = 'password-confirm-error';
+export const PASSWORD_CONFIRM_SUBMIT = 'password-confirm-submit';
+export const PASSWORD_CONFIRM_CANCEL = 'password-confirm-cancel';
 export const ITEMS_ERROR = 'items-error';
 export const MANAGE_CATEGORIES_MODAL = 'manage-categories-modal';
 export const MANAGE_CATEGORIES_NEW_INPUT = 'manage-categories-new-input';

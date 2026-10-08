@@ -36,23 +36,41 @@ describe('runBackup', () => {
     copy.close();
   });
 
-  it('names the backup file with today\'s date', async () => {
+  it('names the backup file with a UTC timestamp to the millisecond', async () => {
     const dest = await runBackup(db, backupDir);
-    const today = new Date().toISOString().slice(0, 10);
-    expect(path.basename(dest)).toBe(`inventory-${today}.db`);
+    expect(path.basename(dest)).toMatch(/^inventory-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.db$/);
+    expect(path.basename(dest).slice(10, 20)).toBe(new Date().toISOString().slice(0, 10));
   });
 
-  it('overwrites same-day backup on a second run rather than accumulating duplicates', async () => {
-    await runBackup(db, backupDir);
+  it('keeps every backup taken on the same day, each with its own contents', async () => {
+    const first = await runBackup(db, backupDir);
     db.prepare('INSERT INTO items (name) VALUES (?)').run('Second Item');
-    await runBackup(db, backupDir);
+    const second = await runBackup(db, backupDir);
 
-    const files = fs.readdirSync(backupDir).filter((f) => f.startsWith('inventory-'));
-    expect(files).toHaveLength(1);
+    expect(second).not.toBe(first);
+    expect(fs.readdirSync(backupDir).filter((f) => f.startsWith('inventory-'))).toHaveLength(2);
+    const count = (file) => {
+      const copy = new Database(file, { readonly: true });
+      const n = copy.prepare('SELECT COUNT(*) AS n FROM items').get().n;
+      copy.close();
+      return n;
+    };
+    expect(count(first)).toBe(1);
+    expect(count(second)).toBe(2);
+  });
 
-    const copy = new Database(path.join(backupDir, files[0]), { readonly: true });
-    expect(copy.prepare('SELECT COUNT(*) AS n FROM items').get().n).toBe(2);
-    copy.close();
+  it('never overwrites, even when two backups land in the same millisecond', async () => {
+    const frozen = new Date('2026-10-09T06:37:12.123Z');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(frozen);
+    try {
+      const a = await runBackup(db, backupDir);
+      const b = await runBackup(db, backupDir);
+      expect(path.basename(a)).toBe('inventory-2026-10-09T06-37-12-123Z.db');
+      expect(path.basename(b)).toBe('inventory-2026-10-09T06-37-12-123Z-1.db');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -75,16 +93,37 @@ describe('pruneOldBackups', () => {
     expect(fs.existsSync(recentFile)).toBe(true);
   });
 
+  it('prunes old backups in both the legacy date-only and the timestamped formats, keeping recent ones', () => {
+    fs.mkdirSync(backupDir, { recursive: true });
+    const names = {
+      oldLegacy: 'inventory-2020-01-01.db',
+      oldStamped: 'inventory-2020-01-01T02-00-00-000Z.db',
+      oldCounter: 'inventory-2020-01-01T02-00-00-000Z-1.db',
+      recentLegacy: 'inventory-2026-10-01.db',
+      recentStamped: 'inventory-2026-10-09T02-00-00-000Z.db',
+    };
+    const age = (days) => (Date.now() - days * 24 * 60 * 60 * 1000) / 1000;
+    for (const [key, name] of Object.entries(names)) {
+      const file = path.join(backupDir, name);
+      fs.writeFileSync(file, 'x');
+      fs.utimesSync(file, age(key.startsWith('old') ? 30 : 1), age(key.startsWith('old') ? 30 : 1));
+    }
+    pruneOldBackups(backupDir, 14);
+    expect(fs.readdirSync(backupDir).sort()).toEqual([names.recentLegacy, names.recentStamped].sort());
+  });
+
   it('ignores files that do not match the backup naming pattern', () => {
     fs.mkdirSync(backupDir, { recursive: true });
-    const unrelated = path.join(backupDir, 'notes.txt');
-    fs.writeFileSync(unrelated, 'x');
     const oldTime = Date.now() - 100 * 24 * 60 * 60 * 1000;
-    fs.utimesSync(unrelated, oldTime / 1000, oldTime / 1000);
+    const unrelated = ['notes.txt', 'inventory-2020-01-01T02-00-00-000Z.db.bak', 'inventory-latest.db'].map((n) => path.join(backupDir, n));
+    for (const f of unrelated) {
+      fs.writeFileSync(f, 'x');
+      fs.utimesSync(f, oldTime / 1000, oldTime / 1000);
+    }
 
     pruneOldBackups(backupDir, 14);
 
-    expect(fs.existsSync(unrelated)).toBe(true);
+    for (const f of unrelated) expect(fs.existsSync(f)).toBe(true);
   });
 
   it('is a no-op when the backup directory does not exist yet', () => {
@@ -109,5 +148,27 @@ describe('pruneOldBackups failures', () => {
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('inventory-2020-01-01.db'), expect.any(String));
     expect(fs.existsSync(removable)).toBe(false);
     errSpy.mockRestore();
+  });
+});
+
+describe('scheduleNightlyBackup', () => {
+  it('reschedules for the next local scheduled hour after a run, not a fixed 24 hours', async () => {
+    const { scheduleNightlyBackup } = await import('../backup.js');
+    const realSetTimeout = globalThis.setTimeout;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 10, 1, 59, 0)); // local time
+      const spy = vi.spyOn(globalThis, 'setTimeout');
+      scheduleNightlyBackup(db, backupDir, 2);
+      vi.advanceTimersByTime(61_000); // fires the backup; the backup itself does real I/O
+      for (let i = 0; i < 100 && spy.mock.calls.length < 2; i++) await new Promise((r) => realSetTimeout(r, 20));
+      const delays = spy.mock.calls.map((c) => c[1]);
+      expect(delays[0]).toBe(60_000);
+      const next = delays.at(-1);
+      expect(next).toBeLessThan(24 * 60 * 60 * 1000); // recomputed from "now", just after 02:00
+      expect(next).toBeGreaterThan(23 * 60 * 60 * 1000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

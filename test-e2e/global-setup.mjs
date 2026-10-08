@@ -39,6 +39,8 @@ export default async function globalSetup() {
       PORT: String(PORT),
       UPLOADS_DIR: path.join(uploadsRoot, 'stored'),
       UPLOAD_TMP_DIR: path.join(uploadsRoot, 'scratch'),
+      // Action logs would otherwise default to <dir of DB_PATH>/logs, i.e. a shared /tmp/logs.
+      LOG_DIR: path.join(uploadsRoot, 'logs'),
       AUTH_USERNAME,
       AUTH_PASSWORD_HASH,
       JWT_SECRET,

@@ -303,6 +303,10 @@ export interface InvoiceImportLine {
   final_container_details: string | null;
   barcode_scanned: string | null;
   qty_confirmed: number | null;
+  // 1 when the reviewer explicitly cleared the category/location (final_* is then null on
+  // purpose and must not fall back to the suggestion).
+  category_cleared: number;
+  location_cleared: number;
   line_status: 'pending' | 'reviewed' | 'skipped';
 }
 
@@ -314,11 +318,23 @@ export interface InvoiceImportState {
   warnings?: string[];
 }
 
+// The server recognised this invoice (same retailer + number, or same content) from an earlier
+// import. existing_import lets the UI offer to reopen it while it is still awaiting review.
+export class DuplicateInvoiceError extends Error {
+  existing: Pick<InvoiceImport, 'id' | 'retailer' | 'invoice_number' | 'invoice_date' | 'status'>;
+  constructor(message: string, existing: DuplicateInvoiceError['existing']) {
+    super(message);
+    this.name = 'DuplicateInvoiceError';
+    this.existing = existing;
+  }
+}
+
 export async function startInvoiceImport(file: File): Promise<InvoiceImportState> {
   const formData = new FormData();
   formData.append('invoice', file);
   const res = await authorizedFetch('/api/invoices/import', { method: 'POST', body: formData });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409 && data.code === 'duplicate_invoice') throw new DuplicateInvoiceError(data.error, data.existing_import);
   if (!res.ok) throw new Error(data.error || 'Failed to import invoice.');
   return data;
 }
@@ -407,6 +423,26 @@ export async function updateItem(id: number, payload: ItemPayload): Promise<Item
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to update item.');
+  return data;
+}
+
+// "Use this" on a duplicate prompt: one server transaction applies the pending add-form payload
+// (stock at the chosen location plus any purchase record) to an existing item (#50).
+export async function mergeIntoItem(id: number, payload: ItemPayload): Promise<Item> {
+  const res = await authorizedFetch(`/api/items/${id}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      quantity: payload.quantity || 0,
+      // Blank = nothing chosen: omit it so the server infers the item's only location (or asks).
+      location_id: payload.location_id === '' ? undefined : payload.location_id,
+      price: payload.price,
+      vendor: payload.vendor,
+      purchase_date: payload.purchase_date,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to add to the existing item.');
   return data;
 }
 
@@ -502,32 +538,55 @@ export interface DeviceToken {
   revoked: number;
 }
 
-export async function getDevices(): Promise<DeviceToken[]> {
-  const res = await authorizedFetch('/api/auth/devices');
+export async function getDevices(signal?: AbortSignal): Promise<DeviceToken[]> {
+  const res = await authorizedFetch('/api/auth/devices', { signal });
   if (!res.ok) throw new Error('Failed to fetch devices.');
   return res.json();
 }
 
-export async function revokeDevice(id: number): Promise<void> {
-  const res = await authorizedFetch(`/api/auth/devices/${id}/revoke`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to revoke device.');
+// Revoking needs a FRESH LOGIN: the household password is re-entered and sent in the request body
+// (never stored or logged), whatever token this device holds. A wrong password is a 403 with a
+// clear message, deliberately not a 401, so it never ends the session as an expired one would.
+async function postWithPassword(path: string, password: string, failure: string): Promise<void> {
+  const res = await authorizedFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (res.status === 429) throw new Error(passwordAttemptsMessage(res.headers.get('Retry-After')));
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || failure);
+  }
+}
+
+// Password confirmations share the sign-in attempt limit (5 per 15 minutes, wrong passwords
+// included), so say that and for how long, rather than a bare "too many requests".
+export function passwordAttemptsMessage(retryAfter: string | null): string {
+  const seconds = Number(retryAfter);
+  const wait = !retryAfter || !Number.isFinite(seconds) || seconds <= 0
+    ? 'a few minutes'
+    : seconds < 90 ? `${Math.ceil(seconds)} seconds` : `${Math.ceil(seconds / 60)} minutes`;
+  return `Too many password attempts. Revoking counts as signing in, which is limited to 5 attempts every 15 minutes. Try again in ${wait}.`;
+}
+
+export function revokeDevice(id: number, password: string): Promise<void> {
+  return postWithPassword(`/api/auth/devices/${id}/revoke`, password, 'Failed to revoke device.');
 }
 
 // "Sign out everywhere": the server ends every household session and revokes every device
 // token, including this one, so on success this device's own token is dead too.
-export async function revokeAllSessions(): Promise<void> {
-  const res = await authorizedFetch('/api/auth/revoke-all', { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to sign out everywhere.');
+export async function revokeAllSessions(password: string): Promise<void> {
+  await postWithPassword('/api/auth/revoke-all', password, 'Failed to sign out everywhere.');
   endSession();
 }
 
 export async function matchItem(name: string, barcode?: string): Promise<MatchResult | null> {
   const params = new URLSearchParams({ name });
   if (barcode) params.set('barcode', barcode);
-  try {
-    const res = await authorizedFetch(`/api/items/match?${params.toString()}`);
-    return res.ok ? res.json() : null;
-  } catch {
-    return null;
-  }
+  const res = await authorizedFetch(`/api/items/match?${params.toString()}`);
+  const data = await res.json().catch(() => ({}));
+  // A failed check must surface rather than quietly skip duplicate detection and add a second row.
+  if (!res.ok) throw new Error(data.error || 'Could not check for duplicates.');
+  return data;
 }

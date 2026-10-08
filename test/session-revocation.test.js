@@ -63,8 +63,8 @@ describe('household JWT versioning (#49)', () => {
 });
 
 describe('credential fingerprint / password rotation (#49)', () => {
-  const hashA = bcrypt.hashSync('one', 4);
-  const hashB = bcrypt.hashSync('two', 4);
+  const hashA = bcrypt.hashSync('one', 10);
+  const hashB = bcrypt.hashSync('two', 10);
 
   it('first run stores the fingerprint without bumping the epoch', () => {
     db.prepare('UPDATE auth_state SET credential_fingerprint = NULL').run();
@@ -117,11 +117,11 @@ describe('device-token issuance (#54)', () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM device_tokens WHERE device_label = 'Child'").get().n).toBe(0);
   });
 
-  it('a device token can still list and revoke devices', async () => {
+  it('a device token can list devices, and revoke one when the password is re-entered', async () => {
     const device = await mintDevice(session(), 'Manager tablet');
     expect((await get('/api/auth/devices', device)).status).toBe(200);
     const other = db.prepare("SELECT id FROM device_tokens WHERE device_label = 'Manager tablet'").get();
-    expect((await post(`/api/auth/devices/${other.id}/revoke`, device)).status).toBe(200);
+    expect((await post(`/api/auth/devices/${other.id}/revoke`, device).send({ password: TEST_PASSWORD })).status).toBe(200);
   });
 
   it('caps device_label length', async () => {
@@ -142,7 +142,7 @@ describe('POST /api/auth/revoke-all (#49, #54)', () => {
     const jwtToken = session();
     const device = await mintDevice(jwtToken, 'Doomed tablet');
 
-    const res = await post('/api/auth/revoke-all', jwtToken).send();
+    const res = await post('/api/auth/revoke-all', jwtToken).send({ password: TEST_PASSWORD });
     expect(res.status).toBe(200);
 
     expect((await get('/api/items', jwtToken)).status).toBe(401);
@@ -151,9 +151,9 @@ describe('POST /api/auth/revoke-all (#49, #54)', () => {
     expect((await get('/api/items', await login())).status).toBe(200);
   });
 
-  it('can be triggered from a device token', async () => {
+  it('can be triggered from a device token with the password', async () => {
     const device = await mintDevice(session(), 'Panic tablet');
-    expect((await post('/api/auth/revoke-all', device).send()).status).toBe(200);
+    expect((await post('/api/auth/revoke-all', device).send({ password: TEST_PASSWORD })).status).toBe(200);
     expect((await get('/api/items', device)).status).toBe(401);
   });
 });

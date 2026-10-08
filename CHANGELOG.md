@@ -4,6 +4,75 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.42 - 2026-10-09
+
+### Security remediation round 2: invoices, client failure handling, auth, container, and the remaining audit items
+
+Fixes #42, #43, #44, #45, #46, #47, #48 and #50. **Schema change: migration 6** (`PRAGMA user_version`
+5 -> 6, idempotent, no rows deleted or modified):
+1. `invoice_imports.dedupe_key TEXT` plus a UNIQUE index `idx_invoice_imports_dedupe_key`. Existing rows with an
+   invoice number are backfilled as `retailer|no:<lower-cased, space-collapsed number>`; where several share a key the
+   committed row (else the oldest) keeps it and the others stay NULL (NULLs never collide), so the index always builds.
+2. `invoice_import_lines.category_cleared` and `location_cleared` (`INTEGER NOT NULL DEFAULT 0`; existing rows keep the old behaviour).
+3. Triggers `item_locations_quantity_nonneg_insert` / `_update` reject a negative `item_locations.quantity`
+   (a CHECK would need a table rebuild). Existing negative rows, if any, are untouched.
+Also in the base schema for fresh installs. Verified against a copy of the pre-0.41 backup: 4 -> 5 -> 6, 258 items, integrity ok.
+
+**Invoices (#42-#48)**
+- The old LLM-parse upload (`POST /api/invoices/parse`, `POST /api/invoices/commit`) is removed: nothing used it after `/legacy` was retired and it had no duplicate protection. The deterministic import is the only invoice path.
+- Duplicate invoices are refused with a 409 `duplicate_invoice` before any LLM spend (key: retailer + invoice number, else a hash of the PDF text); the UNIQUE index is the backstop for racing uploads. Cancelling an in-progress import frees its key; a committed one keeps it.
+- Clearing a line's category/location sticks (`*_cleared`); an import with no parsed lines is refused (422/400); line edits are sent in order per line, a failed edit is reported and the import resynced (and Commit works again once resynced); commit flips the import status conditionally inside its transaction.
+- A kept line with no quantity shows as missing ("Required") in the review and blocks Commit, matching the server; an unpriced line no longer overwrites the item's last/lowest price or adds a history row.
+- Abandoned (uncommitted) imports older than `INVOICE_IMPORT_RETENTION_DAYS` are deleted at startup and daily, freeing their duplicate key. Committed imports are never deleted.
+- Validation errors are a typed `ValidationError`; any other error in a mutation is a correlation-id 500 and its text never reaches the client. `validForeignId` is strict (`1abc`, `1.9`, `0` are rejected).
+
+**Numeric and input rules (everywhere)**
+- `finiteNumber`: a missing value is an error unless the field says `allowNull`/`defaultValue`; booleans/arrays/objects are not numbers. Bounds: quantities 1,000,000, prices 100,000, an invoice line total 10,000,000.
+- `POST /api/items/:id/merge` (new, atomic): quantity required (0 to 1,000,000), price optional (to 100,000), same rules as item create.
+- `purchase_date` (create, update, merge) must be a real `YYYY-MM-DD` from 2000-01-01 to today (one day of UTC slack), stored as `YYYY-MM-DD 00:00:00`; anything else is a 400.
+- `is_open` and `is_ignored_grocery` accept only `true`/`false`/`1`/`0`; anything else is a 400.
+- `GET /api/items/search` is bounded: query at most 100 characters (400 beyond, or if repeated), at most 50 results, a three-column Fuse index instead of loading every item with its stock. Matching behaviour is unchanged.
+- Any other `/api/*` path (any method) is a JSON `404 {"error":"Not found"}` instead of the SPA page; unauthenticated callers still get 401 first, so a path's existence is not disclosed.
+
+**Client (#45, #50)**
+- Deduct preselects the only location holding stock and otherwise requires a choice; a location with no stock answers 409 "no stock at that location". `PATCH /quantity` and move-location give precise 404/400/409 errors.
+- "Use this" on a duplicate prompt now records the purchase (price history) via `/merge`. A blank location against a multi-location item asks the user to choose rather than landing in a phantom Unassigned row.
+- Every async user action reports failure as a toast (`actionFeedback`), with a global net for unhandled rejections; the e2e CSP guard also fails on unhandled rejections and page errors. Fixed a Cropper teardown error on every label scan and a double-submit on the item form.
+- Manage Devices no longer sets state after it closes (the request is aborted on unmount). A 429 on password confirmation explains the shared 5-attempts-per-15-minutes limit and how long to wait.
+
+**Auth**
+- **Revoking a device and "Sign out everywhere" now ask for the household password** (a fresh login) for every credential type, so a stolen device token cannot revoke anything. Wrong password: 403 (never 401); it counts as a failed login, shares the 5/15-minute limit and the account backoff, and is never logged.
+- Rate limits key IPv6 clients on their /64; account-wide login backoff (500 ms doubling to 5 s after 3 attempts; delay, never lockout); bucket eviction can no longer release a lockout; `RateLimit-Reset` is now seconds (was an epoch timestamp) and 429s send `Retry-After`.
+- Socket.IO origin check compares scheme + host + port. `/healthz` and unauthenticated `/api/health` return only `{status:"ok"}`; the version is shown to an authenticated caller. Household JWTs must carry `exp`; HS256 only; `Authorization` is parsed strictly; credential responses send `Cache-Control: no-store`.
+- `AUTH_PASSWORD_HASH` must be a bcrypt hash with a cost of 10-31 (the error names the variable only).
+
+**Container and operations**
+- The entrypoint validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` (absolute, normalised, inside `/app`, not application code, disjoint) before chowning and exits with a message otherwise; `lib/config.js` applies the same rules. `UPLOAD_TMP_DIR` is created 0700 and must be a real, runtime-owned, 0700 directory or startup is refused.
+- The runtime image copies an explicit allow-list (no client source); `.dockerignore` excludes secrets. PDF text extraction runs in a worker with a deadline and heap cap. Anthropic calls have a 45 s timeout and 1 retry. Backups are `inventory-<UTC timestamp>.db` (same-day backups no longer overwrite; 14-day pruning, DST-safe scheduling). The action log's stdout copy is bounded. Prompts with untrusted text use delimited data blocks (`buildPrompt`). Strict CSP is now non-negotiable #9 in CLAUDE.md.
+- A startup warning is logged when neither `APP_ORIGIN` nor `TRUST_PROXY` is set.
+
+**New and changed environment variables** (all optional; invalid values fall back to the default)
+| Variable | Default | Meaning |
+|---|---|---|
+| `INVOICE_IMPORT_RETENTION_DAYS` | 30 (max 3650) | uncommitted invoice imports older than this are deleted |
+| `LOG_DIR` | `<dir of DB_PATH>/logs` = `/app/data/logs` (was `/app/logs`) | action logs, now on the data volume |
+| `WRITABLE_ROOT` | `/app` (set by the Dockerfile) | enables path containment checks |
+| `PDF_PARSE_TIMEOUT_MS` | 20000 (max 600000) | PDF extraction deadline |
+| `PDF_WORKER_MEMORY_MB` | 256 (max 4096) | PDF worker heap ceiling |
+| `ANTHROPIC_TIMEOUT_MS` / `ANTHROPIC_MAX_RETRIES` | 45000 / 1 (0-5) | per attempt; SDK defaults were 10 min / 2 |
+| `ACTION_LOG_STDOUT` | on | `0` disables the stdout copy of the action log |
+| `INVOICE_IMPORT_MAX_LINES` | 250 (max 1000) | parsed lines per import |
+| `GENERAL_API_RATE_LIMIT_MAX` / `MUTATION_RATE_LIMIT_MAX` / `LLM_RATE_LIMIT_MAX` / `LOGIN_RATE_LIMIT_MAX` | 240 / 90 / 10 / 5 (each max 100000) | per-client limits; a typo falls back, never disables |
+| `UPLOAD_TMP_DIR` | `/tmp/butler-upload-tmp` | if set, must be absolute, normalised and clear of the data directories |
+
+**Deploy notes**
+- Take the standard pre-change backup first (schema change).
+- Set `APP_ORIGIN=https://butler.kiztigs.com` and `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` in the unRAID template. Without one of them, browsers behind TLS lose live (Socket.IO) updates, silently. `APP_ORIGIN` does not depend on NPM's forwarded headers.
+- Action logs now appear at `/mnt/user/appdata/butler/data/logs/` (the old `/app/logs` contents are not migrated).
+- `DB_PATH`/`UPLOADS_DIR`/`LOG_DIR` outside `/app`, or containing characters other than letters, digits, `.`, `_`, `-`, now stop the container (the documented mounts are fine). `AUTH_PASSWORD_HASH` below bcrypt cost 10 stops startup (the live hash is cost 10).
+- Anything reading the version from `/healthz` or an unauthenticated `/api/health` now gets none. Anything reading `RateLimit-Reset` as an epoch timestamp must read seconds.
+- Revoking asks for the household password; failed attempts count towards the 5-per-15-minutes login limit.
+
 ## 0.41 - 2026-10-09
 
 ### Security remediation: uploads, sessions, request pipeline, front end, dependencies and container

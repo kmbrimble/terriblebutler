@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getTheme, setTheme } from '../lib/theme';
 import { endSession } from '../lib/api';
+import { reportAction } from '../lib/actionFeedback';
 
 // issue #37: manifest of alternate-style variant pages (public/variants.json), fetched lazily so
 // removing/adding a variant doesn't need a code change here.
@@ -41,11 +42,9 @@ export function MenuDrawer({
 
   function toggleFullScreen() {
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch((err) => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
+      reportAction(document.documentElement.requestFullscreen(), 'Could not enter full screen.');
     } else {
-      document.exitFullscreen();
+      reportAction(document.exitFullscreen(), 'Could not leave full screen.');
     }
   }
 

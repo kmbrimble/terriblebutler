@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { PasswordConfirmDialog } from './PasswordConfirmDialog';
 import { getDevices, revokeAllSessions, revokeDevice, type DeviceToken } from '../lib/api';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
@@ -10,31 +11,41 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
   useLockBodyScroll();
   const [devices, setDevices] = useState<DeviceToken[]>([]);
 
+  // Aborted when the modal unmounts, so a response (or a revoke finishing) after close never
+  // touches state that is gone, and the abandoned request is cancelled rather than just ignored.
+  const lifetime = useRef<AbortController | null>(null);
+
   function refresh() {
-    getDevices()
-      .then(setDevices)
-      .catch((err) => showToast(err instanceof Error ? err.message : 'Failed to fetch devices.', 'error'));
+    const { signal } = lifetime.current ?? new AbortController();
+    getDevices(signal)
+      .then((list) => { if (!signal.aborted) setDevices(list); })
+      .catch((err) => {
+        if (signal.aborted) return;
+        showToast(err instanceof Error ? err.message : 'Failed to fetch devices.', 'error');
+      });
   }
 
-  useEffect(refresh, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    refresh();
+    return () => controller.abort();
+  }, []);
 
-  async function handleRevoke(device: DeviceToken) {
-    if (!window.confirm('Revoke this device? It will need to log in again to regain access.')) return;
-    try {
-      await revokeDevice(device.id);
+  // Revoking needs the household password again (a fresh login), whatever token this device
+  // holds; the confirm dialog collects it. Wrong password: the dialog stays open with the error.
+  const [pending, setPending] = useState<{ kind: 'device'; device: DeviceToken } | { kind: 'all' } | null>(null);
+
+  async function confirmPending(password: string) {
+    if (!pending) return;
+    if (pending.kind === 'device') {
+      await revokeDevice(pending.device.id, password);
+      if (lifetime.current?.signal.aborted) return;
+      setPending(null);
       refresh();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to revoke device.', 'error');
-    }
-  }
-
-  async function handleSignOutEverywhere() {
-    if (!window.confirm('Sign out everywhere? Every device, including this one, will need to log in again.')) return;
-    try {
+    } else {
       // On success api.ts ends the session, which sends App back to the login screen.
-      await revokeAllSessions();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to sign out everywhere.', 'error');
+      await revokeAllSessions(password);
     }
   }
 
@@ -64,7 +75,7 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   data-testid="manage-device-revoke-button"
-                  onClick={() => handleRevoke(d)}
+                  onClick={() => setPending({ kind: 'device', device: d })}
                   className="shrink-0 text-red-500 hover:text-red-700 font-bold touch-target px-2 border border-rimmy-border rounded"
                 >
                   Revoke
@@ -77,12 +88,25 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           data-testid="manage-devices-sign-out-everywhere"
-          onClick={handleSignOutEverywhere}
+          onClick={() => setPending({ kind: 'all' })}
           className="mt-4 shrink-0 text-red-500 hover:text-red-700 font-bold py-2 border border-rimmy-border rounded"
         >
           Sign out everywhere
         </button>
       </div>
+      {pending && (
+        <PasswordConfirmDialog
+          title={pending.kind === 'device' ? `Revoke ${pending.device.device_label}?` : 'Sign out everywhere?'}
+          message={
+            pending.kind === 'device'
+              ? 'It will need to log in again to regain access. Enter the household password to confirm.'
+              : 'Every device, including this one, will need to log in again. Enter the household password to confirm.'
+          }
+          confirmLabel={pending.kind === 'device' ? 'Revoke' : 'Sign out everywhere'}
+          onConfirm={confirmPending}
+          onCancel={() => setPending(null)}
+        />
+      )}
     </div>
   );
 }

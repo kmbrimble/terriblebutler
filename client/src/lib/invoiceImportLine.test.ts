@@ -6,6 +6,9 @@ import {
   resolveLineContainerValue,
   resolveMatchFieldPatch,
   isCommitEnabled,
+  resolveLineQuantity,
+  lineNeedsQuantity,
+  applyLinePatch,
   matchLabel,
   formatSummaryLine,
 } from './invoiceImportLine';
@@ -30,6 +33,8 @@ function makeLine(overrides: Partial<InvoiceImportLine> = {}): InvoiceImportLine
     final_container_details: null,
     barcode_scanned: null,
     qty_confirmed: null,
+    category_cleared: 0,
+    location_cleared: 0,
     line_status: 'pending',
     ...overrides,
   };
@@ -123,6 +128,28 @@ describe('isCommitEnabled', () => {
   });
 });
 
+describe('line quantity', () => {
+  it('prefers the confirmed quantity, then the supplied one, and is null when neither exists', () => {
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: 3, qty_supplied: 2 }))).toBe(3);
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: 0, qty_supplied: 2 }))).toBe(0);
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: null, qty_supplied: 2 }))).toBe(2);
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: null, qty_supplied: null }))).toBeNull();
+  });
+
+  it('a kept line with no quantity needs one; a skipped line does not', () => {
+    expect(lineNeedsQuantity(makeLine({ qty_confirmed: null, qty_supplied: null, line_status: 'reviewed' }))).toBe(true);
+    expect(lineNeedsQuantity(makeLine({ qty_confirmed: null, qty_supplied: null, line_status: 'skipped' }))).toBe(false);
+    expect(lineNeedsQuantity(makeLine({ qty_confirmed: null, qty_supplied: 1, line_status: 'reviewed' }))).toBe(false);
+  });
+
+  it('commit is disabled while a kept line has no quantity (the server refuses it)', () => {
+    const missing = makeLine({ qty_confirmed: null, qty_supplied: null, line_status: 'reviewed' });
+    expect(isCommitEnabled([missing])).toBe(false);
+    expect(isCommitEnabled([{ ...missing, qty_confirmed: 2 }])).toBe(true);
+    expect(isCommitEnabled([{ ...missing, line_status: 'skipped' }])).toBe(true);
+  });
+});
+
 describe('matchLabel', () => {
   it('reports a merge when matched_item_id is set', () => {
     expect(matchLabel(makeLine({ matched_item_id: 42 }))).toBe('Will merge into an existing item');
@@ -148,5 +175,28 @@ describe('formatSummaryLine', () => {
     expect(formatSummaryLine(makeImport({ retailer: null, invoice_number: null, invoice_date: null }), 5)).toBe(
       'Unknown retailer — invoice ? (unknown date) — 5 lines'
     );
+  });
+});
+
+describe('explicitly cleared category/location (#46)', () => {
+  it('a cleared category stays blank instead of reverting to the suggestion', () => {
+    expect(resolveLineCategoryValue(makeLine({ final_category_id: null, category_cleared: 1, suggested_category_id: 9 }))).toBe('');
+    expect(resolveLineLocationValue(makeLine({ final_location_id: null, location_cleared: 1, suggested_location_id: 4 }))).toBe('');
+  });
+
+  it('applyLinePatch mirrors the server: null sets the flag, a value clears it', () => {
+    const cleared = applyLinePatch(makeLine({ suggested_category_id: 9 }), { final_category_id: null });
+    expect(cleared.category_cleared).toBe(1);
+    expect(resolveLineCategoryValue(cleared)).toBe('');
+    const chosen = applyLinePatch(cleared, { final_category_id: 2 });
+    expect(chosen.category_cleared).toBe(0);
+    expect(resolveLineCategoryValue(chosen)).toBe(2);
+    expect(applyLinePatch(cleared, { line_status: 'reviewed' }).category_cleared).toBe(1);
+  });
+});
+
+describe('isCommitEnabled with no lines (#47)', () => {
+  it('is disabled for an import with nothing in it', () => {
+    expect(isCommitEnabled([])).toBe(false);
   });
 });

@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
-import { createItem, updateItem, updateItemQuantity, matchItem, parseLabelImage, createCategory, createLocation } from '../lib/api';
+import { numberOrZero } from '../lib/numberInput';
+import { createItem, updateItem, mergeIntoItem, matchItem, parseLabelImage, createCategory, createLocation } from '../lib/api';
 import type { Item, Location, Category, ItemPayload, MatchResult } from '../lib/api';
 import { deriveLabelScanUpdate } from '../lib/labelScan';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CropModal } from './CropModal';
 import { SuggestBlock } from './SuggestBlock';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { runAction } from '../lib/actionFeedback';
 
 // Ports openEditModal()/buildItemPayload()/handleItemSubmit() from public/index.html.
 // category_id can be genuinely NULL on live rows despite category_name being set (a category
@@ -53,6 +55,22 @@ export function ItemFormModal({
   const [locationSuggestion, setLocationSuggestion] = useState<ReturnType<typeof deriveLabelScanUpdate>['locationSuggestion']>(null);
   const [parsingLabel, setParsingLabel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // One save at a time: the duplicate panel stays up until a save succeeds, so a second click
+  // while a request is in flight must not send it again.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
+  async function exclusive(fn: () => Promise<void>) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await fn();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
 
   function buildPayload(): ItemPayload {
     const payload: ItemPayload = {
@@ -60,7 +78,7 @@ export function ItemFormModal({
       name,
       category_id: categoryId,
       container_details: containerDetails,
-      reorder_threshold: parseFloat(threshold),
+      reorder_threshold: numberOrZero(threshold),
     };
     if (mode === 'add') {
       payload.location_id = locationId;
@@ -95,36 +113,47 @@ export function ItemFormModal({
     setLocationSuggestion(null);
   }
 
-  async function submitPayload(payload: ItemPayload, keepOpen: boolean) {
-    if (item) {
-      await updateItem(item.id, payload);
-    } else {
-      await createItem(payload);
-    }
+  // Resolves true once the form is finished with; on failure the toast has been shown and the
+  // dialog stays open with the user's input intact.
+  async function submitPayload(payload: ItemPayload, keepOpen: boolean): Promise<boolean> {
+    const result = await runAction(
+      () => (item ? updateItem(item.id, payload) : createItem(payload)),
+      item ? 'Failed to update item.' : 'Failed to add item.'
+    );
+    if (!result.ok) return false;
+    if (keepOpen) resetForm();
+    else onClose();
+    return true;
+  }
+
+  async function mergeInto(existingId: number, payload: ItemPayload, keepOpen: boolean) {
+    const result = await runAction(() => mergeIntoItem(existingId, payload), 'Failed to add to the existing item.');
+    if (!result.ok) return;
     if (keepOpen) resetForm();
     else onClose();
   }
 
-  async function mergeQuantityInto(existingId: number, payload: ItemPayload, keepOpen: boolean) {
-    await updateItemQuantity(existingId, payload.quantity || 0, 'add', payload.location_id || null);
-    if (keepOpen) resetForm();
-    else onClose();
-  }
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Read the submitter before the event is used asynchronously.
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    return exclusive(() => submit(submitter));
+  }
+
+  async function submit(submitter: HTMLButtonElement | null) {
     // Both Save and Save-and-Add-Another are type="submit" (so the Name field's native
     // `required` validation applies to either) — SubmitEvent.submitter tells them apart.
-    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const addAnother = submitter?.value === 'addAnother';
     const payload = buildPayload();
 
     if (mode === 'add') {
-      const match = await matchItem(payload.name, payload.barcode || undefined);
+      const checked = await runAction(() => matchItem(payload.name, payload.barcode || undefined), 'Could not check for duplicates.');
+      if (!checked.ok) return;
+      const match = checked.value;
       // An exact case-insensitive name match is unambiguous, so it auto-merges without asking
       // — unlike barcode/fuzzy matches, which can't be that certain and still show the panel.
       if (match && match.type === 'exact_name' && match.candidates.length === 1) {
-        await mergeQuantityInto(match.candidates[0].id, payload, addAnother);
+        await mergeInto(match.candidates[0].id, payload, addAnother);
         return;
       }
       if (match && match.type) {
@@ -137,18 +166,21 @@ export function ItemFormModal({
     await submitPayload(payload, addAnother);
   }
 
-  async function useExisting(existingId: number) {
-    if (!pendingPayload) return;
-    await mergeQuantityInto(existingId, pendingPayload, pendingKeepOpen);
+  function useExisting(existingId: number) {
+    if (!pendingPayload) return Promise.resolve();
+    return exclusive(() => mergeInto(existingId, pendingPayload, pendingKeepOpen));
   }
 
-  async function proceedAsNew() {
-    if (!pendingPayload) return;
-    const payload = pendingPayload;
-    const keepOpen = pendingKeepOpen;
-    setDupMatch(null);
-    setPendingPayload(null);
-    await submitPayload(payload, keepOpen);
+  function proceedAsNew() {
+    if (!pendingPayload) return Promise.resolve();
+    // The panel stays up until the save succeeds, so a failed attempt can be retried or switched
+    // to "Use this".
+    return exclusive(async () => {
+      if (await submitPayload(pendingPayload, pendingKeepOpen)) {
+        setDupMatch(null);
+        setPendingPayload(null);
+      }
+    });
   }
 
   const typeLabel = (type: MatchResult['type']) =>
@@ -171,9 +203,10 @@ export function ItemFormModal({
     setCropImageSrc(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     setParsingLabel(true);
-    const data = await parseLabelImage(blob).catch(() => null);
+    const parsed = await runAction(() => parseLabelImage(blob), 'Could not read the label — try again or enter the details by hand.');
     setParsingLabel(false);
-    if (!data) return;
+    if (!parsed.ok) return;
+    const data = parsed.value;
     const update = deriveLabelScanUpdate(data);
     if (update.name !== undefined) setName(update.name);
     if (update.container_details !== undefined) setContainerDetails(update.container_details);
@@ -332,13 +365,13 @@ export function ItemFormModal({
                     <span className="text-sm text-rimmy-text">
                       {c.name} <span className="text-xs text-rimmy-textMuted">(qty {c.quantity}, {typeLabel(dupMatch.type)})</span>
                     </span>
-                    <button type="button" onClick={() => useExisting(c.id)} className="touch-target px-3 py-1 bg-rimmy-purple text-white text-xs font-bold rounded">
+                    <button type="button" disabled={saving} onClick={() => useExisting(c.id)} className="touch-target px-3 py-1 bg-rimmy-purple text-white text-xs font-bold rounded">
                       Use this
                     </button>
                   </div>
                 ))}
               </div>
-              <button type="button" onClick={proceedAsNew} className="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">
+              <button type="button" disabled={saving} onClick={proceedAsNew} className="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">
                 Add as new item anyway
               </button>
             </div>
@@ -354,12 +387,13 @@ export function ItemFormModal({
                 name="intent"
                 value="addAnother"
                 data-testid="item-form-save-add-another-button"
+                disabled={saving}
                 className="touch-target flex-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold text-sm"
               >
                 Save + Add Another
               </button>
             )}
-            <button type="submit" name="intent" value="save" data-testid="item-form-submit-button" className="touch-target flex-1 bg-rimmy-orange text-white rounded font-bold">
+            <button type="submit" name="intent" value="save" data-testid="item-form-submit-button" disabled={saving} className="touch-target flex-1 bg-rimmy-orange text-white rounded font-bold">
               Save
             </button>
           </div>

@@ -1,4 +1,5 @@
 import { test, expect } from './csp-guard.js';
+import { requestWithRateLimitRetry } from './rateLimitWait.js';
 import {
   ITEM_CARD,
   ADD_OPEN_BUTTON,
@@ -129,9 +130,9 @@ test.beforeAll(async ({ request }) => {
   locA = await probeRes.json();
 
   const remaining = Number(probeRes.headers()['ratelimit-remaining']);
-  const resetAtSeconds = Number(probeRes.headers()['ratelimit-reset']);
-  if (Number.isFinite(remaining) && Number.isFinite(resetAtSeconds) && remaining < NEEDED_HEADROOM) {
-    const waitMs = Math.max(0, resetAtSeconds * 1000 - Date.now()) + 500;
+  const resetSeconds = Number(probeRes.headers()['ratelimit-reset']); // seconds until the window resets
+  if (Number.isFinite(remaining) && Number.isFinite(resetSeconds) && remaining < NEEDED_HEADROOM) {
+    const waitMs = resetSeconds * 1000 + 500;
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
 
@@ -667,4 +668,21 @@ test('a drag starting on any in-card button does not misfire the card tap detect
   const groceryCard = page.getByTestId(ITEM_CARD).filter({ hasText: ignoreItem.name });
   await dragFrom(page, await centreOf(groceryCard.getByTestId(IGNORE_TOGGLE_BUTTON)), 0, 80);
   await expect(page.getByTestId(DETAILS_MODAL)).toBeHidden();
+});
+
+test('editing an item with the reorder threshold cleared saves it as 0 instead of failing (numeric rules)', async ({ page, request }) => {
+  const name = `Blank Threshold Marmot ${Date.now()}`;
+  const created = await requestWithRateLimitRetry(() => request.post('/api/items', { data: { name, quantity: 2, reorder_threshold: 3 } }));
+  expect(created.status()).toBe(201);
+  const { id } = await created.json();
+
+  await page.goto('/');
+  await page.getByTestId(ITEM_CARD).filter({ hasText: name }).getByTestId(EDIT_ITEM_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
+  await page.getByTestId(ITEM_THRESHOLD_INPUT).fill('');
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
+  await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
+
+  const items = await (await request.get('/api/items')).json();
+  expect(items.find((i) => i.id === id).reorder_threshold).toBe(0);
 });

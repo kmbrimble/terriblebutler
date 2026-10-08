@@ -54,11 +54,9 @@ describe('500 responses do not echo internal error messages (#61)', () => {
     expectGeneric500(res, errSpy);
   });
 
-  it('invoice parse/commit/import failures are generic too', async () => {
+  it('invoice import commit failures are generic too', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     breakDatabase();
-    const commit = await api(app).post('/api/invoices/commit').send({ items: [] });
-    expectGeneric500(commit, errSpy);
     const importCommit = await api(app).post('/api/invoices/import/1/commit');
     expectGeneric500(importCommit, errSpy);
   });

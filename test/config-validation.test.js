@@ -7,7 +7,7 @@ import './setup.js';
 import config from '../lib/config.js';
 
 const { validateAuthEnv } = config;
-const goodHash = bcrypt.hashSync('pw', 4);
+const goodHash = bcrypt.hashSync('pw', 10);
 const goodSecret = 'a'.repeat(32);
 const good = { AUTH_USERNAME: 'u', AUTH_PASSWORD_HASH: goodHash, JWT_SECRET: goodSecret };
 
@@ -26,6 +26,17 @@ describe('validateAuthEnv', () => {
     const problems = validateAuthEnv({ ...good, AUTH_PASSWORD_HASH: 'plaintext-sentinel-value' });
     expect(problems[0]).toContain('AUTH_PASSWORD_HASH');
     expect(problems.join()).not.toContain('plaintext-sentinel-value');
+  });
+
+  it.each(['00', '04', '09', '32', '99'])('rejects a bcrypt cost of %s (accepted range is 10-31)', (cost) => {
+    const problems = validateAuthEnv({ ...good, AUTH_PASSWORD_HASH: goodHash.replace(/^(\$2[aby]\$)\d\d/, `$1${cost}`) });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('AUTH_PASSWORD_HASH');
+    expect(problems[0]).not.toContain(goodHash.slice(7));
+  });
+
+  it.each(['10', '12', '31'])('accepts a bcrypt cost of %s', (cost) => {
+    expect(validateAuthEnv({ ...good, AUTH_PASSWORD_HASH: goodHash.replace(/^(\$2[aby]\$)\d\d/, `$1${cost}`) })).toEqual([]);
   });
 
   it('rejects a truncated bcrypt hash', () => {
@@ -67,5 +78,24 @@ describe('startup with a bad configuration', () => {
     expect(run.status).not.toBe(0);
     expect(run.stderr).toContain('JWT_SECRET');
     expect(run.stderr + run.stdout).not.toContain('short-sentinel-secret');
+  });
+});
+
+describe('numeric limits fall back instead of accepting unsafe values', () => {
+  it.each(['-1', '0', 'Infinity', '2.5', 'abc', '99999999999'])('INVOICE_IMPORT_MAX_LINES=%s uses the default', async (bad) => {
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url);
+    process.env.INVOICE_IMPORT_MAX_LINES = bad;
+    process.env.LOGIN_RATE_LIMIT_MAX = bad;
+    const path = req.resolve('../lib/config');
+    delete req.cache[path];
+    try {
+      const fresh = req('../lib/config');
+      expect([fresh.INVOICE_IMPORT_MAX_LINES, fresh.LOGIN_RATE_LIMIT_MAX]).toEqual([250, 5]);
+    } finally {
+      delete process.env.INVOICE_IMPORT_MAX_LINES;
+      delete process.env.LOGIN_RATE_LIMIT_MAX;
+      delete req.cache[path];
+    }
   });
 });

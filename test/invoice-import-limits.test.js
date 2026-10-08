@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import './setup.js';
-import { TEST_TOKEN } from './setup.js';
+import { TEST_TOKEN, clearInvoiceImports } from './setup.js';
 import request from 'supertest';
 import { loadFreshApp } from './fresh-app.js';
 
@@ -14,6 +14,10 @@ const WOOLWORTHS_PDF = path.join(process.cwd(), 'test/fixtures/invoices/woolwort
 beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
   process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1';
+});
+
+beforeEach(() => {
+  clearInvoiceImports();
 });
 
 afterEach(() => {
@@ -43,6 +47,7 @@ describe('invoice import LLM rate limit (#55)', () => {
     vi.spyOn(global, 'fetch').mockImplementation(async (url, options) => classifyResponse(JSON.parse(options.body)));
 
     for (let i = 0; i < 2; i++) {
+      clearInvoiceImports(); // the same fixture twice would otherwise be refused as a duplicate
       expect((await authed(request(app).post('/api/invoices/import')).attach('invoice', WOOLWORTHS_PDF)).status).toBe(200);
     }
     expect((await authed(request(app).post('/api/invoices/import')).attach('invoice', WOOLWORTHS_PDF)).status).toBe(429);

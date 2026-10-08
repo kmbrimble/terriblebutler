@@ -20,9 +20,19 @@ test-e2e/
 test-results/
 playwright-report/
 playwright.config.js
-test-e2e/
-test-results/
-playwright-report/
-playwright.config.js
 logs/
 uploads/
+
+# Secrets and credentials must never enter the build context (and so never an image layer).
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.netrc
+.aws/
+.ssh/
+id_rsa*
+id_ed25519*

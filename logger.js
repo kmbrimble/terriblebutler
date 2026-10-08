@@ -7,12 +7,21 @@
 // MAX_BUFFERED_BYTES are waiting on the disk, new entries are dropped (and counted) rather
 // than queued, so a slow disk can never grow memory or stall the event loop. The first entry
 // accepted after a drop is preceded by a `log_overflow` record saying how many were lost.
+//
+// The stdout copy (what `docker logs` shows) is kept alongside the file. It writes through
+// process.stdout (asynchronous for pipes), not a synchronous console.log, with the same bound and
+// overflow record (prefixed `[Action] `), so the two copies behave alike.
+// ACTION_LOG_STDOUT=0 turns the copy off (the test suite does, to keep its output readable).
 const fs = require('fs');
 const path = require('path');
 
-const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'logs');
+// Defaults to <database dir>/logs, i.e. /app/data/logs in the container: the persistent data mount,
+// next to the backups, so the 30-day retention survives container recreation.
+const LOG_DIR = process.env.LOG_DIR
+  || path.join(path.dirname(process.env.DB_PATH || path.join(__dirname, 'data', 'inventory.db')), 'logs');
 const MAX_AGE_DAYS = 30;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
+const STDOUT_FLUSH_TIMEOUT_MS = 1500;
 const MAX_BODY_CHARS = 4096;
 const PREVIEW_CHARS = 1024;
 const MAX_REDACT_DEPTH = 8;
@@ -49,7 +58,7 @@ function redact(value, depth = 0) {
 // Redacts, then bounds the size: a body whose JSON exceeds MAX_BODY_CHARS is replaced with a
 // marker carrying the original length and a short preview.
 function sanitize(body) {
-  if (body === undefined || body === null || typeof body !== 'object') return body;
+  if (body === undefined || body === null) return body;
   const redacted = redact(body);
   const json = JSON.stringify(redacted);
   if (json.length <= MAX_BODY_CHARS) return redacted;
@@ -72,7 +81,53 @@ function pruneOldLogs(maxAgeDays = MAX_AGE_DAYS) {
 
 let stream = null;
 let streamFile = null;
-let dropped = 0;
+const fileState = { dropped: 0 };
+
+// Writes one line to a bounded stream. `state.dropped` counts entries refused since the last
+// accepted one; the next accepted entry is preceded by a log_overflow record.
+function boundedWrite(out, state, line, prefix = '') {
+  if (out.writableLength > MAX_BUFFERED_BYTES) {
+    state.dropped += 1;
+    return;
+  }
+  if (state.dropped) {
+    out.write(`${prefix}${JSON.stringify({ time: new Date().toISOString(), event: 'log_overflow', dropped: state.dropped })}\n`);
+    state.dropped = 0;
+  }
+  out.write(`${prefix}${line}\n`);
+}
+
+const stdoutState = { dropped: 0 };
+let stdoutStream = null;
+let stdoutBroken = false;
+
+function adoptStdout(opened) {
+  opened.on('error', (err) => {
+    // A closed stdout (EPIPE) must not take the process down; the file copy carries on.
+    stdoutBroken = true;
+    if (stdoutStream === opened) stdoutStream = null;
+    try { process.stderr.write(`[Logger] stdout action log disabled: ${err.message}\n`); } catch { /* nothing left to report to */ }
+  });
+  stdoutStream = opened;
+}
+
+function activeStdout() {
+  if (stdoutStream) return stdoutStream;
+  if (stdoutBroken || process.env.ACTION_LOG_STDOUT === '0') return null;
+  // process.stdout, not a second stream on fd 1: once it exists, libuv has made a pipe fd
+  // non-blocking, and a separate fs stream on it would fail with EAGAIN when the pipe fills.
+  // For pipes process.stdout queues writes asynchronously and reports writableLength.
+  adoptStdout(process.stdout);
+  return stdoutStream;
+}
+
+// For tests: route the stdout copy to a different stream (or null to restore process.stdout).
+function setStdoutStream(replacement) {
+  stdoutStream = null;
+  stdoutBroken = false;
+  if (replacement) adoptStdout(replacement);
+  stdoutState.dropped = 0;
+}
 
 function closeStream() {
   const closing = stream;
@@ -117,16 +172,7 @@ function activeStream() {
 }
 
 function writeLine(line) {
-  const out = activeStream();
-  if (out.writableLength > MAX_BUFFERED_BYTES) {
-    dropped += 1;
-    return;
-  }
-  if (dropped) {
-    out.write(JSON.stringify({ time: new Date().toISOString(), event: 'log_overflow', dropped }) + '\n');
-    dropped = 0;
-  }
-  out.write(line + '\n');
+  boundedWrite(activeStream(), fileState, line);
 }
 
 function logAction(entry) {
@@ -135,7 +181,8 @@ function logAction(entry) {
     if ('request_body' in entry) record.request_body = sanitize(entry.request_body);
     if ('response_body' in entry) record.response_body = sanitize(entry.response_body);
     const line = JSON.stringify(record);
-    console.log(`[Action] ${line}`);
+    const out = activeStdout();
+    if (out) boundedWrite(out, stdoutState, line, '[Action] ');
     writeLine(line);
   } catch (err) {
     // Logging is best-effort: it must never fail the request it describes.
@@ -143,7 +190,16 @@ function logAction(entry) {
   }
 }
 
-// Resolves once every accepted entry is on disk. Used by shutdown and by tests.
-const flush = closeStream;
+// Resolves once every accepted entry is on disk and handed to stdout. Used by shutdown and tests.
+// stdout is never closed; an empty write's callback fires once the writes before it are done.
+function flush() {
+  const out = stdoutStream;
+  // A stalled reader must not hold up shutdown: wait for stdout only briefly (the file stream's
+  // flush is unbounded, as it is local disk).
+  const stdoutDone = out
+    ? Promise.race([new Promise((resolve) => out.write('', () => resolve())), new Promise((resolve) => setTimeout(resolve, STDOUT_FLUSH_TIMEOUT_MS).unref())])
+    : Promise.resolve();
+  return Promise.all([closeStream(), stdoutDone]).then(() => undefined);
+}
 
-module.exports = { logAction, pruneOldLogs, weekStartLabel, currentLogFile, flush, sanitize, LOG_DIR, MAX_BUFFERED_BYTES };
+module.exports = { logAction, pruneOldLogs, weekStartLabel, currentLogFile, flush, sanitize, setStdoutStream, LOG_DIR, MAX_BUFFERED_BYTES };

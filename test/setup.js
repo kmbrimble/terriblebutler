@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 import { afterAll } from 'vitest';
 
 const tmpDbPath = path.join(os.tmpdir(), `butler-test-${crypto.randomBytes(8).toString('hex')}.db`);
@@ -12,6 +13,8 @@ process.env.DB_PATH = tmpDbPath;
 
 const tmpLogDir = path.join(os.tmpdir(), `butler-test-logs-${crypto.randomBytes(8).toString('hex')}`);
 process.env.LOG_DIR = tmpLogDir;
+// The stdout copy of the action log writes straight to fd 1; keep the test output readable.
+process.env.ACTION_LOG_STDOUT = '0';
 
 // Uploads never touch the real directories: stored images and multer scratch files both go
 // to throwaway directories, removed in afterAll.
@@ -29,8 +32,13 @@ export const TEST_PASSWORD = 'testpass123';
 // that from one address. Tests of the limiter itself set their own maximum on a fresh app.
 process.env.LLM_RATE_LIMIT_MAX ??= '1000';
 
+// Login and step-up re-authentication (revoke, sign out everywhere) share the 5-per-15-minutes
+// login limiter, and the suite does far more of both from one address. Tests of the limiter
+// itself load a fresh app with LOGIN_RATE_LIMIT_MAX=5.
+process.env.LOGIN_RATE_LIMIT_MAX ??= '1000';
+
 process.env.AUTH_USERNAME = TEST_USERNAME;
-process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 4);
+process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
 
 // A fresh DB starts at token epoch 1 (lib/auth-state.js), so a household JWT for these tests
@@ -64,3 +72,17 @@ afterAll(() => {
   fs.rmSync(tmpUploadsDir, { recursive: true, force: true });
   fs.rmSync(tmpUploadScratchDir, { recursive: true, force: true });
 });
+
+// The invoice fixtures are reused across many tests, and a duplicate invoice is now refused
+// (#44), so tests that import the same PDF repeatedly start from no staged imports.
+export function clearInvoiceImports() {
+  const conn = new Database(process.env.DB_PATH);
+  try {
+    // A file that has not opened the app yet has no tables to clear.
+    if (conn.prepare("SELECT 1 FROM sqlite_master WHERE name = 'invoice_imports'").get()) {
+      conn.exec('DELETE FROM invoice_import_lines; DELETE FROM invoice_imports;');
+    }
+  } finally {
+    conn.close();
+  }
+}

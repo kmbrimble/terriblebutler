@@ -17,7 +17,7 @@ function legacyDb() {
     );
     INSERT INTO device_tokens (token_hash, device_label) VALUES ('h1', 'Existing tablet');
   `);
-  db.pragma(`user_version = ${migrations.length - 1}`);
+  db.pragma("user_version = 4"); // pre-#5
   return db;
 }
 

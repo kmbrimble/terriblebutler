@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getItems, getLocations, getCategories, getToken, updateItemQuantity, setIgnoreGrocery, setItemOpen, type Item, type Location, type Category } from './api';
 import { connectSocket } from './socket';
 import { showToast } from './toast';
+import { reportAction } from './actionFeedback';
 import type { Tab } from './filterItems';
 
 // Extracted from ItemList.tsx so every restyled variant (see issue #37) shares one copy of the
@@ -78,22 +79,22 @@ export function useInventory() {
   // the set-quantity modal's location picker instead of guessing which location to adjust.
   function quickAdjust(item: Item, action: 'add' | 'subtract', tab: Tab): Item | null {
     if (tab.type === 'location') {
-      updateItemQuantity(item.id, 1, action, tab.id).catch(() => {});
+      reportAction(updateItemQuantity(item.id, 1, action, tab.id), 'Failed to update quantity.');
       return null;
     }
     if (item.locations.length > 1) {
       return item;
     }
-    updateItemQuantity(item.id, 1, action).catch(() => {});
+    reportAction(updateItemQuantity(item.id, 1, action), 'Failed to update quantity.');
     return null;
   }
 
   function toggleIgnore(item: Item, status: 0 | 1) {
-    setIgnoreGrocery(item.id, status).catch(() => {});
+    reportAction(setIgnoreGrocery(item.id, status), 'Failed to update the grocery setting.');
   }
 
   function toggleOpen(item: Item, locationId: number | null, isOpen: 0 | 1) {
-    setItemOpen(item.id, isOpen, locationId).catch(() => {});
+    reportAction(setItemOpen(item.id, isOpen, locationId), 'Failed to update the open status.');
   }
 
   return { items, locations, categories, status, refetchItems, quickAdjust, toggleIgnore, toggleOpen };

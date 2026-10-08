@@ -9,7 +9,7 @@ import { createRequire } from 'module';
 const nodeRequire = createRequire(import.meta.url);
 const projectRoot = path.resolve(import.meta.dirname, '..') + path.sep;
 
-export function loadFreshApp(env = {}) {
+export function loadFreshApp(env = {}, { beforeLoad } = {}) {
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -17,5 +17,7 @@ export function loadFreshApp(env = {}) {
   for (const file of Object.keys(nodeRequire.cache)) {
     if (file.startsWith(projectRoot) && !file.includes(`${path.sep}node_modules${path.sep}`)) delete nodeRequire.cache[file];
   }
+  // Lets a test replace an export of a project module before server.js destructures it.
+  if (beforeLoad) beforeLoad(nodeRequire);
   return nodeRequire('../server.js');
 }

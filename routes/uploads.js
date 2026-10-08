@@ -1,7 +1,7 @@
 const Fuse = require('fuse.js');
 const { resolveNamedMatch } = require('../item-matching');
 const { validateLabelResult } = require('../llm-schema');
-const { callClaudeForJSON } = require('../lib/llm-client');
+const { callClaudeForJSON, buildPrompt } = require('../lib/llm-client');
 const { openValidatedImage, discardUpload, uploadErrorStatus } = require('../lib/uploads');
 
 function registerUploadRoutes(app, { db, imageUpload }) {
@@ -17,8 +17,6 @@ function registerUploadRoutes(app, { db, imageUpload }) {
       const image = await openValidatedImage(req.file.path);
       const locs = db.prepare('SELECT id, name FROM locations').all();
       const cats = db.prepare('SELECT id, name FROM categories').all();
-      const locNames = locs.map(l => l.name).join(', ');
-      const catNames = cats.map(c => c.name).join(', ');
       const resizedBuffer = await image
         .rotate()
         .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
@@ -26,11 +24,13 @@ function registerUploadRoutes(app, { db, imageUpload }) {
         .toBuffer();
       const base64Image = resizedBuffer.toString('base64');
       console.log(`[Label Parser] Resized image base64 length: ${base64Image.length} characters`);
-      const promptText = `Read the text on this product label. Extract the information into a JSON object.
+      const promptText = buildPrompt(`Read the text on this product label. Extract the information into a JSON object.
 "name": Combine the product brand and product name into a single string.
 "container_details": ONLY the strict measurement of weight, volume, or size (e.g., '180g', '2L'). Exclude all other descriptive text.
-"category_name": Select the most appropriate category strictly from this list: [${catNames}]. If no category is a good fit, leave it empty.
-"location_name": Select the most logical physical storage location for this product strictly from this list: [${locNames}].`;
+"category_name": Select the most appropriate category strictly from the categories data block (a JSON list of names). If no category is a good fit, leave it empty.
+"location_name": Select the most logical physical storage location for this product strictly from the locations data block (a JSON list of names).`,
+        { categories: cats.map((c) => c.name), locations: locs.map((l) => l.name) },
+        { image: true });
       console.log('[Label Parser] Sending request to Anthropic API');
       let parsedData;
       try {

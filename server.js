@@ -13,6 +13,8 @@ const middleware = require('./lib/middleware');
 const { createDomainHelpers, checkDuplicateBarcodes, sendServerError } = require('./lib/domain-helpers');
 const { setupGracefulShutdown } = require('./lib/shutdown');
 const uploads = require('./lib/uploads');
+const { createLoginBackoff } = require('./lib/login-backoff');
+const { scheduleImportPurge } = require('./lib/invoice-retention');
 
 const { registerHealthzRoute, registerApiHealthRoute } = require('./routes/health');
 const { registerLoginRoute, registerDeviceTokenRoutes } = require('./routes/auth');
@@ -50,14 +52,11 @@ app.use(express.static(path.join(__dirname, 'client/dist')));
 // short-lived signature (lib/uploads.js); registered before the SPA fallback so it can't shadow it.
 uploads.registerMediaRoute(app);
 
-registerHealthzRoute(app, { APP_VERSION });
+registerHealthzRoute(app);
 
 app.use('/api', middleware.generalApiRateLimiter);
 
-app.use(
-  ['/api/parse-label-llm', '/api/invoices/parse'],
-  middleware.llmRateLimiter
-);
+app.use('/api/parse-label-llm', middleware.llmRateLimiter);
 
 // Starting an invoice import (POST only) also drives LLM calls (#55). Gated by method and
 // exact path so the import's review endpoints (GET/PATCH/DELETE/commit under the same prefix)
@@ -81,23 +80,26 @@ if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWO
   console.log('[Auth] Login credential changed since last start: all sessions and device tokens revoked.');
 }
 
-const { authenticateToken, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
+const { authenticateToken, credentialFromRequest, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
 
 // Helper to broadcast inventory updates via Socket.io
-const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry);
+const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry, app.get('trust proxy fn'));
 
 // --- AUTH ---
+// One backoff for login and for step-up re-authentication, so a failed re-auth counts as a failed login.
+const loginBackoff = createLoginBackoff();
 // Login runs before requireAuth, so it is audited (outcome + IP, no body) rather than logged.
 app.use('/api/auth/login', middleware.loginAuditLogger(logAction));
 registerLoginRoute(app, {
   loginRateLimiter: middleware.loginRateLimiter,
+  loginBackoff,
   AUTH_USERNAME: config.AUTH_USERNAME,
   AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
   JWT_SECRET: config.JWT_SECRET,
   authState,
 });
 
-registerApiHealthRoute(app, { APP_VERSION });
+registerApiHealthRoute(app, { APP_VERSION, credentialFromRequest });
 
 app.use('/api', requireAuth);
 
@@ -105,7 +107,7 @@ app.use('/api', requireAuth);
 // authenticated, non-throttled requests have their bodies logged.
 app.use('/api', middleware.actionLogger(logAction));
 
-registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets });
+registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter: middleware.loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH });
 
 // --- LOCATION ENDPOINTS ---
 registerLocationRoutes(app, { db, broadcastUpdate });
@@ -122,6 +124,12 @@ registerPriceHistoryRoutes(app, { db, broadcastUpdate, getItem, recalculateItemP
 registerUploadRoutes(app, { db, imageUpload: uploads.imageUpload });
 
 registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: uploads.invoiceUpload, validForeignId, upsertItemLocationQuantity });
+
+// Anything under /api that no route above handled is a JSON 404, never the SPA shell. Mounted
+// after every route, so it is reached only by an authenticated caller: requireAuth sits in front
+// of everything but login and health, and answers 401 first, so an unauthenticated caller cannot
+// tell a real path from a made-up one.
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 // React client SPA fallback. Registered after every /api route (and /media above)
 // so this wildcard can't shadow them — any request that fell through all of those is a
@@ -163,7 +171,13 @@ if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Terrible Butler server listening on port ${PORT}`);
     console.log(`[Config] trust proxy: ${JSON.stringify(config.TRUST_PROXY)}`);
+    // Without either, the Socket.IO origin check expects the Node port's own plain-http origin, so
+    // browsers behind a TLS-terminating proxy lose live updates (the page itself still loads).
+    if (!process.env.APP_ORIGIN && !config.TRUST_PROXY) {
+      console.warn('[Config] Neither APP_ORIGIN nor TRUST_PROXY is set: behind a TLS proxy, browser Socket.IO connections will be refused. Set APP_ORIGIN=https://<your host> (or TRUST_PROXY).');
+    }
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));
+  scheduleImportPurge(db, config.INVOICE_IMPORT_RETENTION_DAYS);
 }
 module.exports = { app, server, db };

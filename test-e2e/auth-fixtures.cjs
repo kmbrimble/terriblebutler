@@ -14,7 +14,7 @@ const bcrypt = require('bcryptjs');
 const AUTH_USERNAME = 'e2euser';
 const AUTH_PASSWORD = 'e2epass123';
 const JWT_SECRET = 'e2e-fixed-test-secret-2f9a6c1d4b7e8035';
-const AUTH_PASSWORD_HASH = bcrypt.hashSync(AUTH_PASSWORD, 4);
+const AUTH_PASSWORD_HASH = bcrypt.hashSync(AUTH_PASSWORD, 10);
 
 // Hand-rolled HS256 signer, cross-checked against the server's `jsonwebtoken` verify.
 function base64url(input) {

@@ -3,16 +3,33 @@ import type { InvoiceImport, InvoiceImportLine, Item } from './api';
 // Ports the pure decision logic out of renderInvoiceImportLine()/renderInvoiceImportStaging()/
 // updateInvoiceImportCommitState() in public/index.html, so it's testable without a DOM.
 
+// A cleared category/location is a deliberate "none" (#46) and must not revert to the suggestion;
+// only a line the reviewer never touched falls back to it. The server applies the same rule at commit.
 export function resolveLineCategoryValue(line: InvoiceImportLine): number | '' {
+  if (line.category_cleared) return '';
   return line.final_category_id ?? line.suggested_category_id ?? '';
 }
 
 export function resolveLineLocationValue(line: InvoiceImportLine): number | '' {
+  if (line.location_cleared) return '';
   return line.final_location_id ?? line.suggested_location_id ?? '';
 }
 
+// The quantity a line will be committed with: the reviewer's confirmed figure, else what the
+// invoice supplied. null means neither exists, and the server refuses to commit such a line
+// unless it is skipped — it is never silently read as 0.
+export function resolveLineQuantity(line: InvoiceImportLine): number | null {
+  return line.qty_confirmed ?? line.qty_supplied ?? null;
+}
+
+export function lineNeedsQuantity(line: InvoiceImportLine): boolean {
+  return line.line_status !== 'skipped' && resolveLineQuantity(line) === null;
+}
+
+// An import with no lines has nothing to commit (#47), and a line being imported needs a
+// quantity; the server refuses both too.
 export function isCommitEnabled(lines: InvoiceImportLine[]): boolean {
-  return !lines.some((l) => l.line_status === 'pending');
+  return lines.length > 0 && !lines.some((l) => l.line_status === 'pending' || lineNeedsQuantity(l));
 }
 
 export function matchLabel(line: InvoiceImportLine): string {
@@ -56,4 +73,13 @@ export function resolveMatchFieldPatch(
 export function formatSummaryLine(imp: InvoiceImport, lineCount: number): string {
   const retailerLabel = imp.retailer ? imp.retailer[0].toUpperCase() + imp.retailer.slice(1) : 'Unknown retailer';
   return `${retailerLabel} — invoice ${imp.invoice_number || '?'} (${imp.invoice_date || 'unknown date'}) — ${lineCount} line${lineCount === 1 ? '' : 's'}`;
+}
+
+// Optimistic local view of a PATCH, so controlled inputs follow the user immediately. Clearing a
+// category/location also sets its cleared flag, as the server will.
+export function applyLinePatch(line: InvoiceImportLine, fields: Partial<InvoiceImportLine>): InvoiceImportLine {
+  const next = { ...line, ...fields };
+  if ('final_category_id' in fields) next.category_cleared = fields.final_category_id == null ? 1 : 0;
+  if ('final_location_id' in fields) next.location_cleared = fields.final_location_id == null ? 1 : 0;
+  return next;
 }
