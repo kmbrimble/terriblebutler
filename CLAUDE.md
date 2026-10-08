@@ -1,6 +1,7 @@
 # Butler — project context
 
-Household food inventory web app ("Terrible Butler"). Node.js / Express / better-sqlite3 /
+Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `engines`,
+`.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
 Socket.IO, with a single large `public/index.html` front end (Tailwind via CDN, html5-qrcode
 barcode scanning, Cropper.js, Chart.js). Product labels and invoices are parsed via a local
 vision LLM.
@@ -120,6 +121,21 @@ from outside this project without checking against this list.
   (`/api/invoices/parse` + `/api/invoices/commit`) is unrelated and keeps its staging list
   entirely client-side — no table backs it. There is still no dedicated `vendor` table;
   vendors are free-text in `price_history.vendor`.
+
+## Container runtime (non-root)
+
+The image starts `docker-entrypoint.sh` as root only to `chown` the writable paths
+(`/app/data` or the dir of `DB_PATH`, `/app/uploads`, `/app/public/uploads`, `LOG_DIR` /
+`/app/logs`) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
+runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
+
+- `PUID` / `PGID` env vars, defaults `99` / `100` (unRAID nobody:users). Must be numeric and
+  non-zero; the entrypoint refuses to run the app as root.
+- Existing root-owned files in the bind mounts (e.g. `inventory.db`) are chowned in place on
+  start; already-correct entries are skipped.
+- The base image is pinned by digest (`ARG NODE_IMAGE` in the Dockerfile, tag `node:24-slim`);
+  Dependabot bumps it. Debian apt packages are deliberately not version-pinned (builder stage
+  only, discarded; pinned apt versions disappear from mirrors and break builds).
 
 ## Pre-change backup
 

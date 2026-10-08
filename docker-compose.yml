@@ -11,6 +11,8 @@ services:
       - PORT=2626
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=production
+      - PUID=99
+      - PGID=100
     volumes:
       - ./data:/app/data
       - ./uploads:/app/public/uploads
