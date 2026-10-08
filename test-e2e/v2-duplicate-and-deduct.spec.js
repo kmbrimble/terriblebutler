@@ -93,6 +93,8 @@ test('#50: "Use this" adds the quantity and records the purchase (price, vendor)
 
   const item = await qty(request, barcodeItem.id);
   expect(item.last_price).toBe(6.5);
+  expect(item.locations).toHaveLength(1); // no phantom Unassigned bucket
+  expect(item.locations[0].quantity).toBe(5);
   const history = await (await request.get(`/api/items/${barcodeItem.id}/price-history`)).json();
   expect(history).toHaveLength(1);
   expect(history[0]).toMatchObject({ price: 6.5, vendor: 'Corner Shop' });
@@ -109,6 +111,7 @@ test('#50: the exact-name auto-merge keeps the purchase record too', async ({ pa
   await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
   await expect(page.getByTestId(ITEM_CARD).filter({ hasText: exactItem.name }).getByTestId(QTY_DISPLAY_BUTTON)).toHaveText('3');
   const history = await (await request.get(`/api/items/${exactItem.id}/price-history`)).json();
+  expect((await qty(request, exactItem.id)).locations).toHaveLength(1);
   expect(history).toHaveLength(1);
   expect(history[0]).toMatchObject({ price: 2.25, vendor: 'Deli' });
 });

@@ -114,6 +114,7 @@ describe('mergeIntoItem', () => {
     const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe('/api/items/5/merge');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ quantity: 2, location_id: null, price: 3.2, vendor: 'Shop', purchase_date: '2026-01-02' });
+    expect(JSON.parse(init.body)).not.toHaveProperty('location_id');
+    expect(JSON.parse(init.body)).toEqual({ quantity: 2, price: 3.2, vendor: 'Shop', purchase_date: '2026-01-02' });
   });
 });

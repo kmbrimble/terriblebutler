@@ -64,6 +64,13 @@ describe('POST /api/items/:id/merge (#50)', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM price_history WHERE item_id = ?').get(id).n).toBe(0);
   });
 
+  it('with location_id omitted, lands in the item\'s only location (no Unassigned bucket)', async () => {
+    const id = (await api(app).post('/api/items').send({ name: 'Merge infer', location_id: locA, quantity: 1 })).body.id;
+    const res = await api(app).post(`/api/items/${id}/merge`).send({ quantity: 2 });
+    expect(res.status).toBe(200);
+    expect(res.body.locations).toEqual([expect.objectContaining({ location_id: locA, quantity: 3 })]);
+  });
+
   it('is atomic: an invalid price rejects the whole request and changes nothing', async () => {
     const id = (await api(app).post('/api/items').send({ name: 'Merge atomic', location_id: locA, quantity: 1 })).body.id;
     const res = await api(app).post(`/api/items/${id}/merge`).send({ quantity: 5, location_id: locA, price: -3 });

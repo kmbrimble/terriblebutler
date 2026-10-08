@@ -418,7 +418,8 @@ export async function mergeIntoItem(id: number, payload: ItemPayload): Promise<I
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       quantity: payload.quantity || 0,
-      location_id: payload.location_id || null,
+      // Blank = nothing chosen: omit it so the server infers the item's only location (or asks).
+      location_id: payload.location_id === '' ? undefined : payload.location_id,
       price: payload.price,
       vendor: payload.vendor,
       purchase_date: payload.purchase_date,
