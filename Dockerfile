@@ -62,6 +62,9 @@ RUN mkdir -p "$UPLOADS_DIR"
 # Copy the built React client — only the built output, not the client's source or devDependencies
 COPY --from=client-builder /app/client/dist ./client/dist
 
+# Uploads directory (the live bind-mount target); the entrypoint chowns it to PUID:PGID.
+RUN mkdir -p /app/public/uploads
+
 # Starts as root only to fix ownership of the writable paths, then drops to PUID:PGID.
 COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 

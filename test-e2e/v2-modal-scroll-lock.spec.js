@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { ADD_OPEN_BUTTON, ADD_MODAL, MODAL_CLOSE_BUTTON, MENU_OPEN_BUTTON, MENU_DRAWER, MANAGE_CATEGORIES_MODAL } from './testids.js';
 
 // Issue #22: a fixed-position overlay doesn't stop the page underneath from scrolling, so a

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { TAB_BAR } from './testids.js';
 
 // fixes #36 — the location tab bar scrolled out of view under a long item list; it should

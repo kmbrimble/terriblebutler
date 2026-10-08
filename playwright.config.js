@@ -17,6 +17,8 @@ export default defineConfig({
   workers: 1,
   use: {
     headless: true,
+    // Fake camera so the REAL html5-qrcode scanner can start under the CSP (v2-csp.spec.js).
+    launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
     baseURL,
     // Pre-authenticate every test by default: the `request` fixture gets the token via
     // this header, and `page` navigations start with it already in localStorage. Tests

@@ -2,8 +2,9 @@
 
 Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `engines`,
 `.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
-Socket.IO, with a single large `public/index.html` front end (Tailwind via CDN, html5-qrcode
-barcode scanning, Cropper.js, Chart.js). Product labels and invoices are parsed via a local
+Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
+html5-qrcode barcode scanning, Cropper.js 2). The old single-file `public/index.html` front end and its
+`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed via a local
 vision LLM.
 
 Use British/Australian English in all writing, comments, and UI text.
@@ -27,7 +28,7 @@ milestone itself.
 - **Backend (Vitest + supertest):** `npm test` — tests in `test/`
 - **Frontend (Playwright):** `npm run test:e2e` — tests in `test-e2e/`
 
-Run `npm test` for any change. Also run `npm run test:e2e` if `public/index.html` or anything
+Run `npm test` for any change. Also run `npm run test:e2e` if `client/` or anything
 affecting browser behaviour changed.
 
 Tests use a temporary database via the `DB_PATH` environment variable. They must never read or
@@ -52,7 +53,7 @@ middleware logic. The actual code lives in:
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
   dependency cycle — the composition root builds `server` from `app`, then calls this before
   registering any routes.
-- `lib/middleware.js` — security headers, the rate-limiter factory and its configured
+- `lib/middleware.js` — security headers (incl. the CSP), the rate-limiter factory and its configured
   instances (`generalApiRateLimiter`, `mutationRateLimiterMiddleware`, `llmRateLimiter`,
   `loginRateLimiter`), and `createAuth(db, authState)` (`authenticateToken` returns the credential
   or null, `requireAuth`, `requireHouseholdJwt`; `hashDeviceToken` is a separate export). Multer
@@ -122,6 +123,14 @@ from outside this project without checking against this list.
    again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
    header/auth settings were removed, so NPM now passes straight through) →
    `terrible-butler` on its unique port → app's own JWT auth.
+9. **Strict CSP, no third-party runtime assets.** `securityHeaders` sends a
+   `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`, no `unsafe-inline`/`unsafe-eval`).
+   Nothing may load from a third-party origin: fonts are bundled (`@fontsource/*`, OFL licences in
+   `client/public/font-licences`), and the pre-paint theme bootstrap is the external
+   `client/public/theme-init*.js`, not an inline script. Every e2e spec imports `test` from
+   `test-e2e/csp-guard.js`, which fails the test on any CSP violation; never import from
+   `@playwright/test` directly. A new feature needing a looser directive must widen it deliberately in
+   `lib/middleware.js` and `test/csp.test.js`.
 
 ## Database notes (read before any schema change)
 
@@ -249,5 +258,3 @@ username/password, and this is intentionally the only recovery path:
 
 - Do not modify `.github/workflows/` unless the request is explicitly about CI.
 - Do not modify the live container, live database, or live uploads directory.
-- `public/index.html` is large; use `repository-reader` to locate the relevant section rather
-  than reading the whole file into context.

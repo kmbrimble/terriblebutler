@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import path from 'node:path';
 import {
   ADD_OPEN_BUTTON,
@@ -25,8 +25,7 @@ test.beforeEach(async ({ request }) => {
 
 const PRODUCT_IMAGE = path.join(process.cwd(), 'test/fixtures/product1.jpg');
 
-// Unlike legacy's label-scan-suggestion.spec.js (which bypasses Cropper.js/camera entirely by
-// calling applyLabelScanResult() directly on window), these drive the REAL file input and REAL
+// These drive the REAL file input and REAL
 // Cropper.js crop UI on a fixture jpg — real Cropper.js works fine on a canvas in headless
 // Chromium — and only mock the /api/parse-label-llm response, so the full wiring (file → crop
 // → confirm → fetch → form update) is actually exercised end to end, not just the picker logic.

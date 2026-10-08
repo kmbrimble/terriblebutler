@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { signJwt, JWT_SECRET, AUTH_USERNAME } from './auth-fixtures.cjs';
 import { LOGIN_SCREEN, APP_ROOT, EMPTY_STATE, ITEMS_ERROR, MENU_OPEN_BUTTON, MENU_LOGOUT_BUTTON,
   MENU_MANAGE_DEVICES_BUTTON, MANAGE_DEVICES_MODAL, MANAGE_DEVICES_SIGN_OUT_EVERYWHERE } from './testids.js';

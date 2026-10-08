@@ -52,7 +52,13 @@ export function DeductModal({ items, onClose }: { items: Item[]; onClose: () => 
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) return;
     const multiLocation = selected.locations.length > 1;
-    await deductItem(selected.id, val, multiLocation ? locationId || null : undefined);
+    try {
+      await deductItem(selected.id, val, multiLocation ? locationId || null : undefined);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to deduct item.', 'error');
+      return;
+    }
+    showToast('Item quantity reduced.');
     onClose();
   }
 

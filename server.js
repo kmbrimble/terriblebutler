@@ -50,15 +50,6 @@ app.use(express.static(path.join(__dirname, 'client/dist')));
 // short-lived signature (lib/uploads.js); registered before the SPA fallback so it can't shadow it.
 uploads.registerMediaRoute(app);
 
-// legacy: the original front end, kept live at /legacy as a one-week rollback safety net
-// after the cutover to the React client (see CHANGELOG). Scoped entirely under /legacy, so
-// it can't shadow /api or /media regardless of registration order.
-// UPLOADS_DIR defaults to public/uploads, so stored images must stay off this static mount: they
-// are delivered only by the signed /media route. The check is on the decoded, normalised path
-// (see uploads.denyUploadsUnder). Drop it if /legacy is retired.
-app.use('/legacy', uploads.denyUploadsUnder(path.join(__dirname, 'public')));
-app.use('/legacy', express.static(path.join(__dirname, 'public')));
-
 registerHealthzRoute(app, { APP_VERSION });
 
 app.use('/api', middleware.generalApiRateLimiter);
@@ -132,7 +123,7 @@ registerUploadRoutes(app, { db, imageUpload: uploads.imageUpload });
 
 registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: uploads.invoiceUpload, validForeignId, upsertItemLocationQuantity });
 
-// React client SPA fallback. Registered after every /api route (and /media, /legacy above)
+// React client SPA fallback. Registered after every /api route (and /media above)
 // so this wildcard can't shadow them — any request that fell through all of those is a
 // client-side route or a hard refresh/deep link into the React app.
 app.get('/{*splat}', (req, res) => {
