@@ -25,6 +25,8 @@ const APP_VERSION = config.APP_VERSION;
 const app = express();
 
 app.disable('x-powered-by');
+// Forwarded-header trust is explicit and off by default (#53); see lib/config.js TRUST_PROXY.
+app.set('trust proxy', config.TRUST_PROXY);
 
 app.use(middleware.securityHeaders);
 
@@ -127,6 +129,7 @@ const PORT = config.PORT;
 if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Terrible Butler server listening on port ${PORT}`);
+    console.log(`[Config] trust proxy: ${JSON.stringify(config.TRUST_PROXY)}`);
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));
 }
