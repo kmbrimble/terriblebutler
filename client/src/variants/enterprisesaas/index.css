@@ -1,7 +1,11 @@
 /* Alternate skin for issue #37 (style 83, "Enterprise SaaS (Mobile)"). Tokens taken directly
    from the ui-ux-pro-max-skill style catalog (styles.csv, Style ID enterprise-saas-mobile).
    Reuses every component/hook unchanged. */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import '@fontsource/plus-jakarta-sans/latin-400.css';
+@import '@fontsource/plus-jakarta-sans/latin-500.css';
+@import '@fontsource/plus-jakarta-sans/latin-600.css';
+@import '@fontsource/plus-jakarta-sans/latin-700.css';
+@import '@fontsource/plus-jakarta-sans/latin-800.css';
 
 @import 'tailwindcss';
 @config '../../../tailwind.config.js';

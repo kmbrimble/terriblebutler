@@ -3,7 +3,10 @@
    Style ID tactile-digital-deformable-ui: Chrome Silver #C0C0C0, Jelly Pink #FF9ECD, Soft Blue
    #87CEEB, --press-scale: 0.95, --bounce-duration: 400ms). Reuses every component/hook
    unchanged; the press/bounce feel comes from a plain CSS :active transform. */
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+@import '@fontsource/nunito/latin-400.css';
+@import '@fontsource/nunito/latin-600.css';
+@import '@fontsource/nunito/latin-700.css';
+@import '@fontsource/nunito/latin-800.css';
 
 @import 'tailwindcss';
 @config '../../../tailwind.config.js';

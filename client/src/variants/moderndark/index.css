@@ -2,7 +2,10 @@
    from the ui-ux-pro-max-skill style catalog (styles.csv, Style ID modern-dark-cinema-mobile) —
    this style's own "Preferred Mode" is dark, so :root and .dark share the same deep palette
    rather than offering a separate light variant. Reuses every component/hook unchanged. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
 
 @import 'tailwindcss';
 @config '../../../tailwind.config.js';

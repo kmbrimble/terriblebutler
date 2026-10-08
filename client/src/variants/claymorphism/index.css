@@ -2,7 +2,10 @@
    the ui-ux-pro-max-skill style catalog (styles.csv, Style ID claymorphism-mobile). Reuses
    every component/hook unchanged; the squish-on-press feel comes from a plain CSS :active
    transform (no JS/animation library needed for a scale transition this small). */
-@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700&family=Varela+Round&display=swap');
+@import '@fontsource/nunito-sans/latin-400.css';
+@import '@fontsource/nunito-sans/latin-600.css';
+@import '@fontsource/nunito-sans/latin-700.css';
+@import '@fontsource/varela-round/latin-400.css';
 
 @import 'tailwindcss';
 @config '../../../tailwind.config.js';
