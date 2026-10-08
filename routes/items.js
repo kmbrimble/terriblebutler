@@ -12,6 +12,13 @@ const {
 } = require('../lib/domain-helpers');
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
+  // Shared 409 wording for stock changes: the target location has no row at all, vs. has too little.
+  const NO_STOCK_HERE = 'This item has no stock at that location';
+  const INSUFFICIENT = 'Insufficient quantity';
+  const hasStockRow = (id, locationId) => Boolean(locationId === null
+    ? db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)
+    : db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id = ?').get(id, locationId));
+
   app.get('/api/items', (req, res) => {
     const stmt = db.prepare(`
       SELECT items.*, locations.name as location_name, categories.name as category_name,
@@ -189,10 +196,11 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     try {
       const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0 });
       const action = req.body.action;
+      if (!['add', 'subtract', 'set'].includes(action)) return res.status(400).json({ error: 'Invalid quantity action' });
       const locationId = resolveTargetLocation(id, req.body.location_id);
+      if (action === 'subtract' && !hasStockRow(id, locationId)) return res.status(409).json({ error: NO_STOCK_HERE });
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, action, amount))();
-      if (changed === null) return res.status(400).json({ error: 'Invalid quantity action' });
-      if (!changed) return res.status(409).json({ error: 'Insufficient quantity or item not found' });
+      if (!changed) return res.status(409).json({ error: INSUFFICIENT });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
@@ -206,12 +214,9 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     try {
       const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001 });
       const locationId = resolveTargetLocation(id, req.body.location_id);
-      const stocked = locationId === null
-        ? db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)
-        : db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id = ?').get(id, locationId);
-      if (!stocked) return res.status(409).json({ error: 'This item has no stock at that location' });
+      if (!hasStockRow(id, locationId)) return res.status(409).json({ error: NO_STOCK_HERE });
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, 'subtract', amount))();
-      if (!changed) return res.status(409).json({ error: 'Insufficient quantity' });
+      if (!changed) return res.status(409).json({ error: INSUFFICIENT });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
@@ -256,12 +261,13 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       if (fromLocationId === toLocationId) {
         return res.status(400).json({ error: 'Source and destination locations must be different' });
       }
+      if (!hasStockRow(id, fromLocationId)) return res.status(409).json({ error: NO_STOCK_HERE });
       const moved = db.transaction(() => {
         if (!upsertItemLocationQuantity(id, fromLocationId, 'subtract', amount)) return false;
         upsertItemLocationQuantity(id, toLocationId, 'add', amount);
         return true;
       })();
-      if (!moved) return res.status(409).json({ error: 'Insufficient quantity at the source location' });
+      if (!moved) return res.status(409).json({ error: INSUFFICIENT });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);

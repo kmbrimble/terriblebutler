@@ -100,3 +100,49 @@ describe('POST /api/items/:id/merge (#50)', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('PATCH /quantity and move-location 4xx precision (consistent with deduct)', () => {
+  it('unknown item is 404', async () => {
+    const res = await api(app).patch('/api/items/999999/quantity').send({ amount: 1, action: 'add' });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/item not found/i);
+  });
+
+  it('subtract at a location with no row is 409 "no stock at that location"', async () => {
+    const id = await multiLocationItem('Qty no stock');
+    const res = await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'subtract', location_id: null });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/no stock at that location/i);
+  });
+
+  it('subtract more than the location holds is 409 "insufficient quantity" (no "or item not found")', async () => {
+    const id = await multiLocationItem('Qty short');
+    const res = await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 99, action: 'subtract', location_id: locA });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/^insufficient quantity$/i);
+  });
+
+  it('an invalid action is a 400, even where there is no stock row', async () => {
+    const id = await multiLocationItem('Qty bad action');
+    const res = await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'explode', location_id: null });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid quantity action/i);
+  });
+
+  it('omitting the location on a multi-location item is the same clear 400 as deduct', async () => {
+    const id = await multiLocationItem('Qty ambiguous');
+    const res = await api(app).patch(`/api/items/${id}/quantity`).send({ amount: 1, action: 'subtract' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/choose which one/i);
+  });
+
+  it('move from a location with no row says no stock there; from one that is short says insufficient', async () => {
+    const id = await multiLocationItem('Move precise');
+    const none = await api(app).patch(`/api/items/${id}/move-location`).send({ amount: 1, from_location_id: null, to_location_id: locA });
+    expect(none.status).toBe(409);
+    expect(none.body.error).toMatch(/no stock at that location/i);
+    const short = await api(app).patch(`/api/items/${id}/move-location`).send({ amount: 99, from_location_id: locA, to_location_id: locB });
+    expect(short.status).toBe(409);
+    expect(short.body.error).toMatch(/insufficient quantity/i);
+  });
+});
