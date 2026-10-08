@@ -240,3 +240,16 @@ describe('GET /api/items/match', () => {
     expect(res.body.candidates.length).toBeGreaterThan(0);
   });
 });
+
+describe('PATCH /api/items/:id/ignore-grocery validation', () => {
+  it('accepts 0/1 and rejects other values', async () => {
+    const item = await api(app).post('/api/items').send({ name: `Ignore Flag ${Date.now()}`, quantity: 1 });
+    const ok = await api(app).patch(`/api/items/${item.body.id}/ignore-grocery`).send({ is_ignored_grocery: 1 });
+    expect(ok.status).toBe(200);
+    expect(ok.body.is_ignored_grocery).toBe(1);
+    for (const bad of [2, -1, 'yes', null, undefined]) {
+      const res = await api(app).patch(`/api/items/${item.body.id}/ignore-grocery`).send({ is_ignored_grocery: bad });
+      expect(res.status, String(bad)).toBe(400);
+    }
+  });
+});

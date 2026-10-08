@@ -32,7 +32,7 @@ and the `device_tokens.issued_by_jti` column (NULL for existing rows). Both are 
 - Stored images are no longer served statically. `GET /media/:name?exp=&sig=` is the only way to
   read one: an HMAC-SHA256 signature (key derived from `JWT_SECRET` with HKDF) over name and
   expiry. Every item payload, REST and Socket.IO, carries a freshly signed URL; the database keeps
-  the stable stored name. `/media` responses carry their own `default-src 'none'; sandbox` CSP.
+  the stable stored name. every `/media` response, errors included, carries its own `default-src 'none'; sandbox` CSP.
 - Uploads are never stored as sent: multer writes to a private scratch directory, sharp decodes the
   file, the sniffed format must be JPEG, PNG or WebP (declared type and filename are ignored),
   and the result is re-encoded to WebP (2048 px edge, metadata stripped, orientation applied).
@@ -69,6 +69,13 @@ and the `device_tokens.issued_by_jti` column (NULL for existing rows). Both are 
 - Every 500 returns a generic message with a correlation id (the detail stays in the server log);
   deliberate 4xx messages are kept. Category and location names are validated (1-100 characters)
   and duplicates answer 409. Every temp-file removal logs its failure.
+- Final-review fixes: an invoice import is staged (header and lines) in a single transaction
+  after the LLM work, so a failure can't leave an empty or partial import; each rate limiter
+  keeps its own bounded bucket map (50,000 clients), so a flood of addresses can't exhaust memory
+  or evict login attempt counts; `POST /api/invoices/commit` validates names, quantities,
+  prices, text lengths and item count before writing (a negative quantity used to subtract
+  stock); deleting a location or item no longer fails on a leftover `items.location_id` or an
+  invoice line that matched the item; `PATCH /api/items/:id/ignore-grocery` accepts only 0 or 1.
 
 **Front end (#59)**
 - The legacy single-page front end (`public/index.html`, `/legacy`) and its CDN scripts are gone;

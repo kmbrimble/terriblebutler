@@ -5,7 +5,7 @@ const { parseInvoice } = require('../parsers/router');
 const { callClaudeForJSON, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
 const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
-const { cleanText, finiteNumber, sendMutationError, sendServerError } = require('../lib/domain-helpers');
+const { cleanText, finiteNumber, normaliseBarcode, sendMutationError, sendServerError } = require('../lib/domain-helpers');
 
 function getImportWithLines(db, importId) {
   const importRow = db.prepare('SELECT * FROM invoice_imports WHERE id = ?').get(importId);
@@ -79,9 +79,30 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
   });
 
   app.post('/api/invoices/commit', (req, res) => {
-    const itemsToCommit = req.body.items;
-    if (!Array.isArray(itemsToCommit)) {
+    if (!Array.isArray(req.body.items)) {
       return res.status(400).json({ error: 'Expected an array of items' });
+    }
+    // The client supplies every field here, so validate before anything is written: a negative
+    // quantity would otherwise subtract stock, and unbounded text or arrays would be stored as sent.
+    let itemsToCommit;
+    try {
+      if (req.body.items.length > config.INVOICE_IMPORT_MAX_LINES) {
+        throw new Error(`An invoice commit accepts at most ${config.INVOICE_IMPORT_MAX_LINES} items.`);
+      }
+      itemsToCommit = req.body.items.map((item) => {
+        if (!item || typeof item !== 'object') throw new Error('Each item must be an object');
+        return {
+          ...item,
+          name: cleanText(item.name, { required: true, max: 200 }),
+          barcode: normaliseBarcode(item.barcode),
+          container_details: cleanText(item.container_details, { max: 500 }),
+          quantity: finiteNumber(item.quantity, { name: 'Quantity', min: 0 }),
+          price: finiteNumber(item.price, { name: 'Price', min: 0 }),
+          vendor: cleanText(item.vendor, { max: 200 }),
+        };
+      });
+    } catch (err) {
+      return sendMutationError(res, err);
     }
     const existingItems = db.prepare('SELECT id, name, barcode, lowest_price FROM items').all();
     const fuse = new Fuse(existingItems, {

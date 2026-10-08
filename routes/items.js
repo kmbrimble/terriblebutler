@@ -239,7 +239,10 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
   });
 
   app.patch('/api/items/:id/ignore-grocery', (req, res) => {
-    const { is_ignored_grocery } = req.body;
+    // The grocery views filter on exactly 0 and 1, so anything else would hide the item from both.
+    const flag = req.body.is_ignored_grocery;
+    if (![0, 1, true, false].includes(flag)) return res.status(400).json({ error: 'is_ignored_grocery must be 0 or 1' });
+    const is_ignored_grocery = flag ? 1 : 0;
     const stmt = db.prepare("UPDATE items SET is_ignored_grocery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
     try {
       const info = stmt.run(is_ignored_grocery, req.params.id);
