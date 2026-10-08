@@ -4,7 +4,8 @@
 // Lines are independent of each other and run concurrently.
 export interface LineUpdateQueue<Fields> {
   enqueue(lineId: number, fields: Fields): Promise<void>;
-  // Resolves once every edit queued so far has settled (used before committing).
+  // Resolves once every edit queued so far has settled; rejects if a line's latest edit failed
+  // and was not since replaced by a successful one, so a commit never proceeds on stale server state.
   drain(): Promise<void>;
 }
 
@@ -24,6 +25,7 @@ export function createLineUpdateQueue<Fields, Row>({
 }): LineUpdateQueue<Fields> {
   const tails = new Map<number, Promise<void>>();
   const outstanding = new Map<number, number>();
+  const failed = new Set<number>();
 
   return {
     enqueue(lineId, fields) {
@@ -39,14 +41,20 @@ export function createLineUpdateQueue<Fields, Row>({
         const left = (outstanding.get(lineId) ?? 1) - 1;
         if (left === 0) outstanding.delete(lineId);
         else outstanding.set(lineId, left);
-        if ('err' in result) onError(lineId, result.err, left === 0);
-        else if (left === 0) onSettled(lineId, result.row);
+        if ('err' in result) {
+          if (left === 0) failed.add(lineId);
+          onError(lineId, result.err, left === 0);
+        } else {
+          if (left === 0) failed.delete(lineId);
+          if (left === 0) onSettled(lineId, result.row);
+        }
       });
       tails.set(lineId, run);
       return run;
     },
     async drain() {
       await Promise.all([...tails.values()]);
+      if (failed.size) throw new Error('Some changes could not be saved. Check the highlighted lines and try again.');
     },
   };
 }

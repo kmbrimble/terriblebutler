@@ -284,3 +284,19 @@ describe('import line quantity bound (#42)', () => {
     expect((await patch(12)).status).toBe(200);
   });
 });
+
+describe('review follow-ups', () => {
+  it.each(['1abc', '1.9', '1e2', -1, 0, {}])('a malformed foreign id %j is rejected, not coerced to another row', async (bad) => {
+    const res = await api(app).post('/api/invoices/commit').send({ items: [{ name: 'Bad id', quantity: 1, price: 1, vendor: 'T', location_id: bad }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Location/);
+  });
+
+  it('a non-object PATCH body is a 400, not a 500', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network unreachable'));
+    const res = await importPdf(app, COLES_PDF);
+    const url = `/api/invoices/import/${res.body.import.id}/lines/${res.body.lines[0].id}`;
+    const patched = await api(app).patch(url).set('Content-Type', 'application/json').send('null');
+    expect(patched.status).toBe(400);
+  });
+});

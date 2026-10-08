@@ -54,6 +54,7 @@ export function InvoiceImportModal({
   const [state, setState] = useState<InvoiceImportState | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanningLineId, setScanningLineId] = useState<number | null>(null);
+  const [committing, setCommitting] = useState(false);
   const [duplicate, setDuplicate] = useState<DuplicateInvoiceError | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importIdRef = useRef<number | null>(null);
@@ -153,7 +154,8 @@ export function InvoiceImportModal({
   }
 
   async function handleCommit() {
-    if (!state) return;
+    if (!state || committing) return;
+    setCommitting(true);
     try {
       await lineQueue.drain(); // commit only after every edit has reached the server
       const summary = await commitInvoiceImport(state.import.id);
@@ -163,6 +165,8 @@ export function InvoiceImportModal({
       onCommitted();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to commit the invoice import.', 'error');
+    } finally {
+      setCommitting(false);
     }
   }
 
@@ -244,7 +248,7 @@ export function InvoiceImportModal({
             <button
               type="button"
               data-testid="invoice-import-commit-button"
-              disabled={!isCommitEnabled(state.lines)}
+              disabled={committing || !isCommitEnabled(state.lines)}
               onClick={handleCommit}
               className="touch-target shrink-0 w-full bg-rimmy-orange hover:bg-rimmy-orangeHover disabled:opacity-40 disabled:cursor-not-allowed text-white rounded font-bold py-3 mt-2"
             >

@@ -364,6 +364,9 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     const importRow = db.prepare('SELECT status FROM invoice_imports WHERE id = ?').get(importId);
     if (importRow.status === 'committed') return res.status(409).json({ error: 'This import has already been committed' });
 
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ error: 'Expected an object containing invoice-line fields' });
+    }
     const updates = [];
     const values = [];
     try {

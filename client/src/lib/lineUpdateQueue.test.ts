@@ -93,3 +93,17 @@ describe('drain', () => {
     expect(drained).toBe(true);
   });
 });
+
+describe('drain after a failed edit', () => {
+  it('rejects while the latest edit of a line has failed, and recovers after a later success', async () => {
+    const { queue, sent } = setup();
+    queue.enqueue(1, 'a');
+    await tick();
+    sent[0].d.reject(new Error('nope'));
+    await expect(queue.drain()).rejects.toThrow(/could not be saved/);
+    queue.enqueue(1, 'b');
+    await tick();
+    sent[1].d.resolve('row-b');
+    await expect(queue.drain()).resolves.toBeUndefined();
+  });
+});
