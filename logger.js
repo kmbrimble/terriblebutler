@@ -55,7 +55,7 @@ function redact(value, depth = 0) {
 // Redacts, then bounds the size: a body whose JSON exceeds MAX_BODY_CHARS is replaced with a
 // marker carrying the original length and a short preview.
 function sanitize(body) {
-  if (body === undefined || body === null || typeof body !== 'object') return body;
+  if (body === undefined || body === null) return body;
   const redacted = redact(body);
   const json = JSON.stringify(redacted);
   if (json.length <= MAX_BODY_CHARS) return redacted;

@@ -222,3 +222,13 @@ describe('stdout copy', () => {
     expect(err).toBe('alive'); // no "stdout action log disabled" and no crash
   });
 });
+
+describe('sanitize primitives', () => {
+  it('redacts media signatures in a string body and bounds its size', async () => {
+    const { sanitize } = await import('../logger.js');
+    expect(sanitize('see /media/a.webp?exp=1&sig=SECRETVALUE')).not.toContain('SECRETVALUE');
+    const big = sanitize('x'.repeat(100000));
+    expect(big).toMatchObject({ truncated: true, original_chars: 100002 });
+    expect(JSON.stringify(big).length).toBeLessThan(2000);
+  });
+});

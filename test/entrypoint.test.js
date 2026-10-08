@@ -177,3 +177,15 @@ describe('path validation: entrypoint and lib/config.js agree', () => {
     expect(validateStoragePaths({ DB_PATH: '/tmp/../inv.db' }, undefined)).toHaveLength(1);
   });
 });
+
+describe('UPLOAD_TMP_DIR (swept at startup, so it must not overlap data)', () => {
+  it('rejects a scratch dir that is the uploads dir, inside the data dir, or malformed', () => {
+    expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/app/public/uploads' }, '/app')).toHaveLength(1);
+    expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/app/data/tmp' }, '/app')).toHaveLength(1);
+    expect(validateStoragePaths({ UPLOAD_TMP_DIR: 'tmp' }, '/app')).toHaveLength(1);
+  });
+  it('accepts a separate scratch dir, inside or outside /app', () => {
+    expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/tmp/butler-upload-tmp' }, '/app')).toEqual([]);
+    expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/app/scratch' }, '/app')).toEqual([]);
+  });
+});

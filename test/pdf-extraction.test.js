@@ -68,3 +68,22 @@ describe('deadline and limits', () => {
     await expect(uploads.extractPdfText(write('x.pdf', Buffer.from('<html>')))).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe('PDF limit configuration', () => {
+  it.each([['Infinity'], ['1.5'], ['-1'], ['0'], ['abc'], ['999999999999']])('falls back to the defaults for %s', async (bad) => {
+    vi.resetModules();
+    process.env.PDF_PARSE_TIMEOUT_MS = bad;
+    process.env.PDF_WORKER_MEMORY_MB = bad;
+    try {
+      const config = require('../lib/config');
+      delete require.cache[require.resolve('../lib/config')];
+      const fresh = require('../lib/config');
+      expect([fresh.PDF_PARSE_TIMEOUT_MS, fresh.PDF_WORKER_MEMORY_MB]).toEqual([20_000, 256]);
+      expect(config).toBeTruthy();
+    } finally {
+      delete process.env.PDF_PARSE_TIMEOUT_MS;
+      delete process.env.PDF_WORKER_MEMORY_MB;
+      delete require.cache[require.resolve('../lib/config')];
+    }
+  });
+});
