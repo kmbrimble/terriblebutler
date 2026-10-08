@@ -332,3 +332,26 @@ describe('route sweep includes the JSON 404 behind authentication', () => {
     expect((await request(app).get('/api/made-up').set('Authorization', `Bearer ${TEST_TOKEN}`)).status).toBe(404);
   });
 });
+
+describe('committing an invoice line with no price', () => {
+  it('leaves the matched item’s last/lowest price and price history alone', async () => {
+    const item = (await api(app).post('/api/items').send({ name: 'Unpriced match', price: 3.5, quantity: 1 })).body;
+    const importId = db.prepare("INSERT INTO invoice_imports (retailer, invoice_number) VALUES ('coles', 'UNPRICED-1')").run().lastInsertRowid;
+    db.prepare("INSERT INTO invoice_import_lines (import_id, raw_name, qty_supplied, unit_price, matched_item_id, line_status) VALUES (?, 'Unpriced match', 2, NULL, ?, 'reviewed')")
+      .run(importId, item.id);
+    const res = await api(app).post(`/api/invoices/import/${importId}/commit`);
+    expect(res.status).toBe(200);
+    const after = (await api(app).get(`/api/items/${item.id}/details`)).body;
+    expect([after.quantity, after.last_price, after.lowest_price]).toEqual([3, 3.5, 3.5]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM price_history WHERE item_id = ?').get(item.id).n).toBe(1);
+  });
+
+  it('a new item from an unpriced line starts at no price and gets no history row', async () => {
+    const importId = db.prepare("INSERT INTO invoice_imports (retailer, invoice_number) VALUES ('coles', 'UNPRICED-2')").run().lastInsertRowid;
+    db.prepare("INSERT INTO invoice_import_lines (import_id, raw_name, qty_supplied, unit_price, line_status) VALUES (?, 'Brand new unpriced thing', 1, NULL, 'reviewed')").run(importId);
+    expect((await api(app).post(`/api/invoices/import/${importId}/commit`)).status).toBe(200);
+    const row = db.prepare("SELECT id, last_price, lowest_price FROM items WHERE name = 'Brand new unpriced thing'").get();
+    expect([row.last_price, row.lowest_price]).toEqual([0, 0]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM price_history WHERE item_id = ?').get(row.id).n).toBe(0);
+  });
+});

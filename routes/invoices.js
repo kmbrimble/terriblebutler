@@ -319,7 +319,10 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           const categoryId = line.category_cleared ? null : (line.final_category_id ?? line.suggested_category_id);
           const locationId = line.location_cleared ? null : (line.final_location_id ?? line.suggested_location_id);
           const qty = line.qty_confirmed ?? line.qty_supplied; // never null: checked above
+          // A line with no (or a zero) price carries no price information: it must not overwrite the
+          // item's last/lowest price or add a history row, which recalculateItemPrices ignores anyway.
           const price = line.unit_price ?? 0;
+          const priced = price > 0;
           const name = line.final_name || line.raw_name;
           const containerDetails = line.final_container_details || '';
 
@@ -339,10 +342,12 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           let itemId;
           if (matchedItem) {
             itemId = matchedItem.id;
-            let newLowest = matchedItem.lowest_price;
-            if (!newLowest || price < newLowest) newLowest = price;
-            touchItem.run(price, newLowest, itemId);
-            matchedItem.lowest_price = newLowest;
+            if (priced) {
+              let newLowest = matchedItem.lowest_price;
+              if (!newLowest || price < newLowest) newLowest = price;
+              touchItem.run(price, newLowest, itemId);
+              matchedItem.lowest_price = newLowest;
+            }
             upsertItemLocationQuantity(itemId, locationId, 'add', qty);
             itemsMatched += 1;
           } else {
@@ -353,7 +358,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
             fuse.setCollection(existingItems);
             itemsAdded += 1;
           }
-          insertPriceHistory.run(itemId, price, importRow.retailer);
+          if (priced) insertPriceHistory.run(itemId, price, importRow.retailer);
           markLineMatched.run(itemId, line.id);
           rememberMatch.run(normaliseName(line.raw_name), itemId);
           totalValue += line.line_total || 0;
