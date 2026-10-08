@@ -198,11 +198,27 @@ describe('stdout copy', () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('stdout action log disabled'));
   });
 
-  it('can be switched off with ACTION_LOG_STDOUT=0 (no fd 1 stream is opened)', async () => {
-    const spy = vi.spyOn(fs, 'createWriteStream');
+  it('can be switched off with ACTION_LOG_STDOUT=0 (nothing is written to stdout)', async () => {
+    const spy = vi.spyOn(process.stdout, 'write');
     const { logAction, flush } = await import('../logger.js');
     logAction({ method: 'POST', path: '/api/items', status: 201 });
     await flush();
-    expect(spy.mock.calls.every(([, opts]) => !(opts && opts.fd === 1))).toBe(true);
+    expect(spy.mock.calls.filter(([c]) => String(c).startsWith('[Action]'))).toEqual([]);
+  });
+
+  it('keeps working on a real stalled pipe after console.log has initialised stdout', async () => {
+    const script = `
+      process.env.LOG_DIR = ${JSON.stringify(tmpDir)};
+      console.log('init');
+      const { logAction } = require(${JSON.stringify(path.resolve('logger.js'))});
+      for (let i = 0; i < 3000; i++) logAction({ method: 'POST', path: '/api/items', status: 201, request_body: { pad: 'z'.repeat(1000), i } });
+      setTimeout(() => { process.stderr.write('alive'); process.exit(0); }, 300);`;
+    const { spawn } = await import('child_process');
+    const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.pause(); // never read: the pipe fills
+    let err = '';
+    child.stderr.on('data', (d) => { err += d; });
+    await new Promise((resolve) => child.on('exit', resolve));
+    expect(err).toBe('alive'); // no "stdout action log disabled" and no crash
   });
 });

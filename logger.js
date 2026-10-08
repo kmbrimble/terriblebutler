@@ -10,7 +10,7 @@
 //
 // The stdout copy (what `docker logs` shows, and the only copy that survives the container, since
 // LOG_DIR is not a mounted volume) is kept, but no longer a synchronous console.log: stdout to a
-// pipe or file blocks the event loop when the reader is slow. It is a second stream on fd 1 with
+// or file can stall when the reader is slow. It is process.stdout (asynchronous for pipes) with
 // the same bound and overflow record (prefixed `[Action] `), so the two copies behave alike.
 // ACTION_LOG_STDOUT=0 turns the copy off (the test suite does, to keep its output readable).
 const fs = require('fs');
@@ -111,11 +111,14 @@ function adoptStdout(opened) {
 function activeStdout() {
   if (stdoutStream) return stdoutStream;
   if (stdoutBroken || process.env.ACTION_LOG_STDOUT === '0') return null;
-  adoptStdout(fs.createWriteStream(null, { fd: 1, autoClose: false }));
+  // process.stdout, not a second stream on fd 1: once it exists, libuv has made a pipe fd
+  // non-blocking, and a separate fs stream on it would fail with EAGAIN when the pipe fills.
+  // For pipes process.stdout queues writes asynchronously and reports writableLength.
+  adoptStdout(process.stdout);
   return stdoutStream;
 }
 
-// For tests: route the stdout copy to a different stream (or null to restore fd 1).
+// For tests: route the stdout copy to a different stream (or null to restore process.stdout).
 function setStdoutStream(replacement) {
   stdoutStream = null;
   stdoutBroken = false;
@@ -185,7 +188,7 @@ function logAction(entry) {
 }
 
 // Resolves once every accepted entry is on disk and handed to stdout. Used by shutdown and tests.
-// fd 1 is never closed; an empty write's callback fires once the writes before it are done.
+// stdout is never closed; an empty write's callback fires once the writes before it are done.
 function flush() {
   const out = stdoutStream;
   const stdoutDone = out ? new Promise((resolve) => out.write('', () => resolve())) : Promise.resolve();
