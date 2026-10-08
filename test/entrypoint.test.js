@@ -147,6 +147,7 @@ const cases = [
   ['UPLOADS_DIR is /', { UPLOADS_DIR: '/' }, false],
   ['UPLOADS_DIR is a system directory', { UPLOADS_DIR: '/etc' }, false],
   ['UPLOADS_DIR is the app root', { UPLOADS_DIR: R }, false],
+  ['DB directory is the public asset directory', { DB_PATH: `${R}/public/inv.db` }, false],
   ['UPLOADS_DIR is the client source', { UPLOADS_DIR: `${R}/client` }, false],
   ['UPLOADS_DIR relative', { UPLOADS_DIR: 'uploads' }, false],
   ['UPLOADS_DIR sibling of the app root', { UPLOADS_DIR: `${R}-evil/uploads` }, false],

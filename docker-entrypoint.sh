@@ -55,7 +55,7 @@ check_path() {
   case "$value" in
     "$APP_ROOT"/node_modules|"$APP_ROOT"/node_modules/*|"$APP_ROOT"/lib|"$APP_ROOT"/lib/*|\
     "$APP_ROOT"/routes|"$APP_ROOT"/routes/*|"$APP_ROOT"/parsers|"$APP_ROOT"/parsers/*|\
-    "$APP_ROOT"/scripts|"$APP_ROOT"/scripts/*|"$APP_ROOT"/client|"$APP_ROOT"/client/*)
+    "$APP_ROOT"/scripts|"$APP_ROOT"/scripts/*|"$APP_ROOT"/client|"$APP_ROOT"/client/*|"$APP_ROOT"/public)
       echo "entrypoint: $name must not be inside the application code ($APP_ROOT)" >&2; exit 1 ;;
   esac
 }

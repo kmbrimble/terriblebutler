@@ -150,3 +150,25 @@ describe('pruneOldBackups failures', () => {
     errSpy.mockRestore();
   });
 });
+
+describe('scheduleNightlyBackup', () => {
+  it('reschedules for the next local scheduled hour after a run, not a fixed 24 hours', async () => {
+    const { scheduleNightlyBackup } = await import('../backup.js');
+    const realSetTimeout = globalThis.setTimeout;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 0, 10, 1, 59, 0)); // local time
+      const spy = vi.spyOn(globalThis, 'setTimeout');
+      scheduleNightlyBackup(db, backupDir, 2);
+      vi.advanceTimersByTime(61_000); // fires the backup; the backup itself does real I/O
+      for (let i = 0; i < 100 && spy.mock.calls.length < 2; i++) await new Promise((r) => realSetTimeout(r, 20));
+      const delays = spy.mock.calls.map((c) => c[1]);
+      expect(delays[0]).toBe(60_000);
+      const next = delays.at(-1);
+      expect(next).toBeLessThan(24 * 60 * 60 * 1000); // recomputed from "now", just after 02:00
+      expect(next).toBeGreaterThan(23 * 60 * 60 * 1000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

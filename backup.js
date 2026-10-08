@@ -58,9 +58,9 @@ function scheduleNightlyBackup(db, backupDir, hour = 2) {
     // Reschedule only once this run settles, so a slow backup can never overlap the next one.
     runBackup(db, backupDir)
       .catch((err) => console.error('[Backup] nightly backup failed:', err))
-      .finally(() => setTimeout(runAndReschedule, 24 * 60 * 60 * 1000));
+      .finally(() => setTimeout(runAndReschedule, msUntilNextHour(hour))); // next local 02:00, so DST shifts do not drift it
   }
   setTimeout(runAndReschedule, msUntilNextHour(hour));
 }
 
-module.exports = { runBackup, pruneOldBackups, scheduleNightlyBackup, backupFileName, uniqueBackupPath };
+module.exports = { msUntilNextHour, runBackup, pruneOldBackups, scheduleNightlyBackup, backupFileName, uniqueBackupPath };
