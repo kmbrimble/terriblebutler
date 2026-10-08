@@ -544,10 +544,9 @@ export async function revokeAllSessions(): Promise<void> {
 export async function matchItem(name: string, barcode?: string): Promise<MatchResult | null> {
   const params = new URLSearchParams({ name });
   if (barcode) params.set('barcode', barcode);
-  try {
-    const res = await authorizedFetch(`/api/items/match?${params.toString()}`);
-    return res.ok ? res.json() : null;
-  } catch {
-    return null;
-  }
+  const res = await authorizedFetch(`/api/items/match?${params.toString()}`);
+  const data = await res.json().catch(() => ({}));
+  // A failed check must surface rather than quietly skip duplicate detection and add a second row.
+  if (!res.ok) throw new Error(data.error || 'Could not check for duplicates.');
+  return data;
 }

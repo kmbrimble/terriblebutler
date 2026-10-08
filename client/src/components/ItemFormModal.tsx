@@ -6,7 +6,7 @@ import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CropModal } from './CropModal';
 import { SuggestBlock } from './SuggestBlock';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
-import { showToast } from '../lib/toast';
+import { runAction } from '../lib/actionFeedback';
 
 // Ports openEditModal()/buildItemPayload()/handleItemSubmit() from public/index.html.
 // category_id can be genuinely NULL on live rows despite category_name being set (a category
@@ -96,23 +96,22 @@ export function ItemFormModal({
     setLocationSuggestion(null);
   }
 
-  async function submitPayload(payload: ItemPayload, keepOpen: boolean) {
-    if (item) {
-      await updateItem(item.id, payload);
-    } else {
-      await createItem(payload);
-    }
+  // Resolves true once the form is finished with; on failure the toast has been shown and the
+  // dialog stays open with the user's input intact.
+  async function submitPayload(payload: ItemPayload, keepOpen: boolean): Promise<boolean> {
+    const result = await runAction(
+      () => (item ? updateItem(item.id, payload) : createItem(payload)),
+      item ? 'Failed to update item.' : 'Failed to add item.'
+    );
+    if (!result.ok) return false;
     if (keepOpen) resetForm();
     else onClose();
+    return true;
   }
 
   async function mergeInto(existingId: number, payload: ItemPayload, keepOpen: boolean) {
-    try {
-      await mergeIntoItem(existingId, payload);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Failed to add to the existing item.', 'error');
-      return;
-    }
+    const result = await runAction(() => mergeIntoItem(existingId, payload), 'Failed to add to the existing item.');
+    if (!result.ok) return;
     if (keepOpen) resetForm();
     else onClose();
   }
@@ -126,7 +125,9 @@ export function ItemFormModal({
     const payload = buildPayload();
 
     if (mode === 'add') {
-      const match = await matchItem(payload.name, payload.barcode || undefined);
+      const checked = await runAction(() => matchItem(payload.name, payload.barcode || undefined), 'Could not check for duplicates.');
+      if (!checked.ok) return;
+      const match = checked.value;
       // An exact case-insensitive name match is unambiguous, so it auto-merges without asking
       // — unlike barcode/fuzzy matches, which can't be that certain and still show the panel.
       if (match && match.type === 'exact_name' && match.candidates.length === 1) {
@@ -150,11 +151,12 @@ export function ItemFormModal({
 
   async function proceedAsNew() {
     if (!pendingPayload) return;
-    const payload = pendingPayload;
-    const keepOpen = pendingKeepOpen;
-    setDupMatch(null);
-    setPendingPayload(null);
-    await submitPayload(payload, keepOpen);
+    // The panel stays up until the save succeeds, so a failed attempt can be retried or switched
+    // to "Use this".
+    if (await submitPayload(pendingPayload, pendingKeepOpen)) {
+      setDupMatch(null);
+      setPendingPayload(null);
+    }
   }
 
   const typeLabel = (type: MatchResult['type']) =>
@@ -177,9 +179,10 @@ export function ItemFormModal({
     setCropImageSrc(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     setParsingLabel(true);
-    const data = await parseLabelImage(blob).catch(() => null);
+    const parsed = await runAction(() => parseLabelImage(blob), 'Could not read the label — try again or enter the details by hand.');
     setParsingLabel(false);
-    if (!data) return;
+    if (!parsed.ok) return;
+    const data = parsed.value;
     const update = deriveLabelScanUpdate(data);
     if (update.name !== undefined) setName(update.name);
     if (update.container_details !== undefined) setContainerDetails(update.container_details);

@@ -118,3 +118,11 @@ describe('mergeIntoItem', () => {
     expect(JSON.parse(init.body)).toEqual({ quantity: 2, price: 3.2, vendor: 'Shop', purchase_date: '2026-01-02' });
   });
 });
+
+describe('matchItem', () => {
+  it('rejects when the duplicate check fails instead of quietly reporting "no match"', async () => {
+    const { matchItem } = await import('./api');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: 'Simulated failure' }) });
+    await expect(matchItem('Milk')).rejects.toThrow('Simulated failure');
+  });
+});

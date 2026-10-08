@@ -23,6 +23,7 @@ import {
 } from '../lib/invoiceImportLine';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { runAction, reportAction } from '../lib/actionFeedback';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 export const ACTIVE_IMPORT_KEY = 'tb_active_import_id';
@@ -56,12 +57,13 @@ export function InvoiceImportModal({
   useEffect(() => {
     const activeId = localStorage.getItem(ACTIVE_IMPORT_KEY);
     if (!activeId) return;
-    getInvoiceImport(Number(activeId))
-      .then((result) => {
+    reportAction(
+      getInvoiceImport(Number(activeId)).then((result) => {
         if (result && result.import.status !== 'committed') setState(result);
         else localStorage.removeItem(ACTIVE_IMPORT_KEY);
-      })
-      .catch(() => {});
+      }),
+      'Could not resume your previous invoice import.'
+    );
   }, []);
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -82,8 +84,9 @@ export function InvoiceImportModal({
 
   async function patchLine(lineId: number, fields: Partial<InvoiceImportLine>) {
     if (!state) return;
-    const updated = await patchInvoiceImportLine(state.import.id, lineId, fields).catch(() => null);
-    if (!updated) return;
+    const result = await runAction(() => patchInvoiceImportLine(state.import.id, lineId, fields), 'Failed to update the invoice line.');
+    if (!result.ok) return;
+    const updated = result.value;
     setState({ ...state, lines: state.lines.map((l) => (l.id === lineId ? updated : l)) });
   }
 

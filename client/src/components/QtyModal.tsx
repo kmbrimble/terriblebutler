@@ -3,6 +3,7 @@ import { updateItemQuantity, setItemOpen, moveItemLocation } from '../lib/api';
 import type { Item, Location } from '../lib/api';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 import { showToast } from '../lib/toast';
+import { runAction } from '../lib/actionFeedback';
 
 // Ports openQtyModal()/submitManualQty() from public/index.html: always sets an absolute
 // quantity (never a delta), with a location picker only when the item has stock in more than
@@ -67,15 +68,17 @@ export function QtyModal({
 
   function handleToggleOpen(checked: boolean) {
     setIsOpen(checked);
-    setItemOpen(item.id, checked ? 1 : 0, locationId ? Number(locationId) : null).catch(() => setIsOpen(!checked));
+    runAction(() => setItemOpen(item.id, checked ? 1 : 0, locationId ? Number(locationId) : null), 'Failed to update the open status.').then((r) => {
+      if (!r.ok) setIsOpen(!checked);
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const val = parseFloat(amount);
     if (isNaN(val) || val < 0) return;
-    await updateItemQuantity(item.id, val, 'set', multiLocation ? locationId || null : undefined);
-    onClose();
+    const result = await runAction(() => updateItemQuantity(item.id, val, 'set', multiLocation ? locationId || null : undefined), 'Failed to set the quantity.');
+    if (result.ok) onClose();
   }
 
   return (

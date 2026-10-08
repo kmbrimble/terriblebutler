@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type Cropper from 'cropperjs';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { runAction, reportAction } from '../lib/actionFeedback';
 
 // Ports handleImageSelection()/confirmCrop()/cancelCrop() from public/index.html. Cropper.js
 // 2.x is a Web Components rewrite (no getCroppedCanvas()/viewMode/autoCropArea): the crop is
@@ -36,7 +37,7 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
     setReady(false);
     let cancelled = false;
     let observer: ResizeObserver | undefined;
-    const timer = setTimeout(async () => {
+    const init = async () => {
       const { default: CropperCtor, DEFAULT_TEMPLATE } = await import('cropperjs');
       const source = imgRef.current;
       const container = source?.parentElement;
@@ -63,6 +64,8 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
           canvas.style.width = `${Math.floor(source.naturalWidth * scale)}px`;
           canvas.style.height = `${Math.floor(source.naturalHeight * scale)}px`;
         }
+        // The element can be handed back before its custom-element class has upgraded.
+        await customElements.whenDefined('cropper-image');
         await cropper.getCropperImage()?.$ready();
       };
 
@@ -75,10 +78,11 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
         if (container.clientWidth === lastWidth && container.clientHeight === lastHeight) return;
         lastWidth = container.clientWidth;
         lastHeight = container.clientHeight;
-        void build();
+        reportAction(build(), 'Could not resize the crop area.');
       });
       observer.observe(container);
-    }, 50);
+    };
+    const timer = setTimeout(() => reportAction(init(), 'Could not prepare the crop area.'), 50);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -100,11 +104,12 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
     const nativeWidth = selection.width * native;
     const nativeHeight = selection.height * native;
     const scale = Math.min(1, 800 / Math.max(nativeWidth, nativeHeight));
-    const canvas = await selection.$toCanvas({
-      width: Math.round(nativeWidth * scale),
-      height: Math.round(nativeHeight * scale),
-    });
-    canvas.toBlob((blob) => {
+    const rendered = await runAction(
+      () => selection.$toCanvas({ width: Math.round(nativeWidth * scale), height: Math.round(nativeHeight * scale) }),
+      'Could not crop the image.'
+    );
+    if (!rendered.ok) return;
+    rendered.value.toBlob((blob) => {
       if (blob) onConfirm(blob);
     }, 'image/jpeg');
   }
