@@ -13,6 +13,7 @@ const middleware = require('./lib/middleware');
 const { createDomainHelpers, checkDuplicateBarcodes, sendServerError } = require('./lib/domain-helpers');
 const { setupGracefulShutdown } = require('./lib/shutdown');
 const uploads = require('./lib/uploads');
+const { createLoginBackoff } = require('./lib/login-backoff');
 
 const { registerHealthzRoute, registerApiHealthRoute } = require('./routes/health');
 const { registerLoginRoute, registerDeviceTokenRoutes } = require('./routes/auth');
@@ -50,7 +51,7 @@ app.use(express.static(path.join(__dirname, 'client/dist')));
 // short-lived signature (lib/uploads.js); registered before the SPA fallback so it can't shadow it.
 uploads.registerMediaRoute(app);
 
-registerHealthzRoute(app, { APP_VERSION });
+registerHealthzRoute(app);
 
 app.use('/api', middleware.generalApiRateLimiter);
 
@@ -84,20 +85,21 @@ if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWO
 const { authenticateToken, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
 
 // Helper to broadcast inventory updates via Socket.io
-const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry);
+const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry, app.get('trust proxy fn'));
 
 // --- AUTH ---
 // Login runs before requireAuth, so it is audited (outcome + IP, no body) rather than logged.
 app.use('/api/auth/login', middleware.loginAuditLogger(logAction));
 registerLoginRoute(app, {
   loginRateLimiter: middleware.loginRateLimiter,
+  loginBackoff: createLoginBackoff(),
   AUTH_USERNAME: config.AUTH_USERNAME,
   AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
   JWT_SECRET: config.JWT_SECRET,
   authState,
 });
 
-registerApiHealthRoute(app, { APP_VERSION });
+registerApiHealthRoute(app, { APP_VERSION, authenticateToken });
 
 app.use('/api', requireAuth);
 

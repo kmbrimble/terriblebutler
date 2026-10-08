@@ -6,13 +6,21 @@ const { cleanText } = require('../lib/domain-helpers');
 const DEVICE_LABEL_MAX = 100;
 
 // Registered before `requireAuth` is mounted — login must stay reachable unauthenticated.
-function registerLoginRoute(app, { loginRateLimiter, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_SECRET, authState }) {
+function registerLoginRoute(app, { loginRateLimiter, loginBackoff, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_SECRET, authState }) {
   app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
     const { username, password } = req.body || {};
     // bcrypt.compare rejects on non-strings, and an unhandled rejection kills the process.
     if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
       return res.status(400).json({ error: 'Username and password are required.' });
     }
+
+    // Account-level backstop (lib/login-backoff.js): delays the check, never locks the account.
+    const slot = loginBackoff.reserve();
+    if (slot.retryAfterMs) {
+      res.setHeader('Retry-After', String(Math.ceil(slot.retryAfterMs / 1000)));
+      return res.status(429).json({ error: 'Too many login attempts. Please try again shortly.' });
+    }
+    if (slot.waitMs) await new Promise((resolve) => setTimeout(resolve, slot.waitMs));
 
     // Express 5 would forward a rejection to the global error handler, which answers 400 with
     // err.message. A bcrypt failure here means AUTH_PASSWORD_HASH is misconfigured: log it
@@ -28,6 +36,7 @@ function registerLoginRoute(app, { loginRateLimiter, AUTH_USERNAME, AUTH_PASSWOR
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
 
+    loginBackoff.recordSuccess();
     const token = jwt.sign({ sub: username, ver: authState.getEpoch() }, JWT_SECRET, {
       expiresIn: '30d',
       jwtid: crypto.randomUUID(),
@@ -39,8 +48,9 @@ function registerLoginRoute(app, { loginRateLimiter, AUTH_USERNAME, AUTH_PASSWOR
 
 // Registered after `requireAuth` is mounted. Minting a device token needs an interactive
 // login (a household JWT): a device token must not be able to issue replacements for itself.
-// Listing and revoking devices, and revoke-all, accept any valid credential so a remembered
-// tablet can still manage the household's devices and cut everything off from a lost phone.
+// Listing and revoking devices, and revoke-all ("Sign out everywhere"), accept any valid
+// credential. That is a deliberate owner decision: a remembered tablet must be able to cut off
+// a lost phone. Do not tighten these to requireHouseholdJwt (test/auth-guards.test.js pins it).
 function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets }) {
   app.post('/api/auth/device-token', requireHouseholdJwt, (req, res) => {
     let label;
