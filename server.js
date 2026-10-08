@@ -59,6 +59,13 @@ app.use(
   middleware.llmRateLimiter
 );
 
+// Starting an invoice import (POST only) also drives LLM calls (#55). Gated by method and
+// exact path so the import's review endpoints (GET/PATCH/DELETE/commit under the same prefix)
+// are not throttled by the LLM budget.
+app.use('/api/invoices/import', (req, res, next) =>
+  req.method === 'POST' && req.path === '/' ? middleware.llmRateLimiter(req, res, next) : next()
+);
+
 app.use('/api', middleware.mutationRateLimiterMiddleware);
 
 // Initialise Database

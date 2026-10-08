@@ -16,6 +16,10 @@ process.env.LOG_DIR = tmpLogDir;
 export const TEST_USERNAME = 'testuser';
 export const TEST_PASSWORD = 'testpass123';
 
+// Invoice import now shares the LLM limiter (10/min); the suite imports far more often than
+// that from one address. Tests of the limiter itself set their own maximum on a fresh app.
+process.env.LLM_RATE_LIMIT_MAX ??= '1000';
+
 process.env.AUTH_USERNAME = TEST_USERNAME;
 process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 4);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');

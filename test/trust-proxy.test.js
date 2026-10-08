@@ -1,23 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import path from 'path';
-import { createRequire } from 'module';
 import request from 'supertest';
 import './setup.js';
 import { TEST_USERNAME } from './setup.js';
+import { loadFreshApp } from './fresh-app.js';
 
-// Each mode needs a fresh module graph: TRUST_PROXY is read once at config load and the
-// limiter buckets live in module state, so one mode's requests cannot leak into the next.
-// server.js and lib/* are CommonJS pulled in by native require, which vi.resetModules() does
-// not reset, so clear the project's entries from the require cache directly.
-const nodeRequire = createRequire(import.meta.url);
-const projectRoot = path.resolve(import.meta.dirname, '..') + path.sep;
+// Each mode needs a fresh app: TRUST_PROXY is read once at config load.
 function loadApp(trustProxy) {
-  if (trustProxy === undefined) delete process.env.TRUST_PROXY;
-  else process.env.TRUST_PROXY = trustProxy;
-  for (const file of Object.keys(nodeRequire.cache)) {
-    if (file.startsWith(projectRoot) && !file.includes(`${path.sep}node_modules${path.sep}`)) delete nodeRequire.cache[file];
-  }
-  return nodeRequire('../server.js').app;
+  return loadFreshApp({ TRUST_PROXY: trustProxy }).app;
 }
 
 // Burns the login limiter (5 attempts) for `forwardedFor`, then reports how a sixth attempt

@@ -42,31 +42,31 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('lib/llm-client.js callClaudeForJSON (via classifyLineWithLLM)', () => {
-  it('returns the tool_use input parsed as the resolved category/location ids', async () => {
-    const { classifyLineWithLLM } = await import('../lib/llm-client.js');
+describe('lib/llm-client.js callClaudeForJSON (via classifyLinesWithLLM)', () => {
+  it('sends a strict forced tool call and resolves the returned names to category/location ids', async () => {
+    const { classifyLinesWithLLM } = await import('../lib/llm-client.js');
     vi.spyOn(global, 'fetch').mockResolvedValue(
-      mockToolUseResponse('classify_result', {
-        category_name: 'Pantry Staples',
-        location_name: 'Pantry',
+      mockToolUseResponse('classify_results', {
+        classifications: [{ line_index: 0, category_name: 'Pantry Staples', location_name: 'Pantry' }],
       }),
     );
     const cats = [{ id: 1, name: 'Pantry Staples' }];
     const locs = [{ id: 2, name: 'Pantry' }];
-    const result = await classifyLineWithLLM('Tinned Tomatoes 400g', cats, locs);
-    expect(result).toEqual({ category_id: 1, location_id: 2 });
+    const result = await classifyLinesWithLLM(['Tinned Tomatoes 400g'], cats, locs);
+    expect(result).toEqual({ results: [{ category_id: 1, location_id: 2 }], failed: 0 });
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [, options] = global.fetch.mock.calls[0];
     const body = JSON.parse(options.body);
-    expect(body.tool_choice).toEqual({ type: 'tool', name: 'classify_result' });
+    expect(body.tool_choice).toEqual({ type: 'tool', name: 'classify_results' });
     expect(body.tools[0].strict).toBe(true);
   });
 
-  it('never throws and returns null ids when the Anthropic call fails', async () => {
-    const { classifyLineWithLLM } = await import('../lib/llm-client.js');
+  it('never throws, returns null ids and reports the failure when the Anthropic call fails', async () => {
+    const { classifyLinesWithLLM } = await import('../lib/llm-client.js');
     vi.spyOn(global, 'fetch').mockResolvedValue(mockHttpErrorResponse(429, { message: 'rate limited' }));
-    const result = await classifyLineWithLLM('Anything', [], []);
-    expect(result).toEqual({ category_id: null, location_id: null });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await classifyLinesWithLLM(['Anything'], [], []);
+    expect(result).toEqual({ results: [{ category_id: null, location_id: null }], failed: 1 });
   });
 });
 
