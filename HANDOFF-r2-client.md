@@ -27,15 +27,21 @@ components, pass now. Client unit: new module absent before.
 
 ## Decisions
 - `PATCH /quantity` is kept for QtyModal; `/merge` added rather than rewriting shared helpers.
+- `lib/domain-helpers.js:144` (shared `resolveTargetLocation`, r2-invoices may touch this file): one-line
+  message reword to "This item is stocked in more than one location — choose which one first" (no field name
+  in user-facing text). Integrator: check for conflict.
+- Visible behaviour change from the review fix: a blank location on "Use this"/exact-name auto-merge against a
+  multi-location existing item used to silently land in a phantom Unassigned row; it now returns 400 and the
+  toast asks the user to choose.
 - Other modals' submit handlers lacking try/catch (outside these two flows) were not touched.
 
 ## Review
 code-diff-reviewer: score 7 (MID), 3 Sonnet + 1 Mythos, all parsed, cost ~US$2.56; counsel offered but skipped — unattended.
 One finding (agreement 3/4): `mergeIntoItem` sent a blank location as explicit `null`, creating a phantom
 Unassigned bucket on single-location items. Fixed (blank is omitted, server infers; tests added in server,
-client unit and e2e). Advisor consulted last.
+client unit and e2e). Advisor consulted last; its wording fix applied.
 
 ## Eyeball
 Deduct a multi-location item (picker defaults/toast); add an item that triggers "Use this" with a price and
 check the item's price history; a blank-location duplicate add on a multi-location item shows the
-"location_id is required" toast (wording could be friendlier).
+"choose which one first" toast.

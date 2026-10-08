@@ -23,7 +23,8 @@ describe('deduct on a multi-location item (#45)', () => {
     const id = await multiLocationItem('Deduct ambiguous');
     const res = await api(app).post(`/api/items/${id}/deduct`).send({ amount: 1 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/location/i);
+    expect(res.body.error).toMatch(/choose which one/i);
+    expect(res.body.error).not.toMatch(/location_id/);
   });
 
   it('naming the unassigned bucket when the item has no stock there says so, not "Insufficient quantity"', async () => {
