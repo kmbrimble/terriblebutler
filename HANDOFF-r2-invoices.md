@@ -55,3 +55,6 @@ Tests: `test/numeric-rules.test.js` (helper, every route, import), e2e blank thr
 
 ### 3. Review of this round
 Score 9 (CALL). 3 Sonnet: NO FINDINGS; Mythos: 1 finding (real — PUT with a cleared threshold would have regressed to 400 because the client sends NaN→null); fixed client-side + e2e. Counsel (`openai/gpt-5.6-terra`, same seeding as before, 7 source files) found 7: acted on 1 (import commit flip now conditional inside the transaction; single-process better-sqlite3 cannot interleave, so this is hardening, tested by blinding the early check). Declined/flagged, all pre-existing or other branches' files: double-submit guard in `ItemFormModal` (r2-client's area), `parseFloat` use in the item form (number inputs; blank quantity on add = documented default 0), `is_open` truthiness, `purchase_date` format validation (**worth a future ticket**: free text is written to `price_history.recorded_at`), unbounded `/api/items/search`, no error UI for failed item saves, and "body must be an object" on item routes (Express's strict JSON parser already rejects scalar/null bodies).
+
+### Results after follow-up
+Backend `npm test`: 43 files / 476 pass. Client unit: 19 files / 141 pass. Client build + `tsc`: OK. Playwright e2e (locked): 63 pass.
