@@ -76,6 +76,24 @@ describe('500 responses do not echo internal error messages (#61)', () => {
   });
 });
 
+describe('client-caused errors raised before a route handler stay 4xx (#61 review)', () => {
+  it('returns 400 for a malformed percent-encoded path parameter', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await api(app).get('/api/items/%E0');
+    expect(res.status).toBe(400);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a truncated multipart body', 'multipart/form-data; boundary=xyz', '--xyz\r\nContent-Disposition: form-data; name="image"; filename="a.png"\r\nContent-Type: image/png\r\n\r\npartial'],
+    ['a multipart request without a boundary', 'multipart/form-data', 'garbage'],
+  ])('returns 400 for %s', async (_label, contentType, body) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await api(app).post('/api/upload-image').set('Content-Type', contentType).send(body);
+    expect(res.status).toBe(400);
+  });
+});
+
 describe.each([
   ['categories', 'Category'],
   ['locations', 'Location'],

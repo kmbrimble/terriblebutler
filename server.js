@@ -131,6 +131,12 @@ app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) return res.status(400).json({ error: err.message });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Malformed JSON in request body.' });
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large.' });
+  // Router param decoding (a bad %-escape in the path) sets status 400 without expose.
+  if (err instanceof URIError) return res.status(400).json({ error: 'Malformed request path.' });
+  // Multipart parse failures from busboy (via multer) are plain Errors with fixed messages.
+  if (/^(Unexpected end of form|Malformed (part header|urlencoded form)|Multipart: |Part terminated early|Unexpected end of multipart data)/.test(err.message)) {
+    return res.status(400).json({ error: 'Malformed upload request.' });
+  }
   const status = err.status || err.statusCode;
   if (status >= 400 && status < 500 && err.expose) return res.status(status).json({ error: err.message || 'Request failed' });
   return sendServerError(res, err, 'Request failed');
