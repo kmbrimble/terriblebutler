@@ -44,8 +44,8 @@ middleware logic. The actual code lives in:
 
 - `lib/config.js` — env-derived constants (`APP_VERSION`, `UPLOADS_DIR`, `JWT_SECRET`, `AUTH_USERNAME`,
   `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`). Startup fails (non-zero exit,
-  variable named, value never printed) unless `AUTH_PASSWORD_HASH` is a bcrypt hash and
-  `JWT_SECRET` is at least 32 characters.
+  variable named, value never printed) unless `AUTH_PASSWORD_HASH` is a bcrypt hash with a cost of
+  10-31 and `JWT_SECRET` is at least 32 characters.
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
 - `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
   startup credential-fingerprint check.
@@ -61,7 +61,10 @@ middleware logic. The actual code lives in:
   or null, `requireAuth`, `requireHouseholdJwt`; `hashDeviceToken` is a separate export). Multer
   configs live in `lib/uploads.js`.
 - `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
-  helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
+  helpers `cleanText`, `finiteNumber` (the one numeric rule: a missing value is an error unless the caller
+  says `allowNull`/`defaultValue`; bounds `QUANTITY_MAX` 1,000,000, `PRICE_MAX` 100,000, `LINE_TOTAL_MAX`
+  10,000,000), `cleanPurchaseDate` (a real `YYYY-MM-DD`, 2000-01-01 to today, stored as
+  `price_history.recorded_at`), `strictFlag` (booleans are `true`/`false`/`1`/`0` only), `parseIntOrNull`, `normaliseBarcode`,
   `sendMutationError` (only a `ValidationError` carries its message to the client; anything else is a correlation-id 500), `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
@@ -78,10 +81,16 @@ middleware logic. The actual code lives in:
   client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
   delivery are the tested base for a future photo feature.
 - `lib/login-backoff.js` — `createLoginBackoff()`: account-level login backstop (delay, never lockout).
+- `lib/invoice-retention.js` — uncommitted invoice imports older than `INVOICE_IMPORT_RETENTION_DAYS`
+  (default 30, max 3650) are deleted, lines first, at startup and daily; this also frees their duplicate key.
+  Committed imports are never touched.
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
-  function called from `server.js` in the exact order the routes must be mounted.
+  function called from `server.js` in the exact order the routes must be mounted. After the last one,
+  any other `/api/*` request (any method) is a JSON 404; it sits behind `requireAuth`, so an
+  unauthenticated caller gets 401 for real and made-up paths alike. `GET /api/items/search` is bounded
+  (query at most 100 characters, at most 50 results, a three-column Fuse index).
 
 `test/module-seam.test.js` snapshots the registered route table (method + path, in order) and
 asserts `{ app, server, db }` are still exported against `DB_PATH` — treat a failure there as a
@@ -206,7 +215,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
   list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
   so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
-  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
+  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). Revoke attempts share the 5/15-minute login limiter (intended: revoking is a fresh login, and a wrong password is a failed login); the client explains a 429 there. `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.
