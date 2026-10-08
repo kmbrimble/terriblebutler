@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi, afterEach } from 'vitest';
 import path from 'path';
 import request from 'supertest';
 import './setup.js';
-import { api } from './setup.js';
+import { api, clearInvoiceImports } from './setup.js';
 import pkg from '../server.js';
 
 const { app, db } = pkg;
@@ -17,6 +17,10 @@ beforeAll(() => {
   // is read natively by the Anthropic SDK's client construction.
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
   process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1';
+});
+
+beforeEach(() => {
+  clearInvoiceImports();
 });
 
 afterEach(() => {
@@ -264,6 +268,7 @@ describe('POST /api/invoices/import — learned match memory from a previous com
     const commitRes = await api(app).post(`/api/invoices/import/${firstImportId}/commit`);
     expect(commitRes.status).toBe(200);
 
+    clearInvoiceImports(); // a repeat purchase arrives on a different invoice; this fixture would be refused as a duplicate
     const second = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
     const secondLine = second.body.lines.find((l) => l.raw_name === line.raw_name);
     expect(secondLine).toBeTruthy();
@@ -285,6 +290,7 @@ describe('POST /api/invoices/import — learned match memory from a previous com
     const createdItem = (await api(app).get('/api/items')).body.find((i) => i.name === renamedTo);
     expect(createdItem).toBeTruthy();
 
+    clearInvoiceImports(); // a repeat purchase arrives on a different invoice; this fixture would be refused as a duplicate
     const second = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
     const secondLine = second.body.lines.find((l) => l.raw_name === line.raw_name);
     expect(secondLine).toBeTruthy();

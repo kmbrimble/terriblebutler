@@ -9,6 +9,8 @@ const {
   normaliseBarcode,
   sendMutationError,
   sendServerError,
+  ValidationError,
+  QUANTITY_MAX,
 } = require('../lib/domain-helpers');
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
@@ -126,12 +128,12 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const locationId = validForeignId('locations', req.body.location_id, 'Location');
       const categoryId = validForeignId('categories', req.body.category_id, 'Category');
       const details = cleanText(req.body.container_details, { max: 500 });
-      const quantity = finiteNumber(req.body.quantity ?? 0, { name: 'Quantity', min: 0 });
+      const quantity = finiteNumber(req.body.quantity ?? 0, { name: 'Quantity', min: 0, max: QUANTITY_MAX });
       const threshold = finiteNumber(req.body.reorder_threshold ?? 0, { name: 'Reorder threshold', min: 0 });
       const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
       const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
-      if (barcodeBelongsToAnotherItem(barcode)) throw new Error('This barcode is already assigned to another item');
+      if (barcodeBelongsToAnotherItem(barcode)) throw new ValidationError('This barcode is already assigned to another item', 409);
       const create = db.transaction(() => {
         const info = db.prepare(`INSERT INTO items
           (barcode, name, category_id, container_details, reorder_threshold)
@@ -149,7 +151,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const item = create();
       broadcastUpdate('add', item);
       res.status(201).json(item);
-    } catch (err) { sendMutationError(res, err); }
+    } catch (err) { sendMutationError(res, err, 'Failed to add item'); }
   });
 
   app.put('/api/items/:id', (req, res) => {
@@ -165,7 +167,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
       const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
-      if (barcodeBelongsToAnotherItem(barcode, id)) throw new Error('This barcode is already assigned to another item');
+      if (barcodeBelongsToAnotherItem(barcode, id)) throw new ValidationError('This barcode is already assigned to another item', 409);
       const update = db.transaction(() => {
         db.prepare(`UPDATE items SET barcode = ?, name = ?, category_id = ?,
           container_details = ?, reorder_threshold = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
@@ -180,14 +182,14 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const item = update();
       broadcastUpdate('update', item);
       res.json(item);
-    } catch (err) { sendMutationError(res, err); }
+    } catch (err) { sendMutationError(res, err, 'Failed to update item'); }
   });
 
   app.patch('/api/items/:id/quantity', (req, res) => {
     const id = Number(req.params.id);
     if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
     try {
-      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0 });
+      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0, max: QUANTITY_MAX });
       const action = req.body.action;
       const locationId = resolveTargetLocation(id, req.body.location_id);
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, action, amount))();
@@ -197,14 +199,14 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
       res.json(item);
-    } catch (err) { sendMutationError(res, err); }
+    } catch (err) { sendMutationError(res, err, 'Failed to adjust quantity'); }
   });
 
   app.post('/api/items/:id/deduct', (req, res) => {
     const id = Number(req.params.id);
     if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
     try {
-      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001 });
+      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001, max: QUANTITY_MAX });
       const locationId = resolveTargetLocation(id, req.body.location_id);
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, 'subtract', amount))();
       if (!changed) return res.status(409).json({ error: 'Insufficient quantity' });
@@ -212,14 +214,14 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
       res.json(item);
-    } catch (err) { sendMutationError(res, err); }
+    } catch (err) { sendMutationError(res, err, 'Failed to deduct quantity'); }
   });
 
   app.patch('/api/items/:id/move-location', (req, res) => {
     const id = Number(req.params.id);
     if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
     try {
-      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001 });
+      const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001, max: QUANTITY_MAX });
       const fromLocationId = resolveTargetLocation(id, req.body.from_location_id);
       const toLocationId = validForeignId('locations', req.body.to_location_id, 'Destination location');
       if (fromLocationId === toLocationId) {
@@ -235,7 +237,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
       res.json(item);
-    } catch (err) { sendMutationError(res, err); }
+    } catch (err) { sendMutationError(res, err, 'Failed to move stock'); }
   });
 
   app.patch('/api/items/:id/ignore-grocery', (req, res) => {
@@ -270,7 +272,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const updatedItem = getItem(id);
       broadcastUpdate('update_open', updatedItem);
       res.json(updatedItem);
-    } catch (err) { sendMutationError(res, err); }
+    } catch (err) { sendMutationError(res, err, 'Failed to update item'); }
   });
 
   app.delete('/api/items/:id', (req, res) => {
