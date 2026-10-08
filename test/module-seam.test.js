@@ -40,7 +40,6 @@ const EXPECTED_ROUTES = [
   'PATCH /api/items/:id/open',
   'DELETE /api/items/:id',
   'DELETE /api/price-history/:id',
-  'POST /api/upload-image',
   'POST /api/parse-label-llm',
   'POST /api/invoices/parse',
   'POST /api/invoices/commit',

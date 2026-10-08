@@ -2,27 +2,9 @@ const Fuse = require('fuse.js');
 const { resolveNamedMatch } = require('../item-matching');
 const { validateLabelResult } = require('../llm-schema');
 const { callClaudeForJSON } = require('../lib/llm-client');
-const { openValidatedImage, storeUploadedImage, discardUpload, uploadErrorStatus, signMediaUrl } = require('../lib/uploads');
+const { openValidatedImage, discardUpload, uploadErrorStatus } = require('../lib/uploads');
 
 function registerUploadRoutes(app, { db, imageUpload }) {
-  // Returns the stable stored identifier (image_id, what the DB keeps) and a signed, expiring
-  // URL for it (image_path). The raw upload is only ever in the private scratch directory.
-  app.post('/api/upload-image', imageUpload.single('image'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image uploaded' });
-    }
-    try {
-      const imageId = await storeUploadedImage(req.file.path);
-      res.json({ image_id: imageId, image_path: signMediaUrl(imageId) });
-    } catch (err) {
-      const status = uploadErrorStatus(err);
-      if (!status) console.error('[Upload Image Error]', err);
-      res.status(status || 500).json({ error: status ? err.message : 'Failed to store image' });
-    } finally {
-      await discardUpload(req.file);
-    }
-  });
-
   app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) => {
     const fallbackObject = { name: "", container_details: "", category_id: null, location_id: null };
     if (!req.file) {

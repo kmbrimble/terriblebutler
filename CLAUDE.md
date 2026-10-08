@@ -59,10 +59,12 @@ middleware logic. The actual code lives in:
   Messages API), `classifyLineWithLLM`.
 - `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
   (`UPLOAD_TMP_DIR`), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
-  other than jpeg/png/webp/heif blocked), `UPLOADS_DIR` storage, signed `/media/:name` delivery
+  other than jpeg/png/webp blocked; HEIC/HEIF deliberately unsupported), `UPLOADS_DIR` storage, signed `/media/:name` delivery
   (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound.
   `items.image_path` holds the stored id; API/Socket.IO payloads carry a signed URL instead (via
-  `parseItemLocations`). There is no static `/uploads`.
+  `parseItemLocations`). There is no static `/uploads` and, for now, no endpoint that stores
+  client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
+  delivery are the tested base for a future photo feature.
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`

@@ -19,6 +19,8 @@ export const tmpUploadsDir = path.join(os.tmpdir(), `butler-test-uploads-${crypt
 export const tmpUploadScratchDir = path.join(os.tmpdir(), `butler-test-upload-tmp-${crypto.randomBytes(8).toString('hex')}`);
 process.env.UPLOADS_DIR = tmpUploadsDir;
 process.env.UPLOAD_TMP_DIR = tmpUploadScratchDir;
+// Upload tests make well over the production 10/min LLM-route requests from one IP.
+process.env.LLM_RATE_LIMIT_MAX = '1000';
 
 export const TEST_USERNAME = 'testuser';
 export const TEST_PASSWORD = 'testpass123';
