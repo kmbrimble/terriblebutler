@@ -6,7 +6,9 @@
 # Environment:
 #   PUID  numeric user id to run as   (default 99  — unRAID "nobody")
 #   PGID  numeric group id to run as  (default 100 — unRAID "users")
-#   DB_PATH, LOG_DIR  honoured if set, so their parent directories are prepared too.
+#   DB_PATH, LOG_DIR, UPLOADS_DIR  honoured if set, so their directories are prepared too.
+#   UPLOADS_DIR defaults to /app/public/uploads, the path unRAID bind-mounts (same default as
+#   lib/config.js; the Dockerfile sets it explicitly).
 set -eu
 
 PUID="${PUID:-99}"
@@ -28,7 +30,7 @@ fi
 DATA_DIR="/app/data"
 [ -n "${DB_PATH:-}" ] && DATA_DIR="$(dirname "$DB_PATH")"
 
-for dir in "$DATA_DIR" /app/uploads /app/public/uploads "${LOG_DIR:-/app/logs}"; do
+for dir in "$DATA_DIR" "${UPLOADS_DIR:-/app/public/uploads}" "${LOG_DIR:-/app/logs}"; do
   mkdir -p "$dir"
   # Only touch entries that are not already correct, so restarts are cheap and a bind mount
   # first populated by root (e.g. an existing inventory.db) is migrated in place.

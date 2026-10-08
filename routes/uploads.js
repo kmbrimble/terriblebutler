@@ -1,32 +1,26 @@
-const fs = require('fs');
 const Fuse = require('fuse.js');
-const sharp = require('sharp');
 const { resolveNamedMatch } = require('../item-matching');
 const { validateLabelResult } = require('../llm-schema');
 const { callClaudeForJSON } = require('../lib/llm-client');
+const { openValidatedImage, discardUpload, uploadErrorStatus } = require('../lib/uploads');
 
 function registerUploadRoutes(app, { db, imageUpload }) {
-  app.post('/api/upload-image', imageUpload.single('image'), (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image uploaded' });
-    }
-    const imagePath = `/uploads/${req.file.filename}`;
-    res.json({ image_path: imagePath });
-  });
-
   app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) => {
     const fallbackObject = { name: "", container_details: "", category_id: null, location_id: null };
     if (!req.file) {
       console.error("[Label Parser] No image file received in upload request.");
       return res.status(400).json({ error: 'No image uploaded' });
     }
-    console.log(`[Label Parser] Received file: ${req.file.originalname} (${req.file.size} bytes)`);
+    console.log(`[Label Parser] Received file (${req.file.size} bytes)`);
     try {
+      // Validate first: a non-image is a 400, not an LLM call or a silent empty result.
+      const image = await openValidatedImage(req.file.path);
       const locs = db.prepare('SELECT id, name FROM locations').all();
       const cats = db.prepare('SELECT id, name FROM categories').all();
       const locNames = locs.map(l => l.name).join(', ');
       const catNames = cats.map(c => c.name).join(', ');
-      const resizedBuffer = await sharp(req.file.path)
+      const resizedBuffer = await image
+        .rotate()
         .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 80 })
         .toBuffer();
@@ -78,12 +72,12 @@ function registerUploadRoutes(app, { db, imageUpload }) {
         similar_location: locationMatch.similar
       });
     } catch (err) {
+      const status = uploadErrorStatus(err);
+      if (status) return res.status(status).json({ error: err.message });
       console.error("[Label Parser Exception]", err);
       return res.json(fallbackObject);
     } finally {
-      if (req.file) {
-        fs.unlink(req.file.path, () => {});
-      }
+      await discardUpload(req.file);
     }
   });
 }

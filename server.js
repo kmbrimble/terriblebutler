@@ -11,6 +11,7 @@ const { createRealtime } = require('./lib/realtime');
 const middleware = require('./lib/middleware');
 const { createDomainHelpers, checkDuplicateBarcodes } = require('./lib/domain-helpers');
 const { setupGracefulShutdown } = require('./lib/shutdown');
+const uploads = require('./lib/uploads');
 
 const { registerHealthzRoute, registerApiHealthRoute } = require('./routes/health');
 const { registerLoginRoute, registerDeviceTokenRoutes } = require('./routes/auth');
@@ -41,11 +42,18 @@ app.use((req, res, next) => {
 
 // The React client is now the default front end, served at /.
 app.use(express.static(path.join(__dirname, 'client/dist')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Stored images are not served statically. They are delivered only through /media/:name with a
+// short-lived signature (lib/uploads.js); registered before the SPA fallback so it can't shadow it.
+uploads.registerMediaRoute(app);
 
 // legacy: the original front end, kept live at /legacy as a one-week rollback safety net
 // after the cutover to the React client (see CHANGELOG). Scoped entirely under /legacy, so
-// it can't shadow /api or /uploads regardless of registration order.
+// it can't shadow /api or /media regardless of registration order.
+// UPLOADS_DIR defaults to public/uploads, so stored images must stay off this static mount: they
+// are delivered only by the signed /media route. The check is on the decoded, normalised path
+// (see uploads.denyUploadsUnder). Drop it if /legacy is retired.
+app.use('/legacy', uploads.denyUploadsUnder(path.join(__dirname, 'public')));
 app.use('/legacy', express.static(path.join(__dirname, 'public')));
 
 // Verbose action logging (#14): every mutating /api/* call, request + response body.
@@ -99,11 +107,11 @@ registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherI
 registerPriceHistoryRoutes(app, { db, broadcastUpdate, getItem, recalculateItemPrices });
 
 // --- IMAGE AND LLM ENDPOINTS ---
-registerUploadRoutes(app, { db, imageUpload: middleware.imageUpload });
+registerUploadRoutes(app, { db, imageUpload: uploads.imageUpload });
 
-registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: middleware.invoiceUpload, validForeignId, upsertItemLocationQuantity });
+registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: uploads.invoiceUpload, validForeignId, upsertItemLocationQuantity });
 
-// React client SPA fallback. Registered after every /api route (and /uploads, /legacy above)
+// React client SPA fallback. Registered after every /api route (and /media, /legacy above)
 // so this wildcard can't shadow them — any request that fell through all of those is a
 // client-side route or a hard refresh/deep link into the React app.
 app.get('/{*splat}', (req, res) => {

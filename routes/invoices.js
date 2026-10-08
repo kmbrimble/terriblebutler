@@ -1,10 +1,9 @@
-const fs = require('fs');
 const Fuse = require('fuse.js');
-const { PDFParse } = require('pdf-parse');
 const { findMatch, normaliseName } = require('../item-matching');
 const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
 const { callClaudeForJSON, classifyLineWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
+const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
 const { cleanText, finiteNumber, sendMutationError } = require('../lib/domain-helpers');
 
 function getImportWithLines(db, importId) {
@@ -37,9 +36,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       return res.status(400).json({ error: 'No invoice uploaded' });
     }
     try {
-      const pdfParser = new PDFParse({ data: fs.readFileSync(req.file.path) });
-      const { text: rawText } = await pdfParser.getText();
-      await pdfParser.destroy();
+      const rawText = await extractPdfText(req.file.path);
       const parsedJson = await callClaudeForJSON({
         userContent: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).\n\n${rawText}`,
         toolName: 'invoice_items',
@@ -72,10 +69,12 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
       res.json(items);
     } catch (err) {
+      const status = uploadErrorStatus(err);
+      if (status) return res.status(status).json({ error: err.message });
       console.error(err);
       res.status(500).json({ error: 'Failed to parse invoice: ' + err.message });
     } finally {
-      if (req.file) fs.unlink(req.file.path, () => {});
+      await discardUpload(req.file);
     }
   });
 
@@ -152,9 +151,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
   app.post('/api/invoices/import', invoiceUpload.single('invoice'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No invoice uploaded' });
     try {
-      const pdfParser = new PDFParse({ data: fs.readFileSync(req.file.path) });
-      const { text } = await pdfParser.getText();
-      await pdfParser.destroy();
+      const text = await extractPdfText(req.file.path);
 
       const parsed = parseInvoice(text);
       if (!parsed.retailer) {
@@ -251,10 +248,12 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
 
       res.json(getImportWithLines(db, importId));
     } catch (err) {
+      const status = uploadErrorStatus(err);
+      if (status) return res.status(status).json({ error: err.message });
       console.error(err);
       res.status(500).json({ error: 'Failed to import invoice: ' + err.message });
     } finally {
-      if (req.file) fs.unlink(req.file.path, () => {});
+      await discardUpload(req.file);
     }
   });
 

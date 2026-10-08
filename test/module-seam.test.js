@@ -8,6 +8,7 @@ const { app, server, db } = pkg;
 // This is the contract issue #32's server.js split had to preserve exactly — an empty
 // diff against this list is the strongest signal the refactor didn't change behaviour.
 const EXPECTED_ROUTES = [
+  'GET /media/:name',
   'GET /healthz',
   'POST /api/auth/login',
   'GET /api/health',
@@ -39,7 +40,6 @@ const EXPECTED_ROUTES = [
   'PATCH /api/items/:id/open',
   'DELETE /api/items/:id',
   'DELETE /api/price-history/:id',
-  'POST /api/upload-image',
   'POST /api/parse-label-llm',
   'POST /api/invoices/parse',
   'POST /api/invoices/commit',
