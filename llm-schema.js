@@ -1,10 +1,6 @@
 // LLM output is untrusted input: validate its shape explicitly rather than trusting
 // whatever JSON the model returns. Malformed/missing/wrong-typed fields are dropped or
 // defaulted here rather than flowing straight into inventory data.
-function isFiniteNumber(value) {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }

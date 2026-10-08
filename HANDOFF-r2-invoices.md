@@ -14,11 +14,11 @@ Idempotent; every step guarded by `hasTable`/`hasColumn`/`IF NOT EXISTS`. Also i
 
 ## Per item
 
-- **#42** `location_id` on `/api/invoices/commit` now via `validForeignId` (also made strict: `1abc`, `1.9`, `1e2`, `0`, `-1` are rejected instead of coerced to another row). Shared `QUANTITY_MAX = 1,000,000` applied to invoice commit, item create, quantity/deduct/move amounts and import-line `qty_confirmed`. DB-level guard = triggers above. Tests: `test/invoice-integrity.test.js`, `test/invoice-schema-migration.test.js`.
+- **#42** (round one; `/api/invoices/commit` was removed in `615858a`, see Follow-up) `location_id` on `/api/invoices/commit` was validated via `validForeignId` (also made strict: `1abc`, `1.9`, `1e2`, `0`, `-1` are rejected instead of coerced to another row). Shared `QUANTITY_MAX = 1,000,000` applied to invoice commit, item create, quantity/deduct/move amounts and import-line `qty_confirmed`. DB-level guard = triggers above. Tests: `test/invoice-integrity.test.js`, `test/invoice-schema-migration.test.js`.
 - **#43** Re-verified: header and lines are written in one `db.transaction` after all async work. Added a test that fails the *third* line insert and asserts neither header nor any line remains. Ready to close.
 - **#44** `lib/invoice-dedupe.js`: key = `retailer|no:<number>` else `retailer|sha256:<whitespace-normalised extracted text>`. Pre-check before any LLM spend; the UNIQUE index is the backstop (unique-violation caught → same 409, covers two uploads racing). 409 body: `{code:'duplicate_invoice', error, existing_import:{id,status,...}}`. Client shows a banner; "Open the existing import" only while it is not committed. Cancelling an in-progress import frees the key; a committed import keeps it (re-import of a committed invoice is refused permanently — intended). `dedupe_key` is returned in import payloads (not sensitive).
 - **#46** PATCHing `final_category_id`/`final_location_id` to null sets `*_cleared=1`; patching a value sets 0. Commit: `cleared ? null : final ?? suggested`. Client `resolveLineCategoryValue`/`Location` and optimistic `applyLinePatch` mirror it.
-- **#47** Import with zero parsed lines → 422 before staging; `/import/:id/commit` with no lines → 400; `/api/invoices/commit` with `[]` → 400. Client: commit disabled when there are no lines, with an explanatory message.
+- **#47** Import with zero parsed lines → 422 before staging; `/import/:id/commit` with no lines → 400; `/api/invoices/commit` with `[]` → 400 (that route was later removed in `615858a`). Client: commit disabled when there are no lines, with an explanatory message.
 - **#48** `client/src/lib/lineUpdateQueue.ts`: per-line serial queue, optimistic update, only the newest response applied, errors toasted and the import resynced from the server, `drain()` awaited before commit (rejects if a line's latest edit failed). Commit button also disabled while committing.
 - **sendMutationError leak** `ValidationError(message, status=400)` in `lib/domain-helpers.js`; `cleanText`, `finiteNumber`, `cleanName`, `validForeignId`, `resolveTargetLocation`, the barcode conflict (409), invoice commit/patch validators all throw it. `sendMutationError(res, err, context)` echoes only `ValidationError`; everything else → `sendServerError` (correlation-id 500). The old `/already assigned/` regex is gone. Test `test/mutation-error-leak.test.js` (fails before: a DB error returned 400 with its text).
 
@@ -40,7 +40,7 @@ Backend `npm test`: 42 files / 475 tests pass. Client unit: 18 files / 140 pass.
 
 ## Follow-up round (the three former "not done" items)
 
-Commits: `615858a` (remove LLM-parse routes), `7f1462d` (numeric rules), `ce543e3` (item form blank threshold), plus the conditional-commit commit after it.
+Commits: `615858a` (remove LLM-parse routes), `7f1462d` (numeric rules), `ce543e3` (item form blank threshold), `383c26f` (conditional commit flip), `e712c4e` (handoff results). Round-one tests that hit the removed route (the `POST /api/invoices/commit validation` block in `test/invoice-integrity.test.js`, now `stock quantity bounds`; `test/invoices.test.js`) were converted or deleted.
 
 ### 1. LLM-parse flow (`/api/invoices/parse`, `/api/invoices/commit`) — REMOVED
 Evidence: no reference in `client/src`, `test-e2e/`, or any sibling worktree's client/e2e; its only front end was `/legacy`, retired in `566f16b` (#59). Removed: both routes, the `/api/invoices/parse` LLM-limiter path in `server.js`, `validateInvoiceItems` (+ tests) in `llm-schema.js`, `test/invoices.test.js`, the parse tests in `llm-anthropic`/`uploads`/`error-hardening`, the module-seam snapshot rows, and the CLAUDE.md database note. `test/legacy-invoice-routes-removed.test.js` (404s) failed before and passes now. No schema change. `invoiceUpload` stays (used by the import). If a future mobile app wants a parse-only call it should go through the deterministic import.
@@ -58,3 +58,5 @@ Score 9 (CALL). 3 Sonnet: NO FINDINGS; Mythos: 1 finding (real — PUT with a cl
 
 ### Results after follow-up
 Backend `npm test`: 43 files / 476 pass. Client unit: 19 files / 141 pass. Client build + `tsc`: OK. Playwright e2e (locked): 63 pass.
+
+Note: the review UI shows `qty_confirmed ?? qty_supplied ?? 0` for a kept line with no quantity while the server now refuses to commit it. Real parsers never emit a null `qty_supplied` (Coles requires a truthy picked quantity), so this is reachable only through an injected parser in tests; not changed.

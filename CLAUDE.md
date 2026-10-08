@@ -4,8 +4,9 @@ Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `e
 `.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
 Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
 html5-qrcode barcode scanning, Cropper.js 2). The old single-file `public/index.html` front end and its
-`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed by
-Claude through the Anthropic Messages API (see constraint 6).
+`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels are parsed by
+Claude through the Anthropic Messages API (see constraint 6); invoices by the deterministic Coles/Woolworths
+parsers, with Claude only classifying/matching lines they cannot place.
 
 Use British/Australian English in all writing, comments, and UI text.
 
