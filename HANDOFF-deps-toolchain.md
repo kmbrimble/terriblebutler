@@ -9,7 +9,7 @@
 - **Schema:** none.
 - **Container (#58):** `npm ci --omit=dev` / `npm ci`; non-root via `docker-entrypoint.sh` (PUID/PGID, default 99:100; chowns data/uploads/logs then `setpriv` drop, no-new-privs, node is PID 1); `NODE_ENV=production`; `.dockerignore` now excludes `logs/` and `uploads/` (a local build previously baked local action logs into the image).
 - **Keeping current:** `.github/dependabot.yml` (npm root + client, docker, github-actions; weekly, grouped). Actions SHA-pinned: checkout v7.0.1, login-action v4.6.0, build-push-action v7.4.0, claude-code-action v1.0.246.
-- **osv-scanner (offline DB refreshed):** before 40 advisories (28 root, 12 client; 14 on runtime deps: engine.io, multer x11 [counted above], proxy-addr, qs x2, sharp x3); after 0 on both lockfiles.
+- **osv-scanner (offline DB refreshed, 2.5.1):** before 40 advisories across both lockfiles (root 28: multer 11, sharp 3, qs 2, engine.io 1, proxy-addr 1 = 18 on runtime deps, rest dev; client 12, all dev); after 0 on both (`No issues found`; `npm audit` also 0 for both).
 
 ## Decisions
 - Apt packages are not version-pinned: they exist only in the discarded builder stage and pinned Debian versions vanish from mirrors; the digest-pinned base is the reproducibility lever.
@@ -19,3 +19,9 @@
 
 ## CLAUDE.md
 Already edited here: Node 24/Express 5 mention, new "Container runtime (non-root)" section. Live deploy note for the owner: existing unRAID template needs no change (defaults 99:100); first start chowns `inventory.db*` to 99:100.
+
+## Review
+`code-diff-reviewer` (score 6, MID; 3 Sonnet + 1 Mythos) returned NO FINDINGS on all four passes; treat as weak evidence, not clean. Not run: counsel (unattended). Unrelated flake seen once: `test-e2e/v2-menu.spec.js` dark-mode toggle click (passed 2/2 in isolation and in the other full run).
+
+## Left behind (permission layer blocked cleanup)
+Docker volume `butler-smoke-data` and image `butler-sectest:deps` on the host daemon: remove with `docker volume rm butler-smoke-data; docker rmi butler-sectest:deps`.
