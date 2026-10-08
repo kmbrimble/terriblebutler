@@ -180,12 +180,6 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       const cats = db.prepare('SELECT id, name FROM categories').all();
       const locs = db.prepare('SELECT id, name FROM locations').all();
 
-      const importInfo = db.prepare(`
-        INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename)
-        VALUES (?, ?, ?, ?)
-      `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname);
-      const importId = Number(importInfo.lastInsertRowid);
-
       const insertLine = db.prepare(`
         INSERT INTO invoice_import_lines
           (import_id, raw_name, qty_ordered, qty_supplied, unit_price, line_total, gst_applicable,
@@ -252,12 +246,23 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         stillUnmatched[i].suggestedLocationId = item.location_id;
       });
 
-      for (const r of resolved) {
-        insertLine.run(
-          importId, r.line.raw_name, r.line.qty_ordered, r.line.qty_supplied, r.line.unit_price, r.line.line_total,
-          r.line.gst_applicable ? 1 : 0, r.matchedItemId, r.suggestedCategoryId, r.suggestedLocationId
-        );
-      }
+      // The header and every line are written together after all the async work, in one
+      // transaction: a failure can never leave an empty or partial import to be reviewed.
+      const stageImport = db.transaction(() => {
+        const info = db.prepare(`
+          INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename)
+          VALUES (?, ?, ?, ?)
+        `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname);
+        const id = Number(info.lastInsertRowid);
+        for (const r of resolved) {
+          insertLine.run(
+            id, r.line.raw_name, r.line.qty_ordered, r.line.qty_supplied, r.line.unit_price, r.line.line_total,
+            r.line.gst_applicable ? 1 : 0, r.matchedItemId, r.suggestedCategoryId, r.suggestedLocationId
+          );
+        }
+        return id;
+      });
+      const importId = stageImport();
 
       res.json({ ...getImportWithLines(db, importId), warnings });
     } catch (err) {

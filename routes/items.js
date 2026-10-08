@@ -276,6 +276,8 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     if (!item) return res.status(404).json({ error: 'Item not found' });
     db.transaction(() => {
       db.prepare('DELETE FROM price_history WHERE item_id = ?').run(id);
+      // Invoice history keeps its lines; they just no longer point at the deleted item.
+      db.prepare('UPDATE invoice_import_lines SET matched_item_id = NULL WHERE matched_item_id = ?').run(id);
       db.prepare('DELETE FROM items WHERE id = ?').run(id);
     })();
     broadcastUpdate('delete', item);

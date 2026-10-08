@@ -47,6 +47,9 @@ function registerLocationRoutes(app, { db, broadcastUpdate }) {
         }
         db.prepare('UPDATE invoice_import_lines SET suggested_location_id = NULL WHERE suggested_location_id = ?').run(req.params.id);
         db.prepare('UPDATE invoice_import_lines SET final_location_id = NULL WHERE final_location_id = ?').run(req.params.id);
+        // items.location_id is vestigial (item_locations is the source of truth) but still carries
+        // a foreign key, and migrated databases still hold values in it.
+        db.prepare('UPDATE items SET location_id = NULL WHERE location_id = ?').run(req.params.id);
         db.prepare('DELETE FROM locations WHERE id = ?').run(req.params.id);
       })();
       broadcastUpdate('locations_updated', {});

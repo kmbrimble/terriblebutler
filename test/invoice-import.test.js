@@ -175,6 +175,23 @@ describe('POST /api/invoices/import — LLM-assisted matching for lines the dete
   });
 });
 
+describe('staging is atomic', () => {
+  it('a failure while writing lines leaves no import header behind', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network unreachable'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const count = () => db.prepare('SELECT COUNT(*) AS c FROM invoice_imports').get().c;
+    const before = count();
+    db.exec("CREATE TEMP TRIGGER fail_line_insert BEFORE INSERT ON invoice_import_lines BEGIN SELECT RAISE(ABORT, 'forced'); END");
+    try {
+      const res = await api(app).post('/api/invoices/import').attach('invoice', COLES_PDF);
+      expect(res.status).toBe(500);
+    } finally {
+      db.exec('DROP TRIGGER fail_line_insert');
+    }
+    expect(count()).toBe(before);
+  });
+});
+
 describe('GET /api/invoices/import/:id', () => {
   it('returns 401 when unauthenticated', async () => {
     const res = await request(app).get('/api/invoices/import/1');

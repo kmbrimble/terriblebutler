@@ -3,7 +3,7 @@ import './setup.js';
 import { api } from './setup.js';
 import pkg from '../server.js';
 
-const { app } = pkg;
+const { app, db } = pkg;
 
 let locA, locB;
 
@@ -294,5 +294,26 @@ describe('Per-location "open" status', () => {
 
     const item = (await api(app).get('/api/items')).body.find((i) => i.id === id);
     expect(item.locations[0].is_open).toBe(1);
+  });
+});
+
+describe('Deleting a location still referenced by the vestigial items.location_id', () => {
+  it('succeeds and clears the old reference', async () => {
+    const loc = await api(app).post('/api/locations').send({ name: `Legacy Ref Loc ${Date.now()}` });
+    const info = db.prepare('INSERT INTO items (name, location_id, reorder_threshold) VALUES (?, ?, 1)').run('Legacy Ref Item', loc.body.id);
+    const res = await api(app).delete(`/api/locations/${loc.body.id}`);
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT location_id FROM items WHERE id = ?').get(info.lastInsertRowid).location_id).toBeNull();
+  });
+});
+
+describe('Deleting an item that an invoice import line matched', () => {
+  it('succeeds and leaves the line unmatched', async () => {
+    const item = await api(app).post('/api/items').send({ name: `Matched Then Deleted ${Date.now()}`, quantity: 1 });
+    const imp = db.prepare("INSERT INTO invoice_imports (retailer, source_filename) VALUES ('Coles', 'x.pdf')").run();
+    const line = db.prepare('INSERT INTO invoice_import_lines (import_id, raw_name, matched_item_id) VALUES (?, ?, ?)').run(imp.lastInsertRowid, 'RAW', item.body.id);
+    const res = await api(app).delete(`/api/items/${item.body.id}`);
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT matched_item_id FROM invoice_import_lines WHERE id = ?').get(line.lastInsertRowid).matched_item_id).toBeNull();
   });
 });
