@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import './setup.js';
 import { TEST_USERNAME } from './setup.js';
 import { loadFreshApp } from './fresh-app.js';
+
+// Each test loads a fresh copy of the app (DB open, schema, Socket.IO), which can exceed the
+// 5s default when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 30000 });
 
 // Each mode needs a fresh app: TRUST_PROXY is read once at config load.
 function loadApp(trustProxy) {

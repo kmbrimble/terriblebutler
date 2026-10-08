@@ -5,6 +5,10 @@ import { TEST_TOKEN } from './setup.js';
 import request from 'supertest';
 import { loadFreshApp } from './fresh-app.js';
 
+// Each test loads a fresh copy of the app (DB open, schema, Socket.IO), which can exceed the
+// 5s default when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 30000 });
+
 const WOOLWORTHS_PDF = path.join(process.cwd(), 'test/fixtures/invoices/woolworths-example.pdf'); // 32 lines
 
 beforeAll(() => {

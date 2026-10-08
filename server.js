@@ -134,6 +134,9 @@ app.use((err, req, res, next) => {
   // Router param decoding (a bad %-escape in the path) sets status 400 without expose.
   if (err instanceof URIError) return res.status(400).json({ error: 'Malformed request path.' });
   // Multipart parse failures from busboy (via multer) are plain Errors with fixed messages.
+  // ponytail: message match; a busboy upgrade that rewords these flips them back to 500 (the
+  // multipart tests in test/error-hardening.test.js would catch it). Upgrade path: a tagging
+  // wrapper around the multer instances in lib/middleware.js.
   if (/^(Unexpected end of form|Malformed (part header|urlencoded form)|Multipart: |Part terminated early|Unexpected end of multipart data)/.test(err.message)) {
     return res.status(400).json({ error: 'Malformed upload request.' });
   }

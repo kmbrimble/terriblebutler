@@ -35,11 +35,37 @@ Owner steps (unRAID template; I changed nothing): add variable `TRUST_PROXY` = t
 Out-of-repo caveat (unverified, flagged for the owner, not testable from this repo): NPM trusts private sources for `real_ip_header X-Real-IP`, so a client-supplied `X-Real-IP` arriving via the tunnel/LAN may be adopted by NPM as `$remote_addr` and appended to XFF. If confirmed it lets a caller choose the address the app keys on. Mitigation is on the NPM side (e.g. take the client address from `CF-Connecting-IP` on this host, or strip inbound `X-Real-IP`).
 
 ## Review
-`code-diff-reviewer`, score 11 (CALL): 3 Sonnet + 1 Mythos + counsel (`openai/gpt-5.6-terra`). Union: 3 findings, all fixed or noted.
-- Fixed: malformed `%`-escape in a path param and malformed multipart bodies were turned into 500s by the new global handler (previously 400); now 400, with tests.
-- Noted, not fixed: the new `warnings` field is not yet displayed by the React client (frontend scope; `InvoiceImportState` needs `warnings?: string[]` and a toast in `InvoiceImportModal`).
-- Counsel (all outside this diff's scope, pre-existing): upload stored extension from `originalname` (uploads agent), `/api/invoices/commit` lacks item validation, no cap on PDF-extracted text sent to the LLM (uploads agent's PDF bound), boolean coercion in `ignore-grocery`/`open`, location delete drops `is_open`, nightly backup DST drift, unbounded rate-limit bucket map, import row inserted before LLM work (orphan row if a later step throws). Left for follow-up issues; the last two touch code near my changes.
-- Not run: no pass reported NO FINDINGS-only; pass-1 did (known failure mode), the other three found the issues above.
+`code-diff-reviewer` on `48b87ad..HEAD` (before the final handler fix): 3 Sonnet + 1 Mythos + counsel; union 3 findings from 4 raw, US$3.31.
+
+```
+security/pipeline 48b87ad..HEAD
+  exposure               3
+  authority              2
+  data integrity         1
+  reversibility          1
+  test-coverage gap      1
+  pattern divergence     1
+  module spread          1
+  ------------------------------
+  base                   10
+  length modifier        +1  [500 lines]
+  FINAL                  11   band: CALL — call counsel
+```
+- pass-1 (Sonnet) returned NO FINDINGS (a known failure mode, not evidence of cleanliness); pass-2, pass-3 and the Mythos pass produced the findings below.
+- Fixed: malformed `%`-escape in a path param (agreement 2/4) and malformed multipart bodies (1/4) were turned into 500s by the new global handler (previously 400); now 400, with tests. The busboy message match carries a `ponytail:` note (upgrade path: tag errors in a wrapper around the multer instances).
+- Open: `warnings` on the import response has no client consumer (`InvoiceImportState` needs `warnings?: string[]` and a toast in `InvoiceImportModal`): frontend scope.
+- Counsel (`openai/gpt-5.6-terra`), all outside this diff or pre-existing: upload stored extension taken from `originalname` (uploads agent); `/api/invoices/commit` lacks item validation; no cap on PDF-extracted text sent to the LLM; boolean coercion in `ignore-grocery`/`open`; location delete drops `is_open`; nightly backup DST drift; unbounded rate-limit bucket map; import row inserted before LLM work (orphan row if a later step throws). Left for follow-up issues.
+- Not run: advisor-style adjudication of counsel beyond the above triage.
+
+```
+counsel seeding attestation
+  model:            openai/gpt-5.6-terra
+  issues_found:     [] (empty)
+  conclusions sent: none
+  excluded:         CHANGELOG.md, CLAUDE.md, commit messages
+  material sent:    server.js, logger.js, backup.js, lib/{config,middleware,llm-client,domain-helpers,shutdown}.js, routes/{invoices,categories,locations,items}.js (current files; the diff itself was not sent, only the review-range statement)
+  prompt sha256:    4ac5b1d95e4989301af147d0ef12568446cef33cbbf9ed28935726c121fd2031
+```
 
 ## Left for integration / other agents
 - `routes/invoices.js` `fs.unlink(..., () => {})` (parse and import `finally`) and `routes/uploads.js` unlink: untouched by design (uploads agent). If they do not log failures, #61's third bullet remains open there.
@@ -51,4 +77,4 @@ Out-of-repo caveat (unverified, flagged for the owner, not testable from this re
 No schema change, no pre-change backup needed for this branch alone. Optional env: `TRUST_PROXY`, `INVOICE_IMPORT_MAX_LINES`. Behaviour changes to eyeball: category/location names over 100 chars or non-text are now rejected on edit; the action log no longer contains login bodies or any unauthenticated request.
 
 ## Verification
-`npm test`: 31 server files / 358 tests and 17 client files / 125 tests pass; client `npm run build` passes; `flock /tmp/butler-e2e.lock npm run test:e2e`: 71/71. Regression tests fail on the base for each defect (new files: `trust-proxy`, `invoice-import-limits`, `error-hardening`; extended: `action-logging`, `logger`, `backup`, `llm-anthropic`).
+`npm test`: 31 server files / 358 tests and 17 client files / 125 tests pass; client `npm run build` passes; `flock /tmp/butler-e2e.lock npm run test:e2e`: 71/71. Regression tests were run red first for `trust-proxy`, `action-logging`, `error-hardening`; `invoice-import-limits` was written after the implementation and run against a throwaway worktree at `48b87ad` afterwards (6/6 fail there). (New files: `trust-proxy`, `invoice-import-limits`, `error-hardening`; extended: `action-logging`, `logger`, `backup`, `llm-anthropic`.)
