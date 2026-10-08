@@ -79,7 +79,7 @@ export function QtyModal({
   }
 
   return (
-    <div data-testid="qty-modal" className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+    <div data-testid="qty-modal" className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-xs p-6 text-center">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-rimmy-orange">Set Quantity</h3>

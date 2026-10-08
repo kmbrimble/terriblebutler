@@ -43,7 +43,7 @@ export function ManageCategoriesModal({ categories, onClose }: { categories: Cat
   }
 
   return (
-    <div data-testid="manage-categories-modal" className="fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
+    <div data-testid="manage-categories-modal" className="fixed inset-0 bg-black/80 z-60 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-rimmy-orange">Manage Categories</h2>

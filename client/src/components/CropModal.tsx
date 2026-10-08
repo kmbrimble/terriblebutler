@@ -1,28 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import ImportedCropper from 'cropperjs';
-import 'cropperjs/dist/cropper.css';
+import type Cropper from 'cropperjs';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
-// Ports handleImageSelection()/confirmCrop()/cancelCrop() from public/index.html (Cropper.js
-// 1.5.13 — the actual CDN version legacy loads; the npm equivalent is pinned to the same 1.x
-// major since 2.x is an unrelated Web Components rewrite with no getCroppedCanvas()). Same
-// window-override seam as BarcodeScannerModal, for the same reason and the same e2e benefit.
-type CropperCtor = new (
-  element: HTMLImageElement,
-  options: Record<string, unknown>
-) => {
-  getCroppedCanvas: (options: Record<string, unknown>) => HTMLCanvasElement | null;
-  destroy: () => void;
-};
-
-function resolveCropperCtor(): CropperCtor {
-  return (window as unknown as { Cropper?: CropperCtor }).Cropper ?? (ImportedCropper as unknown as CropperCtor);
-}
+// Ports handleImageSelection()/confirmCrop()/cancelCrop() from public/index.html. Cropper.js
+// 2.x is a Web Components rewrite (no getCroppedCanvas()/viewMode/autoCropArea): the crop is
+// read via the <cropper-selection> element's $toCanvas(), and the 2.x template is the
+// default with the selection covering the whole image initially (legacy's autoCropArea: 1).
+// cropperjs registers its custom elements at import time, which needs a DOM, so it is
+// imported dynamically in the effect rather than at module load (keeps node-env unit tests
+// that import this component working).
 
 export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string; onConfirm: (blob: Blob) => void; onCancel: () => void }) {
   useLockBodyScroll();
   const imgRef = useRef<HTMLImageElement>(null);
-  const cropperRef = useRef<InstanceType<CropperCtor> | null>(null);
+  const cropperRef = useRef<Cropper | null>(null);
   // Cropper.js initialises 50ms after mount (matching legacy's own setTimeout); the confirm
   // button stays disabled until then rather than silently no-op'ing on an early click — this
   // also gives e2e specs a real signal (button becomes enabled) to wait on instead of reaching
@@ -31,46 +22,47 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
 
   useEffect(() => {
     if (!imgRef.current) return undefined;
-    const Ctor = resolveCropperCtor();
     setReady(false);
-    const timer = setTimeout(() => {
-      if (!imgRef.current) return;
-      cropperRef.current = new Ctor(imgRef.current, {
-        viewMode: 1,
-        autoCropArea: 1,
-        background: false,
-        responsive: true,
-        touchDragZoom: true,
-        mouseWheelZoom: true,
-        minCropBoxWidth: 50,
-        minCropBoxHeight: 50,
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const { default: CropperCtor, DEFAULT_TEMPLATE } = await import('cropperjs');
+      if (cancelled || !imgRef.current) return;
+      cropperRef.current = new CropperCtor(imgRef.current, {
+        template: DEFAULT_TEMPLATE.replace('initial-coverage="0.5"', 'initial-coverage="1"'),
       });
       setReady(true);
     }, 50);
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       cropperRef.current?.destroy();
       cropperRef.current = null;
     };
   }, [imageSrc]);
 
-  function handleConfirm() {
-    const cropper = cropperRef.current;
-    if (!cropper) return;
-    const canvas = cropper.getCroppedCanvas({
-      maxWidth: 800,
-      maxHeight: 800,
-      imageSmoothingEnabled: true,
-      imageSmoothingQuality: 'high',
+  async function handleConfirm() {
+    const selection = cropperRef.current?.getCropperSelection();
+    if (!selection) return;
+    // Output at the source image's native resolution (selection coordinates are in on-screen
+    // pixels), capped at 800px on the longer side with the aspect ratio kept (legacy's
+    // maxWidth/maxHeight).
+    const image = cropperRef.current?.getCropperImage();
+    const displayed = image?.getBoundingClientRect().width;
+    const native = image && displayed ? image.$image.naturalWidth / displayed : 1;
+    const nativeWidth = selection.width * native;
+    const nativeHeight = selection.height * native;
+    const scale = Math.min(1, 800 / Math.max(nativeWidth, nativeHeight));
+    const canvas = await selection.$toCanvas({
+      width: Math.round(nativeWidth * scale),
+      height: Math.round(nativeHeight * scale),
     });
-    if (!canvas) return;
     canvas.toBlob((blob) => {
       if (blob) onConfirm(blob);
     }, 'image/jpeg');
   }
 
   return (
-    <div data-testid="crop-modal" className="fixed inset-0 bg-black bg-opacity-95 z-[70] flex items-center justify-center p-4">
+    <div data-testid="crop-modal" className="fixed inset-0 bg-black/95 z-70 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-orange rounded-lg w-full max-w-2xl flex flex-col h-[80vh] overflow-hidden">
         <div className="p-4 border-b border-rimmy-border flex justify-between items-center bg-rimmy-black shrink-0">
           <h2 className="text-xl font-bold text-rimmy-orange">Crop Label Area</h2>

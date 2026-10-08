@@ -11,7 +11,7 @@ export function Toast() {
   return (
     <div
       data-testid="toast-notification"
-      className={`fixed bottom-20 left-1/2 -translate-x-1/2 text-white font-bold px-6 py-3 rounded shadow-xl z-[100] ${
+      className={`fixed bottom-20 left-1/2 -translate-x-1/2 text-white font-bold px-6 py-3 rounded shadow-xl z-100 ${
         state.type === 'error' ? 'bg-red-600' : 'bg-green-600'
       }`}
     >

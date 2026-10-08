@@ -17,7 +17,7 @@ export function Header({
 }) {
   return (
     <header className="bg-rimmy-purple text-white p-4 sticky top-0 z-10 flex justify-between items-center gap-2 border-b border-rimmy-purpleHover">
-      <div className="leading-[1] text-rimmy-orange" style={{ fontFamily: "'Lobster Two', cursive" }}>
+      <div className="leading-none text-rimmy-orange" style={{ fontFamily: "'Lobster Two', cursive" }}>
         <div className="text-[1.2rem]">Terrible</div>
         <div className="text-[1.3rem] -mt-1">Butler</div>
       </div>

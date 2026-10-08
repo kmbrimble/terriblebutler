@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -25,7 +26,7 @@ for (const { slug } of variants) {
 
 export default defineConfig({
   base: '/',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: { input },
   },
