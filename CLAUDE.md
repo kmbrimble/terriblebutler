@@ -65,11 +65,14 @@ middleware logic. The actual code lives in:
   `sendMutationError` (only a `ValidationError` carries its message to the client; anything else is a correlation-id 500), `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
-  Messages API), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
+  Messages API), `buildPrompt` (every prompt with untrusted text — PDF text, label context, item/category/
+  location names — goes through it: random-id data blocks plus a data-not-instructions notice; the strict
+  schema remains the primary control), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
 - `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
-  (`UPLOAD_TMP_DIR`), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
+  (`UPLOAD_TMP_DIR`, verified at startup: a real directory, not a symlink, runtime-owned, mode 0700, else the
+  process refuses to start), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
   other than jpeg/png/webp blocked; HEIC/HEIF deliberately unsupported), `UPLOADS_DIR` storage, signed `/media/:name` delivery
-  (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound.
+  (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound (text extracted in a worker thread, `lib/pdf-worker.js`, with a hard deadline `PDF_PARSE_TIMEOUT_MS` default 20 s and heap ceiling `PDF_WORKER_MEMORY_MB` default 256).
   `items.image_path` holds the stored id; API/Socket.IO payloads carry a signed URL instead (via
   `parseItemLocations`). There is no static `/uploads` and, for now, no endpoint that stores
   client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
@@ -136,20 +139,14 @@ from outside this project without checking against this list.
    again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
    header/auth settings were removed, so NPM now passes straight through) →
    `terrible-butler` on its unique port → app's own JWT auth.
-
-## Conventions
-
-Project rules that are not on the non-negotiable list above. They are enforced by tests, but
-loosening one is a normal, deliberate change rather than a stop-and-ask.
-
-- **Strict CSP, no third-party runtime assets.** `securityHeaders` sends a
-   `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`, no `unsafe-inline`/`unsafe-eval`).
-   Nothing may load from a third-party origin: fonts are bundled (`@fontsource/*`, OFL licences in
-   `client/public/font-licences`), and the pre-paint theme bootstrap is the external
-   `client/public/theme-init*.js`, not an inline script. Every e2e spec imports `test` from
-   `test-e2e/csp-guard.js`, which fails the test on any CSP violation; never import from
-   `@playwright/test` directly. A new feature needing a looser directive must widen it deliberately in
-   `lib/middleware.js` and `test/csp.test.js`.
+9. **Strict CSP, no third-party runtime assets.** `securityHeaders` (`lib/middleware.js`) sends a
+   `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'`, and no
+   `unsafe-inline` / `unsafe-eval`. Nothing may load from a third-party origin: fonts are bundled
+   (`@fontsource/*`, OFL licences in `client/public/font-licences`), and the pre-paint theme
+   bootstrap is the external `client/public/theme-init*.js`, not an inline script. Every e2e spec
+   imports `test` from `test-e2e/csp-guard.js`, which fails the test on any CSP violation; never
+   import from `@playwright/test` directly. Do not loosen a directive, add a third-party origin or
+   weaken `test/csp.test.js` without checking with the user first.
 
 ## Database notes (read before any schema change)
 
@@ -178,14 +175,26 @@ loosening one is a normal, deliberate change rather than a stop-and-ask.
 ## Container runtime (non-root)
 
 The image starts `docker-entrypoint.sh` as root only to `chown` the writable paths
-(`/app/data` or the dir of `DB_PATH`, `UPLOADS_DIR` (default `/app/public/uploads`), `LOG_DIR` /
-`/app/logs`) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
+(`/app/data` or the dir of `DB_PATH`, `UPLOADS_DIR` (default `/app/public/uploads`), `LOG_DIR`
+(default `<dir of DB_PATH>/logs`, i.e. `/app/data/logs`, on the persistent data mount)) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
 runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 
 - `PUID` / `PGID` env vars, defaults `99` / `100` (unRAID nobody:users). Must be numeric and
   non-zero; the entrypoint refuses to run the app as root.
 - Existing root-owned files in the bind mounts (e.g. `inventory.db`) are chowned in place on
   start; already-correct entries are skipped.
+- The entrypoint validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` before chowning anything: absolute,
+  normalised (letters, digits, `.`, `_`, `-`), strictly inside `/app`, not in the application code
+  (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`, and `/app/public` itself — its `uploads/` child is fine), and mutually disjoint (`LOG_DIR` may sit
+  inside the data directory, as the default does, but not be or contain it) — otherwise
+  it exits non-zero with a message. `UPLOAD_TMP_DIR`, if set, is validated by the app (well-formed, and
+  not overlapping those directories inside the container, since it is swept at startup). `lib/config.js` `validateStoragePaths` applies the same rules
+  (containment when `WRITABLE_ROOT` is set; the Dockerfile sets `/app`). `test/entrypoint.test.js`
+  runs the script with stubs and checks both agree; `scripts/docker-smoke.sh` is the manual
+  end-to-end image check (uses only `smoketest-` names and named volumes).
+- The runtime image copies an explicit allow-list (server modules, `lib`, `routes`, `parsers`,
+  `scripts`, built `client/dist`); a new top-level server module must be added to the Dockerfile
+  (`test/docker-build-context.test.js` fails otherwise).
 - The base image is pinned by digest (`ARG NODE_IMAGE` in the Dockerfile, tag `node:24-slim`);
   Dependabot bumps it. Debian apt packages are deliberately not version-pinned (builder stage
   only, discarded; pinned apt versions disappear from mirrors and break builds).
@@ -204,6 +213,13 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 - The action log (`logger.js`) records only authenticated, non-throttled mutating calls
   (bodies redacted recursively and truncated); logins are body-less `event: login` audit lines.
   500 responses carry a `correlation_id`; the full error is in the server log under that id.
+  Action logs default to `<dir of DB_PATH>/logs` (persistent, beside `backups/`), kept 30 days.
+  The stdout copy (what `docker logs` shows) is a bounded async stream, not `console.log`;
+  `ACTION_LOG_STDOUT=0` disables it.
+- Anthropic calls use `ANTHROPIC_TIMEOUT_MS` (default 45000, per attempt) and `ANTHROPIC_MAX_RETRIES`
+  (default 1); the SDK's own defaults are 10 minutes and 2.
+- Nightly DB backups (`backup.js`) are named `inventory-<UTC timestamp>.db`, kept 14 days; the older
+  date-only names are still pruned.
 
 ## Pre-change backup
 

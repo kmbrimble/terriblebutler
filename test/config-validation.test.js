@@ -69,3 +69,22 @@ describe('startup with a bad configuration', () => {
     expect(run.stderr + run.stdout).not.toContain('short-sentinel-secret');
   });
 });
+
+describe('numeric limits fall back instead of accepting unsafe values', () => {
+  it.each(['-1', '0', 'Infinity', '2.5', 'abc', '99999999999'])('INVOICE_IMPORT_MAX_LINES=%s uses the default', async (bad) => {
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url);
+    process.env.INVOICE_IMPORT_MAX_LINES = bad;
+    process.env.LOGIN_RATE_LIMIT_MAX = bad;
+    const path = req.resolve('../lib/config');
+    delete req.cache[path];
+    try {
+      const fresh = req('../lib/config');
+      expect([fresh.INVOICE_IMPORT_MAX_LINES, fresh.LOGIN_RATE_LIMIT_MAX]).toEqual([250, 5]);
+    } finally {
+      delete process.env.INVOICE_IMPORT_MAX_LINES;
+      delete process.env.LOGIN_RATE_LIMIT_MAX;
+      delete req.cache[path];
+    }
+  });
+});

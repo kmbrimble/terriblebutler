@@ -5,13 +5,26 @@ const path = require('path');
 
 const MAX_AGE_DAYS = 14;
 
+// Backups are named to the millisecond (UTC), so a second backup on the same day sits beside
+// the first instead of replacing it: inventory-2026-10-09T06-37-12-123Z.db. Older installs have
+// date-only names (inventory-2026-10-09.db); pruning recognises both.
 function backupFileName(date = new Date()) {
-  return `inventory-${date.toISOString().slice(0, 10)}.db`;
+  return `inventory-${date.toISOString().replace(/[:.]/g, '-')}.db`;
+}
+
+const BACKUP_NAME = /^inventory-\d{4}-\d{2}-\d{2}(T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?)?\.db$/;
+
+// Never overwrites: on a (same-millisecond) name clash a counter is appended.
+function uniqueBackupPath(backupDir, date = new Date()) {
+  const base = backupFileName(date).slice(0, -3);
+  let dest = path.join(backupDir, `${base}.db`);
+  for (let n = 1; fs.existsSync(dest); n++) dest = path.join(backupDir, `${base}-${n}.db`);
+  return dest;
 }
 
 async function runBackup(db, backupDir) {
   fs.mkdirSync(backupDir, { recursive: true });
-  const dest = path.join(backupDir, backupFileName());
+  const dest = uniqueBackupPath(backupDir);
   await db.backup(dest);
   pruneOldBackups(backupDir);
   return dest;
@@ -21,7 +34,7 @@ function pruneOldBackups(backupDir, maxAgeDays = MAX_AGE_DAYS) {
   if (!fs.existsSync(backupDir)) return;
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   for (const file of fs.readdirSync(backupDir)) {
-    if (!/^inventory-\d{4}-\d{2}-\d{2}\.db$/.test(file)) continue;
+    if (!BACKUP_NAME.test(file)) continue;
     const full = path.join(backupDir, file);
     try {
       if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
@@ -42,10 +55,12 @@ function msUntilNextHour(hour) {
 // ponytail: setTimeout-chain scheduler, not a cron lib — good enough for one nightly job.
 function scheduleNightlyBackup(db, backupDir, hour = 2) {
   function runAndReschedule() {
-    runBackup(db, backupDir).catch((err) => console.error('[Backup] nightly backup failed:', err));
-    setTimeout(runAndReschedule, 24 * 60 * 60 * 1000);
+    // Reschedule only once this run settles, so a slow backup can never overlap the next one.
+    runBackup(db, backupDir)
+      .catch((err) => console.error('[Backup] nightly backup failed:', err))
+      .finally(() => setTimeout(runAndReschedule, msUntilNextHour(hour))); // next local 02:00, so DST shifts do not drift it
   }
   setTimeout(runAndReschedule, msUntilNextHour(hour));
 }
 
-module.exports = { runBackup, pruneOldBackups, scheduleNightlyBackup, backupFileName };
+module.exports = { msUntilNextHour, runBackup, pruneOldBackups, scheduleNightlyBackup, backupFileName, uniqueBackupPath };

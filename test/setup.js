@@ -13,6 +13,8 @@ process.env.DB_PATH = tmpDbPath;
 
 const tmpLogDir = path.join(os.tmpdir(), `butler-test-logs-${crypto.randomBytes(8).toString('hex')}`);
 process.env.LOG_DIR = tmpLogDir;
+// The stdout copy of the action log writes straight to fd 1; keep the test output readable.
+process.env.ACTION_LOG_STDOUT = '0';
 
 // Uploads never touch the real directories: stored images and multer scratch files both go
 // to throwaway directories, removed in afterAll.

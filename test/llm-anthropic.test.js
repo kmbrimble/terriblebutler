@@ -145,3 +145,73 @@ describe('POST /api/parse-label-llm', () => {
     expect(consoleSpy).toHaveBeenCalled();
   });
 });
+describe('Anthropic client limits', () => {
+  // A fetch that never answers until the SDK aborts it, like a hung connection.
+  const hangingFetch = (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+  });
+  const callArgs = { userContent: 'x', toolName: 't', toolDescription: 'd', schema: { type: 'object', properties: {}, additionalProperties: false } };
+
+  afterEach(() => {
+    delete process.env.ANTHROPIC_TIMEOUT_MS;
+    delete process.env.ANTHROPIC_MAX_RETRIES;
+  });
+
+  it('documents defaults: 45 s timeout, 1 retry; invalid values fall back', async () => {
+    const config = (await import('../lib/config.js')).default;
+    expect([config.getAnthropicTimeoutMs(), config.getAnthropicMaxRetries()]).toEqual([45_000, 1]);
+    process.env.ANTHROPIC_TIMEOUT_MS = 'soon';
+    process.env.ANTHROPIC_MAX_RETRIES = '-3';
+    expect([config.getAnthropicTimeoutMs(), config.getAnthropicMaxRetries()]).toEqual([45_000, 1]);
+    process.env.ANTHROPIC_TIMEOUT_MS = '2000';
+    process.env.ANTHROPIC_MAX_RETRIES = '0';
+    expect([config.getAnthropicTimeoutMs(), config.getAnthropicMaxRetries()]).toEqual([2000, 0]);
+  });
+
+  it('abandons a hung call at the configured timeout instead of waiting 10 minutes', async () => {
+    const { callClaudeForJSON } = await import('../lib/llm-client.js');
+    process.env.ANTHROPIC_TIMEOUT_MS = '60';
+    process.env.ANTHROPIC_MAX_RETRIES = '0';
+    vi.spyOn(global, 'fetch').mockImplementation(hangingFetch);
+    const started = Date.now();
+    await expect(callClaudeForJSON(callArgs)).rejects.toThrow(/timed out/i);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('retries a transient failure the configured number of times, no more', async () => {
+    const { callClaudeForJSON } = await import('../lib/llm-client.js');
+    process.env.ANTHROPIC_MAX_RETRIES = '1';
+    vi.spyOn(global, 'fetch').mockImplementation(async () => mockHttpErrorResponse(529, { message: 'overloaded' }));
+    await expect(callClaudeForJSON(callArgs)).rejects.toThrow();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('a timeout surfaces through the graceful paths: classification reports failed, matching returns nulls', async () => {
+    const { classifyLinesWithLLM, matchLinesWithLLM } = await import('../lib/llm-client.js');
+    process.env.ANTHROPIC_TIMEOUT_MS = '40';
+    process.env.ANTHROPIC_MAX_RETRIES = '0';
+    vi.spyOn(global, 'fetch').mockImplementation(hangingFetch);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await classifyLinesWithLLM(['A'], [], [])).toEqual({ results: [{ category_id: null, location_id: null }], failed: 1 });
+    expect(await matchLinesWithLLM([{ id: 1, name: 'N' }], [{ raw_name: 'A' }])).toEqual([null]);
+  });
+
+  it('a timed-out label scan falls back to the empty result with a 200', async () => {
+    process.env.ANTHROPIC_TIMEOUT_MS = '40';
+    process.env.ANTHROPIC_MAX_RETRIES = '0';
+    vi.spyOn(global, 'fetch').mockImplementation(hangingFetch);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await api(app).post('/api/parse-label-llm').attach('image', PRODUCT_IMAGE);
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('');
+  });
+});
+
+describe('matchLinesWithLLM output budget', () => {
+  it('scales max_tokens with the number of lines so a 250-line import is not truncated', async () => {
+    const { matchLinesWithLLM } = await import('../lib/llm-client.js');
+    vi.spyOn(global, 'fetch').mockResolvedValue(mockToolUseResponse('invoice_line_matches', { matches: [] }));
+    await matchLinesWithLLM([{ id: 1, name: 'X' }], Array.from({ length: 250 }, (_, i) => ({ raw_name: `L${i}` })));
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).max_tokens).toBeGreaterThanOrEqual(250 * 12 * 2);
+  });
+});

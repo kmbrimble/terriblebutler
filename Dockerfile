@@ -44,7 +44,8 @@ FROM ${NODE_IMAGE}
 ENV NODE_ENV=production \
     PUID=99 \
     PGID=100 \
-    UPLOADS_DIR=/app/public/uploads
+    UPLOADS_DIR=/app/public/uploads \
+    WRITABLE_ROOT=/app
 
 WORKDIR /app
 
@@ -52,18 +53,22 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json /app/package-lock.json ./
 
-# Copy application source (root-owned and read-only to the app user)
-COPY . .
+# Application source: an explicit allow-list, root-owned and read-only to the app user. Anything
+# the server needs at run time must be listed here (test/docker-build-context.test.js checks
+# that every module reachable from server.js is). The client's source is deliberately absent:
+# only its build output, below, is served.
+COPY server.js backup.js logger.js db-migrations.js item-matching.js llm-schema.js ./
+COPY lib ./lib
+COPY routes ./routes
+COPY parsers ./parsers
+COPY scripts ./scripts
+
+# Built React client: only the output, not the client's source or devDependencies.
+COPY --from=client-builder /app/client/dist ./client/dist
 
 # .dockerignore keeps local uploads out of the build context, so create the (empty) directory the
 # volume mounts over; the entrypoint chowns it to PUID:PGID.
 RUN mkdir -p "$UPLOADS_DIR"
-
-# Copy the built React client — only the built output, not the client's source or devDependencies
-COPY --from=client-builder /app/client/dist ./client/dist
-
-# Uploads directory (the live bind-mount target); the entrypoint chowns it to PUID:PGID.
-RUN mkdir -p /app/public/uploads
 
 # Starts as root only to fix ownership of the writable paths, then drops to PUID:PGID.
 COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
