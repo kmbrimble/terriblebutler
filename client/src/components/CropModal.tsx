@@ -52,6 +52,9 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
       // bounds are the image edge. (Cropper cannot re-fit an initialised image, so a resize
       // rebuilds the cropper instead.)
       const build = async () => {
+        // A resize can fire while the modal is closing; a cropper built on a detached tree never
+        // upgrades its elements (no `$ready`), so skip the rebuild once this effect is torn down.
+        if (cancelled || !container.isConnected) return;
         cropperRef.current?.destroy();
         const cropper = new CropperCtor(source, { template: CROP_TEMPLATE(DEFAULT_TEMPLATE) });
         cropperRef.current = cropper;
@@ -64,8 +67,6 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
           canvas.style.width = `${Math.floor(source.naturalWidth * scale)}px`;
           canvas.style.height = `${Math.floor(source.naturalHeight * scale)}px`;
         }
-        // The element can be handed back before its custom-element class has upgraded.
-        await customElements.whenDefined('cropper-image');
         await cropper.getCropperImage()?.$ready();
       };
 

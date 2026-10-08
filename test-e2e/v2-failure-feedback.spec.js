@@ -22,6 +22,8 @@ import {
   SNAP_LABEL_FILE_INPUT,
   CROP_MODAL,
   CROP_CONFIRM_BUTTON,
+  CATEGORY_SUGGEST_BLOCK,
+  INVOICE_IMPORT_MODAL,
 } from './testids.js';
 import { requestWithRateLimitRetry } from './rateLimitWait.js';
 
@@ -127,7 +129,7 @@ test('label scan: a failed parse shows a message instead of silently doing nothi
   await expect(page.getByTestId(CROP_MODAL)).toBeVisible();
   await expect(page.getByTestId(CROP_CONFIRM_BUTTON)).toBeEnabled();
   await page.getByTestId(CROP_CONFIRM_BUTTON).click();
-  await expect(toast(page)).toContainText(/parse|Simulated failure/i);
+  await expect(toast(page)).toContainText(/Failed to parse label image/);
   await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
 });
 
@@ -148,4 +150,65 @@ test('duplicate panel: a double-click on "Add as new item anyway" saves exactly 
   await panel.getByText('Add as new item anyway').dblclick();
   await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
   expect(posts).toBe(1);
+});
+
+test('label scan: a normal crop-and-confirm raises no error toast (crop teardown is clean)', async ({ page }) => {
+  await page.route('**/api/parse-label-llm', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        name: 'Clean Crop Product', container_details: '', category_id: null, location_id: null,
+        suggested_category_name: null, similar_category: null, suggested_location_name: null, similar_location: null,
+      }),
+    })
+  );
+  // Toasts are transient (3s), so record every one that ever appears rather than sampling at the end.
+  await page.addInitScript(() => {
+    window.__toasts = [];
+    new MutationObserver(() => {
+      document.querySelectorAll('[data-testid="toast-notification"]').forEach((el) => window.__toasts.push(el.textContent));
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+  await page.goto('/');
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await page.getByTestId(SNAP_LABEL_FILE_INPUT).setInputFiles(path.join(process.cwd(), 'test/fixtures/product1.jpg'));
+  await expect(page.getByTestId(CROP_CONFIRM_BUTTON)).toBeEnabled();
+  await page.getByTestId(CROP_CONFIRM_BUTTON).click();
+  await expect(page.getByTestId(ITEM_NAME_INPUT)).toHaveValue('Clean Crop Product');
+  await page.waitForTimeout(800); // let any late resize-observer callback land
+  expect(await page.evaluate(() => window.__toasts)).toEqual([]);
+});
+
+test('label scan suggestion: a failed category create shows the message and keeps the picker', async ({ page }) => {
+  await page.route('**/api/parse-label-llm', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        name: 'Suggest Product', container_details: '', category_id: null, location_id: null,
+        suggested_category_name: `${prefix} Suggested`, similar_category: null, suggested_location_name: null, similar_location: null,
+      }),
+    })
+  );
+  await failing(page, '**/api/categories', 'POST');
+  await page.goto('/');
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await page.getByTestId(SNAP_LABEL_FILE_INPUT).setInputFiles(path.join(process.cwd(), 'test/fixtures/product1.jpg'));
+  await expect(page.getByTestId(CROP_CONFIRM_BUTTON)).toBeEnabled();
+  await page.getByTestId(CROP_CONFIRM_BUTTON).click();
+  const panel = page.getByTestId(CATEGORY_SUGGEST_BLOCK);
+  await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: 'Use this' }).click();
+  await expect(toast(page)).toContainText('Simulated failure');
+  await expect(panel).toBeVisible();
+});
+
+test('invoice import: a failed resume of the previous import tells the user instead of failing silently', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('tb_active_import_id', '999999'));
+  await page.route('**/api/invoices/import/999999', (route) => route.fulfill(FAIL));
+  await page.goto('/');
+  // A stored import id reopens the modal on load, which is what triggers the resume fetch.
+  await expect(page.getByTestId(INVOICE_IMPORT_MODAL)).toBeVisible();
+  await expect(toast(page)).toContainText(/invoice import/i);
 });

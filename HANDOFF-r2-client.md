@@ -57,13 +57,18 @@ Already correct and left as is: Login, Manage categories/locations/devices, Dedu
 cancel/commit/upload, price-history delete, details load, barcode scanner start (own try/catch + toast).
 Background socket refetches keep their silent `.catch` (not user actions; `refetchItems` sets the error state).
 `matchItem` used to swallow failures and return "no match" (silently skipping duplicate detection); it now throws.
-**Real bug found by the new guard:** CropModal's resize rebuild raised `$ready is not a function` as an unhandled
-rejection on every label-scan; now waits for `customElements.whenDefined('cropper-image')` and reports failures.
+**Real bug found by the new guard (Cropper):** every label scan leaked `getCropperImage(...)?.$ready is not a function`.
+Root cause (verified by instrumenting the build): when the crop dialog closes, the ResizeObserver fires once with the
+container at 0x0 and already detached, before the effect cleanup disconnects it; that queued a rebuild on a detached
+tree, where Cropper's custom elements never upgrade. `build()` now returns early when `cancelled` or
+`!container.isConnected`, and background failures go through `reportAction`. (An earlier `customElements.whenDefined`
+attempt did nothing and was removed.) `test-e2e/v2-failure-feedback.spec.js` has a test recording every toast during a
+normal crop-and-confirm; it fails without the guard and passes with it.
 **Review finding fixed:** panel stays up until a save succeeds, so a double-click could POST twice; added an
 in-flight guard (`exclusive`) and disabled buttons, with an e2e that double-clicks.
 **e2e guard:** `test-e2e/csp-guard.js` (auto fixture, every spec) now also fails on any `unhandledrejection` or
-`pageerror`. Failure-injection coverage: `test-e2e/v2-failure-feedback.spec.js` (7 tests). Unit: `actionFeedback.test.ts`,
-`api.test.ts` (matchItem). Jsdom is not in this project, so handler classes are covered by e2e plus the helper unit tests.
+`pageerror`. Failure-injection coverage: `test-e2e/v2-failure-feedback.spec.js` (10 tests, incl. SuggestBlock create failure and invoice resume failure). Unit: `actionFeedback.test.ts`,
+`api.test.ts` (matchItem). Jsdom is not in this project, so handler classes are covered by e2e plus the helper unit tests. MenuDrawer fullscreen toggles also use `reportAction`.
 **`PATCH /quantity` / move-location:** 404 item not found; 400 invalid action (checked before stock, so a bad action
 never reads as a stock problem) and ambiguous location; 409 "This item has no stock at that location";
 409 "Insufficient quantity" (the old "or item not found" wording is gone). Shared constants and `hasStockRow` in
