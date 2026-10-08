@@ -5,7 +5,9 @@ import request from 'supertest';
 import './setup.js';
 import pkg from '../server.js';
 import { TEST_USERNAME, TEST_PASSWORD } from './setup.js';
+import jwt from 'jsonwebtoken';
 import { createRealtime } from '../lib/realtime.js';
+import { createAuthState } from '../lib/auth-state.js';
 
 const { app, server, db } = pkg;
 let base;
@@ -137,4 +139,19 @@ describe('Socket.IO sessions end with their credential (#56)', () => {
     expect(sockDevice.connected).toBe(false);
     expect(sockJwt.connected).toBe(false);
   });
+});
+
+describe('Socket.IO sessions end at credential expiry (#56)', () => {
+  it('disconnects a socket whose JWT expires while it is open', async () => {
+    const token = jwt.sign(
+      { sub: TEST_USERNAME, ver: createAuthState(db).getEpoch(), exp: Math.floor(Date.now() / 1000) + 2 },
+      process.env.JWT_SECRET,
+      { jwtid: 'short-lived' },
+    );
+    const socket = await openSocket(token);
+    const revoked = new Promise((resolve) => socket.on('session_revoked', resolve));
+    const gone = disconnected(socket);
+    await Promise.all([revoked, gone]);
+    expect(socket.connected).toBe(false);
+  }, 8000);
 });

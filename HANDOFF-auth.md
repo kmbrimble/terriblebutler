@@ -9,6 +9,13 @@
 - **#61 (routes/auth.js only).** `device_label` capped at 100 characters (via `cleanText`); `bcrypt.compare` failure now logs server-side and answers a generic 500.
 - **Schema:** see below.
 
+## Follow-up (second pass): no loose ends
+- **Sockets never outlive their credential.** `watchExpiry` (lib/realtime.js) schedules a disconnect at the credential's expiry and clears its timer on disconnect. JWT: the `exp` claim. Device token: `last_used_at` + 365 days, **re-read from the row when the timer fires** (the expiry slides with HTTP use, so a socket for an actively used device is kept; an open socket alone does not count as use, so an idle device's socket is dropped at its idle-expiry). Timers are capped at 24h per hop (setTimeout overflows above ~24.8 days, which a 30-day JWT exceeds) and are `unref`'d. On expiry the server emits `session_revoked` first so the client ends its session. Revocation events still disconnect immediately.
+- **Fail fast on bad auth config.** `lib/config.js` now throws at load (process exits non-zero before touching the DB) unless: `AUTH_USERNAME` set; `AUTH_PASSWORD_HASH` matches the bcrypt format (`$2a/2b/2y$`, 2-digit cost, 53 chars); `JWT_SECRET` set and **at least 32 characters**. Messages name the variable only, never its value.
+- **DEPLOY WARNING:** if the live container's `JWT_SECRET` is shorter than 32 characters, or `AUTH_PASSWORD_HASH` is not a bcrypt hash, the container will refuse to start after this deploy (deliberately at deploy time). Check both env values in the unRAID template before force-updating; if the secret is short, set a new one (`openssl rand -hex 32`), which logs JWT sessions out once, as the epoch change already does.
+- Tests: `test/socket-expiry.test.js` (6; fake timers incl. a 30-day token, timer cleanup, sliding expiry, revoked, lookup failure), a real short-lived-JWT socket test in `test/realtime.test.js`, `credentialExpiry` tests in `test/auth-token-types.test.js`, `test/config-validation.test.js` (pure validator plus child-process boots that must exit non-zero without echoing the values).
+- Decision kept: device-token holders can list/revoke devices and revoke-all.
+
 ## Schema change (migration #5, `PRAGMA user_version` 4 -> 5; idempotent)
 - New table `auth_state(id INTEGER PRIMARY KEY CHECK (id = 1), token_epoch INTEGER NOT NULL DEFAULT 1, credential_fingerprint TEXT)`; one row, created on start.
 - New column `device_tokens.issued_by_jti TEXT` (NULL for existing rows: provenance unknown).
@@ -48,7 +55,5 @@ Constraint #2 (epoch/jti, JWT-only minting), server layout (`auth-state.js`, rea
 `code-diff-reviewer`, score 11 (CALL band; mid-and-above: 3 Sonnet + 1 Mythos). Counsel (required by the skill in the CALL band) was **skipped as a deliberate deviation**, because the run was unattended; the owner may want it run before merge. Sonnet x3: NO FINDINGS (weak evidence). Mythos: two process findings, no code defects: (1) no CHANGELOG entry, deliberate (told not to edit it; this file is the changelog source); (2) #61 only partly addressed, by design (other items belong to the pipeline agent). No code changes resulted.
 
 ## Not done / flagged
-- A socket that stays open past its JWT's 30-day expiry is not dropped (only revocation events disconnect). Periodic re-validation would close it; judged low value.
-- `AUTH_PASSWORD_HASH` is not validated at startup (a malformed hash gives a 500 on login). A fail-fast check would be the fuller fix.
 - Device tokens minted before this change have unknown provenance (NULL `issued_by_jti`); any "child" tokens minted by device tokens in the past cannot be identified, but revoke-all kills them.
 - Host-header pass-through at NPM/Cloudflare is assumed (unverifiable here).

@@ -40,13 +40,15 @@ re-exports `{ app, server, db }`. It does not itself contain route handlers, DB 
 middleware logic. The actual code lives in:
 
 - `lib/config.js` — env-derived constants (`APP_VERSION`, `JWT_SECRET`, `AUTH_USERNAME`,
-  `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`).
+  `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`). Startup fails (non-zero exit,
+  variable named, value never printed) unless `AUTH_PASSWORD_HASH` is a bcrypt hash and
+  `JWT_SECRET` is at least 32 characters.
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
 - `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
   startup credential-fingerprint check.
 - `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
   handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN` or same-origin), per-socket
-  credential and `disconnectSockets`, `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
+  credential, `disconnectSockets`, `watchExpiry` (a socket never outlives its credential), `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
   dependency cycle — the composition root builds `server` from `app`, then calls this before
   registering any routes.

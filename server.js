@@ -76,10 +76,10 @@ if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWO
   console.log('[Auth] Login credential changed since last start: all sessions and device tokens revoked.');
 }
 
-const { authenticateToken, requireAuth, requireHouseholdJwt } = middleware.createAuth(db, authState);
+const { authenticateToken, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
 
 // Helper to broadcast inventory updates via Socket.io
-const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken);
+const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry);
 
 // --- AUTH ---
 registerLoginRoute(app, {
