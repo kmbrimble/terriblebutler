@@ -30,7 +30,7 @@
 ## Tests
 - New: `test/session-revocation.test.js` (17), `test/realtime.test.js` (9), `test/auth-migration.test.js` (2); client `api.test.ts` + `socket.test.ts` additions; e2e "Sign out everywhere" (endpoint stubbed: really revoking would kill the shared e2e fixture token).
 - Changed: `test/setup.js`, `test-e2e/auth-fixtures.cjs` (tokens now need `ver`/`jti`), `test/auth.test.js`, `test/auth-token-types.test.js` (`authenticateToken` now returns the credential or `null`), `test/module-seam.test.js` (+`POST /api/auth/revoke-all`, deliberate).
-- Each defect's test failed on the base before the implementation (module missing / 200 where 403 expected / socket stayed open / etc.).
+- Observed on the base before implementing: `realtime.test.js` failed per defect (cross-origin handshakes and upgrades got 200, revoked sockets stayed open, revoke-all 404). `session-revocation.test.js` failed as a unit (it imports the new `lib/auth-state.js`), so its individual cases were not seen failing one by one.
 - Results at HEAD: `vitest run` 30 files all pass; client vitest 128/128; `npm --prefix client run build` OK; e2e (under the flock) 72/72.
 - Note: `npm ci` for the root failed in this sandbox (Node 22 host, no prebuilt better-sqlite3); node_modules were copied from the deps-toolchain worktree.
 
@@ -38,13 +38,14 @@
 - **Existing sessions on first deploy:** every household JWT stops working (no `ver`), so anyone logged in with a password session sees the login screen once. **Device tokens keep working** (not revoked on first start). Open sockets die with the container restart anyway.
 - Schema migration runs automatically; take the pre-deploy snapshot per CLAUDE.md as for any schema change.
 - Optional env `APP_ORIGIN`; see above.
+- Do not rotate `AUTH_PASSWORD_HASH` at the same deploy as this upgrade: the first start only records the fingerprint, so that rotation would not revoke anything. Rotate on a later restart, or use "Sign out everywhere" after the first start.
 - Rotating the password later (recovery section in CLAUDE.md) now logs everyone out, devices included.
 
 ## CLAUDE.md changes
 Constraint #2 (epoch/jti, JWT-only minting), server layout (`auth-state.js`, realtime, `createAuth` signature), database notes (migration mechanism, `auth_state`, `issued_by_jti`), recovery step (rotation revokes everything, `APP_ORIGIN`).
 
 ## Review
-`code-diff-reviewer`, score 11 (CALL band; mid-and-above: 3 Sonnet + 1 Mythos). Counsel skipped (unattended). Sonnet x3: NO FINDINGS (weak evidence). Mythos: two process findings, no code defects: (1) no CHANGELOG entry, deliberate (told not to edit it; this file is the changelog source); (2) #61 only partly addressed, by design (other items belong to the pipeline agent). No code changes resulted.
+`code-diff-reviewer`, score 11 (CALL band; mid-and-above: 3 Sonnet + 1 Mythos). Counsel (required by the skill in the CALL band) was **skipped as a deliberate deviation**, because the run was unattended; the owner may want it run before merge. Sonnet x3: NO FINDINGS (weak evidence). Mythos: two process findings, no code defects: (1) no CHANGELOG entry, deliberate (told not to edit it; this file is the changelog source); (2) #61 only partly addressed, by design (other items belong to the pipeline agent). No code changes resulted.
 
 ## Not done / flagged
 - A socket that stays open past its JWT's 30-day expiry is not dropped (only revocation events disconnect). Periodic re-validation would close it; judged low value.
