@@ -4,7 +4,7 @@ const { parseInvoice } = require('../parsers/router');
 const { classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
 const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
-const { cleanText, finiteNumber, sendMutationError, sendServerError, ValidationError, QUANTITY_MAX } = require('../lib/domain-helpers');
+const { cleanText, finiteNumber, sendMutationError, sendServerError, ValidationError, QUANTITY_MAX, PRICE_MAX, LINE_TOTAL_MAX } = require('../lib/domain-helpers');
 const { invoiceDedupeKey } = require('../lib/invoice-dedupe');
 
 function findImportByDedupeKey(db, key) {
@@ -81,8 +81,8 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           raw_name: cleanText(line.raw_name, { required: true, max: 500 }),
           qty_ordered: finiteNumber(line.qty_ordered, { name: 'Ordered quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
           qty_supplied: finiteNumber(line.qty_supplied, { name: 'Supplied quantity', min: 0, max: QUANTITY_MAX, allowNull: true }),
-          unit_price: finiteNumber(line.unit_price, { name: 'Unit price', min: 0, allowNull: true }),
-          line_total: finiteNumber(line.line_total, { name: 'Line total', min: 0, allowNull: true }),
+          unit_price: finiteNumber(line.unit_price, { name: 'Unit price', min: 0, max: PRICE_MAX, allowNull: true }),
+          line_total: finiteNumber(line.line_total, { name: 'Line total', min: 0, max: LINE_TOTAL_MAX, allowNull: true }),
         }));
       } catch (err) {
         if (!(err instanceof ValidationError)) throw err;
@@ -278,6 +278,11 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     if (lines.length === 0) {
       return res.status(400).json({ error: 'This import has no lines, so there is nothing to commit. Cancel it instead.' });
     }
+    // A kept line needs a quantity, from the invoice or confirmed by the reviewer; one with
+    // neither is not committed as 0 stock. A missing price is 0 (free or unpriced items).
+    if (lines.some((l) => l.line_status !== 'skipped' && l.qty_confirmed === null && l.qty_supplied === null)) {
+      return res.status(400).json({ error: 'Every line being imported needs a quantity: confirm one or skip the line' });
+    }
     if (lines.some((l) => l.line_status === 'pending')) {
       return res.status(400).json({ error: 'All lines must be reviewed or skipped before committing' });
     }
@@ -313,7 +318,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           // back to the suggestion (#46).
           const categoryId = line.category_cleared ? null : (line.final_category_id ?? line.suggested_category_id);
           const locationId = line.location_cleared ? null : (line.final_location_id ?? line.suggested_location_id);
-          const qty = line.qty_confirmed ?? line.qty_supplied ?? 0;
+          const qty = line.qty_confirmed ?? line.qty_supplied; // never null: checked above
           const price = line.unit_price ?? 0;
           const name = line.final_name || line.raw_name;
           const containerDetails = line.final_container_details || '';

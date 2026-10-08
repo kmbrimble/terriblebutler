@@ -11,6 +11,7 @@ const {
   sendServerError,
   ValidationError,
   QUANTITY_MAX,
+  PRICE_MAX,
 } = require('../lib/domain-helpers');
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
@@ -128,9 +129,9 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const locationId = validForeignId('locations', req.body.location_id, 'Location');
       const categoryId = validForeignId('categories', req.body.category_id, 'Category');
       const details = cleanText(req.body.container_details, { max: 500 });
-      const quantity = finiteNumber(req.body.quantity ?? 0, { name: 'Quantity', min: 0, max: QUANTITY_MAX });
-      const threshold = finiteNumber(req.body.reorder_threshold ?? 0, { name: 'Reorder threshold', min: 0 });
-      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
+      const quantity = finiteNumber(req.body.quantity, { name: 'Quantity', min: 0, max: QUANTITY_MAX, defaultValue: 0 });
+      const threshold = finiteNumber(req.body.reorder_threshold, { name: 'Reorder threshold', min: 0, max: QUANTITY_MAX, defaultValue: 0 });
+      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, max: PRICE_MAX, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
       const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
       if (barcodeBelongsToAnotherItem(barcode)) throw new ValidationError('This barcode is already assigned to another item', 409);
@@ -163,8 +164,8 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const name = cleanText(req.body.name, { required: true, max: 200 });
       const categoryId = validForeignId('categories', req.body.category_id, 'Category');
       const details = cleanText(req.body.container_details, { max: 500 });
-      const threshold = finiteNumber(req.body.reorder_threshold, { name: 'Reorder threshold', min: 0 });
-      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
+      const threshold = finiteNumber(req.body.reorder_threshold, { name: 'Reorder threshold', min: 0, max: QUANTITY_MAX });
+      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, max: PRICE_MAX, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
       const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
       if (barcodeBelongsToAnotherItem(barcode, id)) throw new ValidationError('This barcode is already assigned to another item', 409);
