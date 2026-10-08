@@ -6,6 +6,8 @@ import {
   resolveLineContainerValue,
   resolveMatchFieldPatch,
   isCommitEnabled,
+  resolveLineQuantity,
+  lineNeedsQuantity,
   applyLinePatch,
   matchLabel,
   formatSummaryLine,
@@ -123,6 +125,28 @@ describe('isCommitEnabled', () => {
 
   it('is enabled once every line is reviewed or skipped', () => {
     expect(isCommitEnabled([makeLine({ line_status: 'reviewed' }), makeLine({ line_status: 'skipped' })])).toBe(true);
+  });
+});
+
+describe('line quantity', () => {
+  it('prefers the confirmed quantity, then the supplied one, and is null when neither exists', () => {
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: 3, qty_supplied: 2 }))).toBe(3);
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: 0, qty_supplied: 2 }))).toBe(0);
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: null, qty_supplied: 2 }))).toBe(2);
+    expect(resolveLineQuantity(makeLine({ qty_confirmed: null, qty_supplied: null }))).toBeNull();
+  });
+
+  it('a kept line with no quantity needs one; a skipped line does not', () => {
+    expect(lineNeedsQuantity(makeLine({ qty_confirmed: null, qty_supplied: null, line_status: 'reviewed' }))).toBe(true);
+    expect(lineNeedsQuantity(makeLine({ qty_confirmed: null, qty_supplied: null, line_status: 'skipped' }))).toBe(false);
+    expect(lineNeedsQuantity(makeLine({ qty_confirmed: null, qty_supplied: 1, line_status: 'reviewed' }))).toBe(false);
+  });
+
+  it('commit is disabled while a kept line has no quantity (the server refuses it)', () => {
+    const missing = makeLine({ qty_confirmed: null, qty_supplied: null, line_status: 'reviewed' });
+    expect(isCommitEnabled([missing])).toBe(false);
+    expect(isCommitEnabled([{ ...missing, qty_confirmed: 2 }])).toBe(true);
+    expect(isCommitEnabled([{ ...missing, line_status: 'skipped' }])).toBe(true);
   });
 });
 

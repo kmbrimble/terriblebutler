@@ -15,9 +15,21 @@ export function resolveLineLocationValue(line: InvoiceImportLine): number | '' {
   return line.final_location_id ?? line.suggested_location_id ?? '';
 }
 
-// An import with no lines has nothing to commit (#47); the server refuses it too.
+// The quantity a line will be committed with: the reviewer's confirmed figure, else what the
+// invoice supplied. null means neither exists, and the server refuses to commit such a line
+// unless it is skipped — it is never silently read as 0.
+export function resolveLineQuantity(line: InvoiceImportLine): number | null {
+  return line.qty_confirmed ?? line.qty_supplied ?? null;
+}
+
+export function lineNeedsQuantity(line: InvoiceImportLine): boolean {
+  return line.line_status !== 'skipped' && resolveLineQuantity(line) === null;
+}
+
+// An import with no lines has nothing to commit (#47), and a line being imported needs a
+// quantity; the server refuses both too.
 export function isCommitEnabled(lines: InvoiceImportLine[]): boolean {
-  return lines.length > 0 && !lines.some((l) => l.line_status === 'pending');
+  return lines.length > 0 && !lines.some((l) => l.line_status === 'pending' || lineNeedsQuantity(l));
 }
 
 export function matchLabel(line: InvoiceImportLine): string {

@@ -162,3 +162,33 @@ describe('matchItem', () => {
     await expect(matchItem('Milk')).rejects.toThrow('Simulated failure');
   });
 });
+
+describe('password confirmation rate limit (429)', () => {
+  it('explains the shared sign-in limit and how long to wait', async () => {
+    const { revokeDevice } = await import('./api');
+    localStorage.setItem('tb_token', 't');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '600' }),
+      json: async () => ({ error: 'Too many requests. Please try again shortly.' }),
+    });
+    await expect(revokeDevice(1, 'pw')).rejects.toThrow(/5 attempts every 15 minutes.*10 minutes/);
+  });
+
+  it('falls back to a generic wait when Retry-After is absent', async () => {
+    const { passwordAttemptsMessage } = await import('./api');
+    expect(passwordAttemptsMessage(null)).toMatch(/a few minutes/);
+    expect(passwordAttemptsMessage('45')).toMatch(/45 seconds/);
+  });
+});
+
+describe('getDevices', () => {
+  it('passes the abort signal to fetch', async () => {
+    const { getDevices } = await import('./api');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200, json: async () => [] });
+    const controller = new AbortController();
+    await getDevices(controller.signal);
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].signal).toBe(controller.signal);
+  });
+});

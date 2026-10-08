@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PasswordConfirmDialog } from './PasswordConfirmDialog';
 import { getDevices, revokeAllSessions, revokeDevice, type DeviceToken } from '../lib/api';
 import { showToast } from '../lib/toast';
@@ -11,13 +11,26 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
   useLockBodyScroll();
   const [devices, setDevices] = useState<DeviceToken[]>([]);
 
+  // Aborted when the modal unmounts, so a response (or a revoke finishing) after close never
+  // touches state that is gone, and the abandoned request is cancelled rather than just ignored.
+  const lifetime = useRef<AbortController | null>(null);
+
   function refresh() {
-    getDevices()
-      .then(setDevices)
-      .catch((err) => showToast(err instanceof Error ? err.message : 'Failed to fetch devices.', 'error'));
+    const { signal } = lifetime.current ?? new AbortController();
+    getDevices(signal)
+      .then((list) => { if (!signal.aborted) setDevices(list); })
+      .catch((err) => {
+        if (signal.aborted) return;
+        showToast(err instanceof Error ? err.message : 'Failed to fetch devices.', 'error');
+      });
   }
 
-  useEffect(refresh, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    refresh();
+    return () => controller.abort();
+  }, []);
 
   // Revoking needs the household password again (a fresh login), whatever token this device
   // holds; the confirm dialog collects it. Wrong password: the dialog stays open with the error.
@@ -27,6 +40,7 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
     if (!pending) return;
     if (pending.kind === 'device') {
       await revokeDevice(pending.device.id, password);
+      if (lifetime.current?.signal.aborted) return;
       setPending(null);
       refresh();
     } else {

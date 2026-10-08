@@ -538,8 +538,8 @@ export interface DeviceToken {
   revoked: number;
 }
 
-export async function getDevices(): Promise<DeviceToken[]> {
-  const res = await authorizedFetch('/api/auth/devices');
+export async function getDevices(signal?: AbortSignal): Promise<DeviceToken[]> {
+  const res = await authorizedFetch('/api/auth/devices', { signal });
   if (!res.ok) throw new Error('Failed to fetch devices.');
   return res.json();
 }
@@ -553,10 +553,21 @@ async function postWithPassword(path: string, password: string, failure: string)
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
+  if (res.status === 429) throw new Error(passwordAttemptsMessage(res.headers.get('Retry-After')));
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || failure);
   }
+}
+
+// Password confirmations share the sign-in attempt limit (5 per 15 minutes, wrong passwords
+// included), so say that and for how long, rather than a bare "too many requests".
+export function passwordAttemptsMessage(retryAfter: string | null): string {
+  const seconds = Number(retryAfter);
+  const wait = !retryAfter || !Number.isFinite(seconds) || seconds <= 0
+    ? 'a few minutes'
+    : seconds < 90 ? `${Math.ceil(seconds)} seconds` : `${Math.ceil(seconds / 60)} minutes`;
+  return `Too many password attempts. Revoking counts as signing in, which is limited to 5 attempts every 15 minutes. Try again in ${wait}.`;
 }
 
 export function revokeDevice(id: number, password: string): Promise<void> {

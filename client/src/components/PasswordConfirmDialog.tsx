@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 // Presentational half, so the markup can be unit-tested without a DOM.
 export function PasswordConfirmView({
@@ -65,6 +65,12 @@ export function PasswordConfirmDialog({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A successful confirm closes the dialog while onConfirm is still resolving; don't set state after that.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -75,9 +81,9 @@ export function PasswordConfirmDialog({
     try {
       await onConfirm(attempt);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not confirm your password.');
+      if (mounted.current) setError(err instanceof Error ? err.message : 'Could not confirm your password.');
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
 

@@ -6,6 +6,8 @@ const {
   parseItemLocations,
   cleanText,
   finiteNumber,
+  cleanPurchaseDate,
+  strictFlag,
   normaliseBarcode,
   sendMutationError,
   sendServerError,
@@ -13,6 +15,9 @@ const {
   QUANTITY_MAX,
   PRICE_MAX,
 } = require('../lib/domain-helpers');
+
+const SEARCH_QUERY_MAX = 100;
+const SEARCH_RESULT_LIMIT = 50;
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
   // Shared 409 wording for stock changes: the target location has no row at all, vs. has too little.
@@ -60,25 +65,37 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     res.json(stmt.all().map(parseItemLocations));
   });
 
+  // Fuzzy search over name, barcode and category name. The Fuse index is built from three narrow
+  // columns (no per-row stock subqueries), only the best SEARCH_RESULT_LIMIT ids are then loaded in
+  // full, and the query text is capped, so one request costs a single narrow table scan however
+  // large the inventory or hostile the query.
+  // ponytail: the index is rebuilt per request (O(items) over three short strings); cache it behind
+  // a write counter if the inventory ever reaches tens of thousands of items.
   app.get('/api/items/search', (req, res) => {
-    const query = req.query.q;
-    if (!query) {
-      return res.json([]);
-    }
-    const itemsList = db.prepare(`
+    const raw = req.query.q;
+    if (raw === undefined) return res.json([]);
+    if (typeof raw !== 'string') return res.status(400).json({ error: 'Search text must be a single value' });
+    const query = raw.trim();
+    if (!query) return res.json([]);
+    if (query.length > SEARCH_QUERY_MAX) return res.status(400).json({ error: `Search text must be at most ${SEARCH_QUERY_MAX} characters` });
+    const candidates = db.prepare(`
+      SELECT items.id, items.name, items.barcode, categories.name AS category_name
+      FROM items LEFT JOIN categories ON items.category_id = categories.id
+    `).all();
+    const fuse = new Fuse(candidates, { keys: ['name', 'barcode', 'category_name'], threshold: 0.3 });
+    const ids = fuse.search(query, { limit: SEARCH_RESULT_LIMIT }).map((result) => result.item.id);
+    if (!ids.length) return res.json([]);
+    const rows = db.prepare(`
       SELECT items.*, locations.name as location_name, categories.name as category_name,
         ${TOTAL_QUANTITY_SQL} AS quantity,
         ${LOCATIONS_BREAKDOWN_SQL} AS locations_json
       FROM items
       LEFT JOIN locations ON items.location_id = locations.id
       LEFT JOIN categories ON items.category_id = categories.id
-    `).all().map(parseItemLocations);
-    const fuse = new Fuse(itemsList, {
-      keys: ['name', 'barcode', 'category_name'],
-      threshold: 0.3
-    });
-    const results = fuse.search(query).map(result => result.item);
-    res.json(results);
+      WHERE items.id IN (${ids.map(() => '?').join(',')})
+    `).all(...ids).map(parseItemLocations);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    res.json(ids.map((id) => byId.get(id)));
   });
 
   app.get('/api/items/match', (req, res) => {
@@ -140,7 +157,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const threshold = finiteNumber(req.body.reorder_threshold, { name: 'Reorder threshold', min: 0, max: QUANTITY_MAX, defaultValue: 0 });
       const price = finiteNumber(req.body.price, { name: 'Price', min: 0, max: PRICE_MAX, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
-      const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
+      const purchaseDate = cleanPurchaseDate(req.body.purchase_date);
       if (barcodeBelongsToAnotherItem(barcode)) throw new ValidationError('This barcode is already assigned to another item', 409);
       const create = db.transaction(() => {
         const info = db.prepare(`INSERT INTO items
@@ -174,7 +191,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       const threshold = finiteNumber(req.body.reorder_threshold, { name: 'Reorder threshold', min: 0, max: QUANTITY_MAX });
       const price = finiteNumber(req.body.price, { name: 'Price', min: 0, max: PRICE_MAX, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
-      const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
+      const purchaseDate = cleanPurchaseDate(req.body.purchase_date);
       if (barcodeBelongsToAnotherItem(barcode, id)) throw new ValidationError('This barcode is already assigned to another item', 409);
       const update = db.transaction(() => {
         db.prepare(`UPDATE items SET barcode = ?, name = ?, category_id = ?,
@@ -233,11 +250,11 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     const id = Number(req.params.id);
     if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
     try {
-      const quantity = finiteNumber(req.body.quantity ?? 0, { name: 'Quantity', min: 0 });
+      const quantity = finiteNumber(req.body.quantity, { name: 'Quantity', min: 0, max: QUANTITY_MAX });
       const locationId = resolveTargetLocation(id, req.body.location_id);
-      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
+      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, max: PRICE_MAX, allowNull: true });
       const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
-      const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
+      const purchaseDate = cleanPurchaseDate(req.body.purchase_date);
       const merge = db.transaction(() => {
         upsertItemLocationQuantity(id, locationId, 'add', quantity);
         if (price && price > 0) {
@@ -280,9 +297,8 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
 
   app.patch('/api/items/:id/ignore-grocery', (req, res) => {
     // The grocery views filter on exactly 0 and 1, so anything else would hide the item from both.
-    const flag = req.body.is_ignored_grocery;
-    if (![0, 1, true, false].includes(flag)) return res.status(400).json({ error: 'is_ignored_grocery must be 0 or 1' });
-    const is_ignored_grocery = flag ? 1 : 0;
+    let is_ignored_grocery;
+    try { is_ignored_grocery = strictFlag(req.body.is_ignored_grocery, 'is_ignored_grocery'); } catch (err) { return sendMutationError(res, err); }
     const stmt = db.prepare("UPDATE items SET is_ignored_grocery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
     try {
       const info = stmt.run(is_ignored_grocery, req.params.id);
@@ -299,7 +315,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     const id = Number(req.params.id);
     if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
     try {
-      const isOpen = req.body.is_open ? 1 : 0;
+      const isOpen = strictFlag(req.body.is_open, 'is_open');
       const locationId = resolveTargetLocation(id, req.body.location_id);
       const existing = locationId === null
         ? db.prepare('SELECT id FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)

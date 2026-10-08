@@ -14,6 +14,7 @@ const { createDomainHelpers, checkDuplicateBarcodes, sendServerError } = require
 const { setupGracefulShutdown } = require('./lib/shutdown');
 const uploads = require('./lib/uploads');
 const { createLoginBackoff } = require('./lib/login-backoff');
+const { scheduleImportPurge } = require('./lib/invoice-retention');
 
 const { registerHealthzRoute, registerApiHealthRoute } = require('./routes/health');
 const { registerLoginRoute, registerDeviceTokenRoutes } = require('./routes/auth');
@@ -124,6 +125,12 @@ registerUploadRoutes(app, { db, imageUpload: uploads.imageUpload });
 
 registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: uploads.invoiceUpload, validForeignId, upsertItemLocationQuantity });
 
+// Anything under /api that no route above handled is a JSON 404, never the SPA shell. Mounted
+// after every route, so it is reached only by an authenticated caller: requireAuth sits in front
+// of everything but login and health, and answers 401 first, so an unauthenticated caller cannot
+// tell a real path from a made-up one.
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
 // React client SPA fallback. Registered after every /api route (and /media above)
 // so this wildcard can't shadow them — any request that fell through all of those is a
 // client-side route or a hard refresh/deep link into the React app.
@@ -166,5 +173,6 @@ if (require.main === module) {
     console.log(`[Config] trust proxy: ${JSON.stringify(config.TRUST_PROXY)}`);
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));
+  scheduleImportPurge(db, config.INVOICE_IMPORT_RETENTION_DAYS);
 }
 module.exports = { app, server, db };

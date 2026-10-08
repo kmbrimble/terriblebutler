@@ -47,7 +47,7 @@ describe('POST /api/items/:id/merge (#50)', () => {
     const created = await api(app).post('/api/items').send({ name: 'Merge target', location_id: locA, quantity: 2 });
     const id = created.body.id;
     const res = await api(app).post(`/api/items/${id}/merge`).send({
-      quantity: 3, location_id: locA, price: 4.5, vendor: 'Corner Shop', purchase_date: '2026-01-02 00:00:00',
+      quantity: 3, location_id: locA, price: 4.5, vendor: 'Corner Shop', purchase_date: '2026-01-02',
     });
     expect(res.status).toBe(200);
     expect(res.body.quantity).toBe(5);

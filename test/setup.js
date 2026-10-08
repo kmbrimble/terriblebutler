@@ -38,7 +38,7 @@ process.env.LLM_RATE_LIMIT_MAX ??= '1000';
 process.env.LOGIN_RATE_LIMIT_MAX ??= '1000';
 
 process.env.AUTH_USERNAME = TEST_USERNAME;
-process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 4);
+process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
 
 // A fresh DB starts at token epoch 1 (lib/auth-state.js), so a household JWT for these tests

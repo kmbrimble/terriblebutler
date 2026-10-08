@@ -21,12 +21,14 @@ import {
   isCommitEnabled,
   applyLinePatch,
   matchLabel,
+  resolveLineQuantity,
+  lineNeedsQuantity,
   formatSummaryLine,
 } from '../lib/invoiceImportLine';
 import { createLineUpdateQueue } from '../lib/lineUpdateQueue';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
-import { runAction, reportAction } from '../lib/actionFeedback';
+import { reportAction } from '../lib/actionFeedback';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 export const ACTIVE_IMPORT_KEY = 'tb_active_import_id';
@@ -418,9 +420,11 @@ export function InvoiceImportLineRow({
           step="1"
           min="0"
           data-testid="invoice-import-line-qty-input"
-          value={line.qty_confirmed ?? line.qty_supplied ?? 0}
+          value={resolveLineQuantity(line) ?? ''}
+          placeholder="Required"
+          aria-invalid={lineNeedsQuantity(line)}
           onChange={(e) => onPatch({ qty_confirmed: e.target.value === '' ? null : Number(e.target.value) })}
-          className="flex-1 border border-rimmy-border rounded p-2 bg-rimmy-charcoal text-rimmy-text text-sm"
+          className={`flex-1 border rounded p-2 bg-rimmy-charcoal text-rimmy-text text-sm ${lineNeedsQuantity(line) ? 'border-red-500' : 'border-rimmy-border'}`}
         />
         <button
           type="button"
@@ -430,6 +434,11 @@ export function InvoiceImportLineRow({
           #
         </button>
       </div>
+      {lineNeedsQuantity(line) && (
+        <p data-testid="invoice-import-line-qty-missing" role="alert" className="text-xs text-red-500">
+          This line has no quantity. Enter the quantity received, or skip the line.
+        </p>
+      )}
       {line.barcode_scanned && <p className="text-xs text-rimmy-textMuted">Scanned barcode: {line.barcode_scanned}</p>}
       <div className="flex gap-3 items-center pt-1 border-t border-rimmy-border">
         <label className="flex items-center gap-2 text-xs font-bold text-rimmy-text cursor-pointer">

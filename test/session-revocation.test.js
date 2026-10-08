@@ -63,8 +63,8 @@ describe('household JWT versioning (#49)', () => {
 });
 
 describe('credential fingerprint / password rotation (#49)', () => {
-  const hashA = bcrypt.hashSync('one', 4);
-  const hashB = bcrypt.hashSync('two', 4);
+  const hashA = bcrypt.hashSync('one', 10);
+  const hashB = bcrypt.hashSync('two', 10);
 
   it('first run stores the fingerprint without bumping the epoch', () => {
     db.prepare('UPDATE auth_state SET credential_fingerprint = NULL').run();

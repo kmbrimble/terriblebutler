@@ -73,6 +73,18 @@ describe('unauthenticated route sweep', () => {
     }
   });
 
+  it('made-up paths under every real route answer 401 unauthenticated (never 404 or the SPA), and 404 JSON once authenticated', async () => {
+    const token = await login();
+    for (const r of apiRoutes()) {
+      const madeUp = `${sample(r.path)}/zz-not-a-route`;
+      const anon = await request(app)[r.method](madeUp).send({});
+      expect(anon.status, `anon ${r.label}`).toBe(401);
+      const authed = await request(app)[r.method](madeUp).set(bearer(token)).send({});
+      expect(authed.status, `authed ${r.label}`).toBe(404);
+      expect(authed.headers['content-type'], r.label).toMatch(/json/);
+    }
+  });
+
   it('path variants (case, trailing slash, double slash, percent-encoding) never reach an authenticated route', async () => {
     const variants = (p) => [
       p.replace('/api/', '/API/'),
