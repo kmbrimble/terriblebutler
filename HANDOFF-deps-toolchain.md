@@ -21,7 +21,18 @@
 Already edited here: Node 24/Express 5 mention, new "Container runtime (non-root)" section. Live deploy note for the owner: existing unRAID template needs no change (defaults 99:100); first start chowns `inventory.db*` to 99:100.
 
 ## Review
-`code-diff-reviewer` (score 6, MID; 3 Sonnet + 1 Mythos) returned NO FINDINGS on all four passes; treat as weak evidence, not clean. Not run: counsel (unattended). Unrelated flake seen once: `test-e2e/v2-menu.spec.js` dark-mode toggle click (passed 2/2 in isolation and in the other full run).
+`code-diff-reviewer` (score 6, MID; 3 Sonnet + 1 Mythos) returned NO FINDINGS on all four passes; treat as weak evidence, not clean. Not run: counsel (unattended). Flake seen once in the first full e2e run: `test-e2e/v2-menu.spec.js` dark-mode toggle click ("outside of viewport"); it passed 2/2 in isolation and the next full run was 71/71. Likely drawer-animation timing; watch it after the Tailwind 4 move.
 
 ## Left behind (permission layer blocked cleanup)
 Docker volume `butler-smoke-data` and image `butler-sectest:deps` on the host daemon: remove with `docker volume rm butler-smoke-data; docker rmi butler-sectest:deps`.
+
+## Integration step must do
+- **Take the pre-deploy snapshot** (CLAUDE.md "Pre-change backup") before force-updating the container: first start chowns the live `inventory.db*` to 99:100 and better-sqlite3 jumped a major (11 -> 13, bundled SQLite changed). Not done in Phase 1 (read-only mandate).
+- **Eyeball `/` and every variant page** (`/claymorphism.html`, `enterprisesaas`, `flatdesign`, `material3`, `moderndark`, `pixelart`, `tactile`): Tailwind 3 -> 4 is a visual change everywhere and e2e does not check appearance. Also try the label-crop flow (Cropper 2).
+- No `dark:` utilities exist in the client, so Tailwind 4's dark-variant change does not apply.
+
+## Smoke-test evidence (Docker)
+Final evidence is the named-volume run: image built from this branch; `/proc/1` showed Uid 99 / Gid 100 / NoNewPrivs 1, cmdline `node server.js`; `/api/health` and `/healthz` returned 200 `{"status":"ok","version":"0.40"}`; a root-owned 0644 file pre-seeded in the volume became 99:100; `docker stop` took 0.1s with the `[Shutdown]` log lines and exit code 0; restart was idempotent; `PUID=0`/non-numeric refused; `PUID=1234` honoured. (An earlier bind-mount attempt looked like a failed chown only because the Docker daemon is the unRAID host's, so `-v /tmp/...` pointed at a non-existent host path.) Note `build:client`/`test:client` -> `npm ci` rode along in the container commit.
+
+## Process notes
+`repository-reader` was not used (files were small enough to read directly). `code-reviewer` was replaced by `code-diff-reviewer` per the CLAUDE.md supersession note. History was squashed once (a wip commit) before Phase 2 branching.
