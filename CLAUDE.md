@@ -4,8 +4,8 @@ Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `e
 `.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
 Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
 html5-qrcode barcode scanning, Cropper.js 2). The old single-file `public/index.html` front end and its
-`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed via a local
-vision LLM.
+`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed by
+Claude through the Anthropic Messages API (see constraint 6).
 
 Use British/Australian English in all writing, comments, and UI text.
 
@@ -26,6 +26,7 @@ milestone itself.
 ## Test commands
 
 - **Backend (Vitest + supertest):** `npm test` — tests in `test/`
+- **Client unit (Vitest):** `npm run test:client` — tests beside the code in `client/src/`
 - **Frontend (Playwright):** `npm run test:e2e` — tests in `test-e2e/`
 
 Run `npm test` for any change. Also run `npm run test:e2e` if `client/` or anything
@@ -63,7 +64,7 @@ middleware logic. The actual code lives in:
   `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
-  Messages API), `classifyLineWithLLM`.
+  Messages API), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
 - `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
   (`UPLOAD_TMP_DIR`), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
   other than jpeg/png/webp blocked; HEIC/HEIF deliberately unsupported), `UPLOADS_DIR` storage, signed `/media/:name` delivery
@@ -98,6 +99,7 @@ from outside this project without checking against this list.
    `jti` and the token epoch `ver` (`lib/auth-state.js`); a stale epoch is rejected, so
    `POST /api/auth/revoke-all` or a changed `AUTH_USERNAME`/`AUTH_PASSWORD_HASH` (detected at
    startup) ends every session and device token. Only a household JWT can mint device tokens.
+   Stored images are readable only through short-lived signed `/media/:name` URLs (`lib/uploads.js`).
    Do not remove this auth layer or make routes public without checking with the user first.
 3. **Preserve the SQLite pragmas** (`lib/database.js`): `journal_mode = WAL`,
    `synchronous = FULL`, `foreign_keys = ON`.
@@ -123,7 +125,13 @@ from outside this project without checking against this list.
    again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
    header/auth settings were removed, so NPM now passes straight through) →
    `terrible-butler` on its unique port → app's own JWT auth.
-9. **Strict CSP, no third-party runtime assets.** `securityHeaders` sends a
+
+## Conventions
+
+Project rules that are not on the non-negotiable list above. They are enforced by tests, but
+loosening one is a normal, deliberate change rather than a stop-and-ask.
+
+- **Strict CSP, no third-party runtime assets.** `securityHeaders` sends a
    `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`, no `unsafe-inline`/`unsafe-eval`).
    Nothing may load from a third-party origin: fonts are bundled (`@fontsource/*`, OFL licences in
    `client/public/font-licences`), and the pre-paint theme bootstrap is the external
@@ -134,17 +142,16 @@ from outside this project without checking against this list.
 
 ## Database notes (read before any schema change)
 
-- Schema versioning is `PRAGMA user_version` via `db-migrations.js` (append-only list; see the
-  file). `auth_state` is a single row (token epoch + credential fingerprint, never the hash);
-  `device_tokens.issued_by_jti` records which household JWT minted each device token.
-
-- Live schema tables: `items`, `locations`, `categories`, `price_history`, plus a **vestigial
-  `inventory` table** (`description, size, quantity`) left over from an early version. Confirm
-  nothing references `inventory` before touching it; do not write to it.
-- **There is no migrations table and no schema version tracking.** Columns have historically
-  been added by ad-hoc `ALTER TABLE ADD COLUMN` (for example `last_price`, `lowest_price`).
-  Any schema change must therefore be idempotent and safe to apply to an existing populated
-  database. State explicitly in the changelog what schema change was made.
+- Schema versioning is `PRAGMA user_version` via `db-migrations.js`: an append-only list of
+  numbered migrations (currently 5), each idempotent and safe on a populated database. Never
+  edit an applied migration; add a new one, and state the schema change in the changelog.
+  Migration 5 added `auth_state` (a single row: token epoch + credential fingerprint, never the
+  hash) and `device_tokens.issued_by_jti` (which household JWT minted each device token).
+- Live schema tables: `items`, `locations`, `categories`, `price_history`, `device_tokens`,
+  `auth_state`, the invoice-import staging tables, plus a **vestigial `inventory` table**
+  (`description, size, quantity`) left over from an early version. Confirm nothing references
+  `inventory` before touching it; do not write to it. `items.location_id` and `items.quantity`
+  are vestigial too: `item_locations` is the source of truth.
 - `invoice_imports` and `invoice_import_lines` hold the deterministic Coles/Woolworths
   import's server-side staging state (added alongside that flow; confirmed live-empty at the
   time of the stage-4 React port, 0 rows in each). The plain LLM-parse invoice upload
@@ -174,7 +181,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
   list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
   so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
-  (IPv4-mapped IPv6 folded). Recommended value for this deployment: see `HANDOFF-pipeline.md`.
+  (IPv4-mapped IPv6 folded). Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.

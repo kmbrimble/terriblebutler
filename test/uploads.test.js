@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
-import express from 'express';
 import path from 'path';
 import sharp from 'sharp';
 import request from 'supertest';
@@ -139,33 +138,20 @@ describe('uploaded images are not reachable without a valid signature (#41)', ()
     expect(() => uploads.signMediaUrl('../server.js')).toThrow();
   });
 
-  it('denyUploadsUnder keeps a static mount from serving the uploads dir, however the path is spelled', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'butler-static-'));
+  it('serves no uploaded file at any static-looking path: /media is the only way to read one', async () => {
+    const name = `${'a'.repeat(32)}.webp`;
+    fs.mkdirSync(tmpUploadsDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpUploadsDir, name), 'private-bytes');
     try {
-      fs.mkdirSync(path.join(root, 'uploads'));
-      fs.writeFileSync(path.join(root, 'uploads', 'secret.txt'), 'private');
-      fs.writeFileSync(path.join(root, 'ok.txt'), 'public');
-      const mini = express();
-      mini.use('/legacy', uploads.denyUploadsUnder(root, path.join(root, 'uploads')));
-      mini.use('/legacy', express.static(root));
-      for (const spelling of [
-        '/legacy/uploads/secret.txt',
-        '/legacy/%75ploads/secret.txt',
-        '/legacy//uploads/secret.txt',
-        '/legacy/uploads%2Fsecret.txt',
-        '/legacy/./uploads/secret.txt',
-        '/legacy/x/../uploads/secret.txt',
-        '/legacy/%E0%A4%A',
-      ]) {
-        const res = await request(mini).get(spelling);
-        expect([400, 404], spelling).toContain(res.status);
-        expect(res.text, spelling).not.toContain('private');
+      for (const p of [`/uploads/${name}`, `/legacy/uploads/${name}`, `/legacy/%75ploads/${name}`, `/public/uploads/${name}`, `/legacy/`]) {
+        const res = await request(app).get(p);
+        expect(res.text, p).not.toContain('private-bytes');
+        expect(res.headers['content-type'] || '', p).not.toMatch(/image\/webp/);
       }
-      const control = await request(mini).get('/legacy/ok.txt');
-      expect(control.status).toBe(200);
-      expect(control.text).toBe('public');
+      const unsigned = await request(app).get(`/media/${name}`);
+      expect(unsigned.status).toBe(403);
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(path.join(tmpUploadsDir, name), { force: true });
     }
   });
 

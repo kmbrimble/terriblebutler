@@ -4,6 +4,96 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.41 - 2026-10-09
+
+### Security remediation: uploads, sessions, request pipeline, front end, dependencies and container
+
+Fixes #41, #49, #51, #52, #53, #54, #55, #56, #57, #58, #59, #60 and #61. **Schema change:
+migration 5** (`PRAGMA user_version` 4 -> 5, idempotent, no existing rows modified) adds the
+`auth_state` table (one row: token epoch and a credential fingerprint, never the password hash)
+and the `device_tokens.issued_by_jti` column (NULL for existing rows). Both are also in the base
+`CREATE TABLE` block for fresh installs. The owner took a pre-change backup of the live database before this work.
+
+**Dependencies and container (#57, #58)**
+- Node 20 -> 24 (`engines >=24`, `.nvmrc`, every Dockerfile stage); base image pinned by digest.
+  Express 4 -> 5 (SPA fallback is now `/{*splat}`; `req.body` defaults to `{}`), multer 2,
+  better-sqlite3 13, sharp 0.35, `@anthropic-ai/sdk` 0.132, socket.io 4.8.4; client moves to
+  React 19, Vite 8, Tailwind 4, TypeScript 7, Cropper.js 2, Vitest 5. osv-scanner went from 40
+  advisories across both lockfiles to 0; `npm audit` is 0 for both.
+- The container runs as a non-root user: `docker-entrypoint.sh` starts as root only to `chown`
+  `/app/data` (or the `DB_PATH` directory), `UPLOADS_DIR` and `LOG_DIR` to `PUID:PGID` (default
+  99:100), then drops privileges with `setpriv` (no-new-privs); node is PID 1. `PUID`/`PGID` of 0
+  or non-numeric values are refused. `npm ci --omit=dev`, `NODE_ENV=production`, and `.dockerignore`
+  now excludes `logs/` and `uploads/`.
+- GitHub Actions are pinned to full commit SHAs, and `.github/dependabot.yml` keeps npm (root and
+  client), Docker and Actions current weekly.
+
+**Uploads (#41, #51, #60)**
+- Stored images are no longer served statically. `GET /media/:name?exp=&sig=` is the only way to
+  read one: an HMAC-SHA256 signature (key derived from `JWT_SECRET` with HKDF) over name and
+  expiry. Every item payload, REST and Socket.IO, carries a freshly signed URL; the database keeps
+  the stable stored name. `/media` responses carry their own `default-src 'none'; sandbox` CSP.
+- Uploads are never stored as sent: multer writes to a private scratch directory, sharp decodes the
+  file, the sniffed format must be JPEG, PNG or WebP (declared type and filename are ignored),
+  and the result is re-encoded to WebP (2048 px edge, metadata stripped, orientation applied).
+  50 MP pixel cap, other sharp loaders blocked, HEIC/HEIF unsupported, invoice PDFs over 20 pages
+  rejected (422), multipart envelope capped. `/api/parse-label-llm` now answers 400 for a
+  non-image. The unused `POST /api/upload-image` endpoint is removed.
+- `UPLOADS_DIR` (default `/app/public/uploads`, the existing bind mount) is the one storage
+  location, so uploads survive container recreation.
+
+**Sessions and Socket.IO (#49, #54, #56)**
+- Household JWTs carry a token epoch (`ver`) and `jti`, are HS256-only, and last 30 days. A token
+  from before this release has no epoch and is rejected, so everyone logs in again once.
+- `POST /api/auth/revoke-all` (and a "Sign out everywhere" button in Manage Devices) bumps the
+  epoch, revokes every device token and drops every socket. Changing `AUTH_USERNAME` or
+  `AUTH_PASSWORD_HASH` is detected at startup and does the same. Only a household JWT can mint a
+  device token; the minting `jti` is recorded.
+- Socket.IO enforces Origin in `allowRequest` (`APP_ORIGIN`, otherwise Origin host must equal the
+  Host header), each socket tracks its credential and is dropped on revocation or expiry
+  (`session_revoked` is emitted first so the client ends its session).
+- The server refuses to start unless `AUTH_USERNAME` is set, `AUTH_PASSWORD_HASH` is a bcrypt hash
+  and `JWT_SECRET` is at least 32 characters; messages name the variable, never its value.
+
+**Request pipeline (#52, #53, #55, #61)**
+- The action log is mounted after the rate limiters and authentication, so unauthenticated or
+  throttled requests never have a body logged. Logins are a body-less audit line. Redaction is
+  recursive and key based, and media signatures inside logged URLs are masked. Bodies over 4096
+  characters are truncated; writes use a bounded asynchronous stream.
+- `TRUST_PROXY` (strict, validated, off by default) decides which forwarded headers are believed;
+  rate-limit keys use the resolved client address.
+- `POST /api/invoices/import` shares the LLM limiter. `INVOICE_IMPORT_MAX_LINES` (default 250)
+  rejects larger invoices before anything is staged. Classification is batched (25 lines per
+  call, 3 in flight); failures come back as `warnings`, which the import review now shows as a
+  non-blocking "Imported with warnings" notice.
+- Every 500 returns a generic message with a correlation id (the detail stays in the server log);
+  deliberate 4xx messages are kept. Category and location names are validated (1-100 characters)
+  and duplicates answer 409. Every temp-file removal logs its failure.
+
+**Front end (#59)**
+- The legacy single-page front end (`public/index.html`, `/legacy`) and its CDN scripts are gone;
+  `/legacy/...` falls through to the React app. Fonts are bundled, the theme bootstrap is an
+  external script, and a strict Content-Security-Policy (no inline script or style, no third-party
+  origin) is sent on every response. Every e2e spec runs under a CSP-violation guard. Legacy
+  specs were removed or ported to the `v2-` specs.
+- Fixes: Cropper.js 2 selection bounds and canvas size; the Deduct dialog now shows API failures
+  and a success toast.
+
+**New environment variables:** `UPLOADS_DIR`, `UPLOAD_TMP_DIR` (scratch, default under the OS temp
+directory), `TRUST_PROXY`, `INVOICE_IMPORT_MAX_LINES`, `APP_ORIGIN` (optional), `PUID` / `PGID`
+(default 99 / 100). Existing variables are unchanged.
+
+**Deploy notes**
+- Force-update the container. The first start after this release logs everyone out (JWTs have no
+  epoch); device tokens survive, because that start only records the credential fingerprint.
+- The entrypoint `chown`s the data and uploads directories to 99:100 on start (idempotent).
+- Check the template before updating: `JWT_SECRET` must be at least 32 characters and
+  `AUTH_PASSWORD_HASH` a bcrypt hash, or the container refuses to start (deliberately). A short
+  secret is fixed with `openssl rand -hex 32`, which logs JWT sessions out once.
+- Set `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` in the unRAID template, then log in once from the
+  LAN and once through `butler.kiztigs.com` and check the `"event":"login"` log lines show each
+  device's real address. If sockets fail to connect, set `APP_ORIGIN=https://butler.kiztigs.com`.
+
 ## 0.40 - 2026-10-07
 
 ### Stop non-string login credentials and socket tokens crashing the server

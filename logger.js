@@ -31,7 +31,11 @@ function currentLogFile() {
   return path.join(LOG_DIR, `actions-${weekStartLabel()}.log`);
 }
 
+// Signed /media URLs (item image_path) carry a bearer-style signature in the query string.
+const MEDIA_SIGNATURE = /([?&]sig=)[A-Za-z0-9_-]+/g;
+
 function redact(value, depth = 0) {
+  if (typeof value === 'string') return value.replace(MEDIA_SIGNATURE, '$1***');
   if (value === null || typeof value !== 'object') return value;
   if (depth >= MAX_REDACT_DEPTH) return '[max depth]';
   if (Array.isArray(value)) return value.map((item) => redact(item, depth + 1));

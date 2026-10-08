@@ -144,6 +144,7 @@ export function InvoiceImportModal({
           </div>
         ) : (
           <div data-testid="invoice-import-staging-container" className="flex flex-col gap-3 overflow-hidden flex-1">
+            <ImportWarnings warnings={state.warnings} />
             <div className="flex justify-between items-center gap-2 shrink-0">
               <p data-testid="invoice-import-summary-line" className="text-sm text-rimmy-textMuted">
                 {formatSummaryLine(state.import, state.lines.length)}
@@ -183,6 +184,26 @@ export function InvoiceImportModal({
         )}
       </div>
       {scanningLineId !== null && <BarcodeScannerModal onScan={handleScan} onClose={() => setScanningLineId(null)} />}
+    </div>
+  );
+}
+
+// Non-blocking notice: the import itself succeeded, but an optional step (suggestions or
+// matching against existing items) did not, so the reviewer may need to fill more in by hand.
+export function ImportWarnings({ warnings }: { warnings?: string[] }) {
+  if (!warnings || warnings.length === 0) return null;
+  return (
+    <div
+      role="status"
+      data-testid="invoice-import-warnings"
+      className="shrink-0 rounded border border-rimmy-orange/60 bg-rimmy-orange/10 px-3 py-2 text-xs text-rimmy-text"
+    >
+      <p className="font-bold mb-1">Imported with warnings</p>
+      <ul className="list-disc pl-4">
+        {warnings.map((w) => (
+          <li key={w}>{w}</li>
+        ))}
+      </ul>
     </div>
   );
 }

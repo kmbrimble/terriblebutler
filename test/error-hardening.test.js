@@ -69,10 +69,10 @@ describe('500 responses do not echo internal error messages (#61)', () => {
     expect(bad.body.error).toBe('Malformed JSON in request body.');
 
     const badType = await api(app)
-      .post('/api/upload-image')
+      .post('/api/parse-label-llm')
       .attach('image', path.join(process.cwd(), 'package.json'), { contentType: 'text/plain' });
     expect(badType.status).toBe(400);
-    expect(badType.body.error).toMatch(/Unsupported file type/);
+    expect(badType.body.error).toMatch(/not a supported image/);
   });
 });
 
@@ -89,7 +89,7 @@ describe('client-caused errors raised before a route handler stay 4xx (#61 revie
     ['a multipart request without a boundary', 'multipart/form-data', 'garbage'],
   ])('returns 400 for %s', async (_label, contentType, body) => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await api(app).post('/api/upload-image').set('Content-Type', contentType).send(body);
+    const res = await api(app).post('/api/parse-label-llm').set('Content-Type', contentType).send(body);
     expect(res.status).toBe(400);
   });
 });

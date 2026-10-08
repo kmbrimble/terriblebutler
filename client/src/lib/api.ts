@@ -309,6 +309,9 @@ export interface InvoiceImportLine {
 export interface InvoiceImportState {
   import: InvoiceImport;
   lines: InvoiceImportLine[];
+  // Only present on the response to starting an import (not on later fetches): non-fatal
+  // problems such as the LLM classification or matching step failing.
+  warnings?: string[];
 }
 
 export async function startInvoiceImport(file: File): Promise<InvoiceImportState> {

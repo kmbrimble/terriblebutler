@@ -13,6 +13,7 @@ import {
   INVOICE_IMPORT_LINE_MATCH_INPUT,
   INVOICE_IMPORT_CANCEL_BUTTON,
   INVOICE_IMPORT_MODAL,
+  INVOICE_IMPORT_WARNINGS,
   TOAST_NOTIFICATION,
 } from './testids.js';
 import { waitForMutationBudget, requestWithRateLimitRetry } from './rateLimitWait.js';
@@ -43,6 +44,38 @@ test('v2: uploading a Woolworths PDF renders the review checklist with the corre
   await expect(page.getByTestId(INVOICE_IMPORT_LINE)).toHaveCount(32);
   await expect(page.getByTestId(INVOICE_IMPORT_SUMMARY_LINE)).toContainText('32 lines');
   await expect(page.getByTestId(INVOICE_IMPORT_COMMIT_BUTTON)).toBeDisabled();
+});
+
+test('v2: warnings returned by the import are shown without blocking the review', async ({ page }) => {
+  test.setTimeout(60_000);
+  const warning = 'Automatic matching against existing items failed; please use the review screen to merge lines into existing items.';
+  // The response is stubbed: provoking a real LLM failure needs the network, and proxying the
+  // multipart upload through the route would corrupt the PDF. Nothing is staged server-side.
+  await page.route('**/api/invoices/import', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      json: {
+        import: { id: 987654, retailer: 'Woolworths', invoice_number: null, invoice_date: null, status: 'staging' },
+        lines: [{
+          id: 1, import_id: 987654, raw_name: 'Stub Milk 2L', qty_ordered: 1, qty_supplied: 1, unit_price: 4.5, line_total: 4.5,
+          gst_applicable: 0, matched_item_id: null, suggested_category_id: null, suggested_location_id: null,
+          final_category_id: null, final_location_id: null, final_name: null, final_container_details: null,
+          barcode_scanned: null, qty_confirmed: null, line_status: 'pending',
+        }],
+        warnings: [warning],
+      },
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId(INVOICE_IMPORT_OPEN_BUTTON).click();
+  await page.getByTestId(INVOICE_IMPORT_FILE_INPUT).setInputFiles(WOOLWORTHS_PDF);
+
+  await expect(page.getByTestId(INVOICE_IMPORT_WARNINGS)).toContainText(warning);
+  // Non-blocking: the review is still there and usable.
+  await expect(page.getByTestId(INVOICE_IMPORT_STAGING_CONTAINER)).toBeVisible();
+  await expect(page.getByTestId(INVOICE_IMPORT_LINE)).toHaveCount(1);
 });
 
 test('v2: a category change on one line persists across a page reload (crash-safety)', async ({ page, request }) => {

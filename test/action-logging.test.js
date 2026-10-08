@@ -83,6 +83,26 @@ describe('action logging middleware', () => {
     expect(fs.readFileSync(currentLogFile(), 'utf8')).not.toContain('nested-secret-value');
   });
 
+  it('never writes media signatures, session tokens or device-token values to the log', async () => {
+    const stored = `${'b'.repeat(32)}.webp`;
+    const created = await api(app).post('/api/items').send({ name: 'Signed Image Item', quantity: 1 });
+    pkg.db.prepare('UPDATE items SET image_path = ? WHERE id = ?').run(stored, created.body.id);
+    const edited = await api(app).put(`/api/items/${created.body.id}`).send({ name: 'Signed Image Item', reorder_threshold: 5 });
+    expect(edited.status).toBe(200);
+    const signature = new URL(edited.body.image_path, 'http://x').searchParams.get('sig');
+    expect(signature).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const minted = await api(app).post('/api/auth/device-token').send({ device_label: 'Log Test Tablet' });
+    expect(minted.status).toBe(200);
+    const deviceToken = minted.body.token;
+
+    await readLoggedEntries();
+    const raw = fs.readFileSync(currentLogFile(), 'utf8');
+    expect(raw).toContain('/media/');
+    expect(raw).not.toContain(signature);
+    expect(raw).not.toContain(deviceToken);
+  });
+
   it('truncates oversized bodies to a bounded size', async () => {
     await api(app).post('/api/items').send({ name: 'Oversized Body Item', quantity: 1, container_details: 'x'.repeat(400) , filler: 'y'.repeat(50000) });
     const entry = (await readLoggedEntries()).find((e) => e.request_body?.preview?.includes('Oversized Body Item'));

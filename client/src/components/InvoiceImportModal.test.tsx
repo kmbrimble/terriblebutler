@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { InvoiceImportLineRow } from './InvoiceImportModal';
+import { ImportWarnings, InvoiceImportLineRow } from './InvoiceImportModal';
 import type { InvoiceImportLine, Item } from '../lib/api';
 
 function makeLine(overrides: Partial<InvoiceImportLine> = {}): InvoiceImportLine {
@@ -104,5 +104,20 @@ describe('InvoiceImportLineRow name/container editing and match override (fixes 
     );
     const match = html.match(/<input[^>]*data-testid="invoice-import-line-match-input"[^>]*>/);
     expect(match![0]).toContain('value="Matched Product"');
+  });
+});
+
+describe('ImportWarnings', () => {
+  it('lists every warning the server returned, as a non-blocking status notice', () => {
+    const html = renderToStaticMarkup(<ImportWarnings warnings={['Matching failed.', 'Suggestions failed.']} />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('data-testid="invoice-import-warnings"');
+    expect(html).toContain('Matching failed.');
+    expect(html).toContain('Suggestions failed.');
+  });
+
+  it('renders nothing when there are no warnings', () => {
+    expect(renderToStaticMarkup(<ImportWarnings warnings={[]} />)).toBe('');
+    expect(renderToStaticMarkup(<ImportWarnings />)).toBe('');
   });
 });
