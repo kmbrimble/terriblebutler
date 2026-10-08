@@ -28,12 +28,17 @@ async function waitForServer(url, timeoutMs = 30000, intervalMs = 200) {
 export default async function globalSetup() {
   const dbPath = path.join(os.tmpdir(), `butler-e2e-${crypto.randomBytes(8).toString('hex')}.db`);
 
+  // Stored images and multer scratch files go to throwaway directories, never public/uploads.
+  const uploadsRoot = path.join(os.tmpdir(), `butler-e2e-uploads-${crypto.randomBytes(8).toString('hex')}`);
+
   const child = spawn('node', ['server.js'], {
     cwd: projectRoot,
     env: {
       ...process.env,
       DB_PATH: dbPath,
       PORT: String(PORT),
+      UPLOADS_DIR: path.join(uploadsRoot, 'stored'),
+      UPLOAD_TMP_DIR: path.join(uploadsRoot, 'scratch'),
       AUTH_USERNAME,
       AUTH_PASSWORD_HASH,
       JWT_SECRET,
@@ -49,12 +54,14 @@ export default async function globalSetup() {
       GENERAL_API_RATE_LIMIT_MAX: '10000',
       MUTATION_RATE_LIMIT_MAX: '5000',
       LOGIN_RATE_LIMIT_MAX: '200',
+      LLM_RATE_LIMIT_MAX: '1000',
     },
     stdio: 'inherit',
   });
 
   process.env.E2E_SERVER_PID = String(child.pid);
   process.env.E2E_DB_PATH = dbPath;
+  process.env.E2E_UPLOADS_ROOT = uploadsRoot;
 
   await waitForServer(HEALTH_URL);
 

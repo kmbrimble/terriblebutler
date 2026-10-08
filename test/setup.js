@@ -13,14 +13,32 @@ process.env.DB_PATH = tmpDbPath;
 const tmpLogDir = path.join(os.tmpdir(), `butler-test-logs-${crypto.randomBytes(8).toString('hex')}`);
 process.env.LOG_DIR = tmpLogDir;
 
+// Uploads never touch the real directories: stored images and multer scratch files both go
+// to throwaway directories, removed in afterAll.
+export const tmpUploadsDir = path.join(os.tmpdir(), `butler-test-uploads-${crypto.randomBytes(8).toString('hex')}`);
+export const tmpUploadScratchDir = path.join(os.tmpdir(), `butler-test-upload-tmp-${crypto.randomBytes(8).toString('hex')}`);
+process.env.UPLOADS_DIR = tmpUploadsDir;
+process.env.UPLOAD_TMP_DIR = tmpUploadScratchDir;
+// Upload tests make well over the production 10/min LLM-route requests from one IP.
+process.env.LLM_RATE_LIMIT_MAX = '1000';
+
 export const TEST_USERNAME = 'testuser';
 export const TEST_PASSWORD = 'testpass123';
+
+// Invoice import now shares the LLM limiter (10/min); the suite imports far more often than
+// that from one address. Tests of the limiter itself set their own maximum on a fresh app.
+process.env.LLM_RATE_LIMIT_MAX ??= '1000';
 
 process.env.AUTH_USERNAME = TEST_USERNAME;
 process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 4);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
 
-export const TEST_TOKEN = jwt.sign({ sub: TEST_USERNAME }, process.env.JWT_SECRET, { expiresIn: '30d' });
+// A fresh DB starts at token epoch 1 (lib/auth-state.js), so a household JWT for these tests
+// carries ver 1. Tests that bump the epoch must log in again for a current token.
+export const TEST_TOKEN = jwt.sign({ sub: TEST_USERNAME, ver: 1 }, process.env.JWT_SECRET, {
+  expiresIn: '30d',
+  jwtid: 'test-setup-jwt',
+});
 
 // Wraps supertest so every call in existing test files is authenticated by default,
 // without having to add `.set('Authorization', ...)` at each of the ~50 call sites.
@@ -43,4 +61,6 @@ afterAll(() => {
     }
   }
   fs.rmSync(tmpLogDir, { recursive: true, force: true });
+  fs.rmSync(tmpUploadsDir, { recursive: true, force: true });
+  fs.rmSync(tmpUploadScratchDir, { recursive: true, force: true });
 });

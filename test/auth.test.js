@@ -90,7 +90,7 @@ describe('auth middleware', () => {
   it('allows a protected route with a valid token', async () => {
     const res = await request(app)
       .get('/api/items')
-      .set('Authorization', `Bearer ${jwt.sign({ sub: TEST_USERNAME }, process.env.JWT_SECRET, { expiresIn: '30d' })}`);
+      .set('Authorization', `Bearer ${jwt.sign({ sub: TEST_USERNAME, ver: 1 }, process.env.JWT_SECRET, { expiresIn: '30d', jwtid: 'auth-test' })}`);
     expect(res.status).toBe(200);
   });
 });

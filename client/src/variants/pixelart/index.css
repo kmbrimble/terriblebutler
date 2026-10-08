@@ -2,11 +2,22 @@
    per the ui-ux-pro-max-skill style catalog (styles.csv, Style ID pixel-art: "Primary colors
    (NES Palette), brights, limited palette", "Press Start 2P / VT323", "box-shadow: 4px 0 0 #000
    (pixel border), no anti-aliasing"). Reuses every component/hook unchanged. */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+@import '@fontsource/press-start-2p/latin-400.css';
+@import '@fontsource/vt323/latin-400.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config '../../../tailwind.config.js';
+
+/* Tailwind 4 defaults borders to currentColor (3.x: gray-200); keep the 3.x look. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 :root,
 .dark {

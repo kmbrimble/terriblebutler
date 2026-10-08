@@ -113,4 +113,22 @@ describe('POST /api/invoices/commit', () => {
     expect(matches).toHaveLength(1);
     expect(matches[0].quantity).toBe(2);
   });
+
+  it('rejects invalid items before writing anything', async () => {
+    const before = (await api(app).get('/api/items')).body.length;
+    const bad = [
+      { name: 'Neg Qty', quantity: -5, price: 1, vendor: 'V' },
+      { name: 'Neg Price', quantity: 1, price: -1, vendor: 'V' },
+      { name: 'Nan Qty', quantity: 'abc', price: 1, vendor: 'V' },
+      { name: '', quantity: 1, price: 1, vendor: 'V' },
+      { name: 'x'.repeat(201), quantity: 1, price: 1, vendor: 'V' },
+    ];
+    for (const item of bad) {
+      const res = await api(app).post('/api/invoices/commit').send({ items: [{ name: 'Valid Sibling', quantity: 1, price: 1, vendor: 'V' }, item] });
+      expect(res.status, JSON.stringify(item).slice(0, 40)).toBe(400);
+    }
+    const after = (await api(app).get('/api/items')).body;
+    expect(after.length).toBe(before);
+    expect(after.find((i) => i.name === 'Valid Sibling')).toBeUndefined();
+  });
 });

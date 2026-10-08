@@ -1,11 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
-// Built and served at / by server.js — the default front end. The legacy front end is
-// served alongside it at /legacy.
+// Built and served at / by server.js.
 //
 // Multi-page build for issue #37's alternate-style variants: each entry in public/variants.json
 // gets its own <slug>.html build input (only for slugs that already have an HTML file — a
@@ -25,7 +25,7 @@ for (const { slug } of variants) {
 
 export default defineConfig({
   base: '/',
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: { input },
   },

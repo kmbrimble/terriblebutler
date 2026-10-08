@@ -19,4 +19,8 @@ export default async function globalTeardown() {
       }
     }
   }
+
+  if (process.env.E2E_UPLOADS_ROOT) {
+    fs.rmSync(process.env.E2E_UPLOADS_ROOT, { recursive: true, force: true });
+  }
 }

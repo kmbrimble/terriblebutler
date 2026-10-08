@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDevices, revokeDevice, type DeviceToken } from '../lib/api';
+import { getDevices, revokeAllSessions, revokeDevice, type DeviceToken } from '../lib/api';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
@@ -28,8 +28,18 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function handleSignOutEverywhere() {
+    if (!window.confirm('Sign out everywhere? Every device, including this one, will need to log in again.')) return;
+    try {
+      // On success api.ts ends the session, which sends App back to the login screen.
+      await revokeAllSessions();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to sign out everywhere.', 'error');
+    }
+  }
+
   return (
-    <div data-testid="manage-devices-modal" className="fixed inset-0 bg-black bg-opacity-80 z-[60] flex items-center justify-center p-4">
+    <div data-testid="manage-devices-modal" className="fixed inset-0 bg-black/80 z-60 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-md max-h-[90vh] flex flex-col p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-rimmy-orange">Manage Devices</h2>
@@ -63,6 +73,15 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
             </li>
           ))}
         </ul>
+
+        <button
+          type="button"
+          data-testid="manage-devices-sign-out-everywhere"
+          onClick={handleSignOutEverywhere}
+          className="mt-4 shrink-0 text-red-500 hover:text-red-700 font-bold py-2 border border-rimmy-border rounded"
+        >
+          Sign out everywhere
+        </button>
       </div>
     </div>
   );

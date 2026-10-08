@@ -92,6 +92,7 @@ export const INVOICE_IMPORT_LINE_REVIEWED_CHECKBOX = 'invoice-import-line-review
 export const INVOICE_IMPORT_LINE_NAME_DISPLAY = 'invoice-import-line-name-display';
 export const INVOICE_IMPORT_LINE_CONTAINER_INPUT = 'invoice-import-line-container-input';
 export const INVOICE_IMPORT_LINE_MATCH_INPUT = 'invoice-import-line-match-input';
+export const INVOICE_IMPORT_WARNINGS = 'invoice-import-warnings';
 export const INVOICE_IMPORT_CANCEL_BUTTON = 'invoice-import-cancel-button';
 
 // Stage 5 (React client price history) — new fields/controls. DETAILS_MODAL/DETAILS_TITLE
@@ -127,6 +128,8 @@ export const SNAP_LABEL_FILE_INPUT = 'snap-label-file-input';
 export const CROP_MODAL = 'crop-modal';
 export const CROP_IMAGE = 'crop-image';
 export const CROP_CONFIRM_BUTTON = 'crop-confirm-button';
+export const CROP_SELECTION = 'crop-selection';
+export const CROP_IMAGE_LAYER = 'crop-image-layer';
 export const LOCATION_SUGGEST_BLOCK = 'location-suggest-block';
 export const LOCATION_SUGGEST_SELECT = 'location-suggest-select';
 export const LOCATION_SUGGEST_CUSTOM_INPUT = 'location-suggest-custom-input';
@@ -141,6 +144,9 @@ export const MENU_OPEN_BUTTON = 'menu-open-button';
 export const MENU_DRAWER = 'menu-drawer';
 export const MENU_DARK_MODE_TOGGLE = 'menu-dark-mode-toggle';
 export const MENU_LOGOUT_BUTTON = 'menu-logout-button';
+export const MENU_MANAGE_DEVICES_BUTTON = 'menu-manage-devices-button';
+export const MANAGE_DEVICES_MODAL = 'manage-devices-modal';
+export const MANAGE_DEVICES_SIGN_OUT_EVERYWHERE = 'manage-devices-sign-out-everywhere';
 export const ITEMS_ERROR = 'items-error';
 export const MANAGE_CATEGORIES_MODAL = 'manage-categories-modal';
 export const MANAGE_CATEGORIES_NEW_INPUT = 'manage-categories-new-input';

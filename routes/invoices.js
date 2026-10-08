@@ -1,11 +1,11 @@
-const fs = require('fs');
 const Fuse = require('fuse.js');
-const { PDFParse } = require('pdf-parse');
 const { findMatch, normaliseName } = require('../item-matching');
 const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
-const { callClaudeForJSON, classifyLineWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
-const { cleanText, finiteNumber, sendMutationError } = require('../lib/domain-helpers');
+const { callClaudeForJSON, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
+const config = require('../lib/config');
+const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
+const { cleanText, finiteNumber, normaliseBarcode, sendMutationError, sendServerError } = require('../lib/domain-helpers');
 
 function getImportWithLines(db, importId) {
   const importRow = db.prepare('SELECT * FROM invoice_imports WHERE id = ?').get(importId);
@@ -37,9 +37,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       return res.status(400).json({ error: 'No invoice uploaded' });
     }
     try {
-      const pdfParser = new PDFParse({ data: fs.readFileSync(req.file.path) });
-      const { text: rawText } = await pdfParser.getText();
-      await pdfParser.destroy();
+      const rawText = await extractPdfText(req.file.path);
       const parsedJson = await callClaudeForJSON({
         userContent: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).\n\n${rawText}`,
         toolName: 'invoice_items',
@@ -72,17 +70,39 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       if (errors.length) console.warn('[Invoice Parser] Dropped LLM items failing schema validation:', errors);
       res.json(items);
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to parse invoice: ' + err.message });
+      const status = uploadErrorStatus(err);
+      if (status) return res.status(status).json({ error: err.message });
+      sendServerError(res, err, 'Failed to parse invoice');
     } finally {
-      if (req.file) fs.unlink(req.file.path, () => {});
+      await discardUpload(req.file);
     }
   });
 
   app.post('/api/invoices/commit', (req, res) => {
-    const itemsToCommit = req.body.items;
-    if (!Array.isArray(itemsToCommit)) {
+    if (!Array.isArray(req.body.items)) {
       return res.status(400).json({ error: 'Expected an array of items' });
+    }
+    // The client supplies every field here, so validate before anything is written: a negative
+    // quantity would otherwise subtract stock, and unbounded text or arrays would be stored as sent.
+    let itemsToCommit;
+    try {
+      if (req.body.items.length > config.INVOICE_IMPORT_MAX_LINES) {
+        throw new Error(`An invoice commit accepts at most ${config.INVOICE_IMPORT_MAX_LINES} items.`);
+      }
+      itemsToCommit = req.body.items.map((item) => {
+        if (!item || typeof item !== 'object') throw new Error('Each item must be an object');
+        return {
+          ...item,
+          name: cleanText(item.name, { required: true, max: 200 }),
+          barcode: normaliseBarcode(item.barcode),
+          container_details: cleanText(item.container_details, { max: 500 }),
+          quantity: finiteNumber(item.quantity, { name: 'Quantity', min: 0 }),
+          price: finiteNumber(item.price, { name: 'Price', min: 0 }),
+          vendor: cleanText(item.vendor, { max: 200 }),
+        };
+      });
+    } catch (err) {
+      return sendMutationError(res, err);
     }
     const existingItems = db.prepare('SELECT id, name, barcode, lowest_price FROM items').all();
     const fuse = new Fuse(existingItems, {
@@ -143,8 +163,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       broadcastUpdate('invoice_commit', {});
       res.json({ message: 'Invoice items committed successfully' });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to commit invoice: ' + err.message });
+      sendServerError(res, err, 'Failed to commit invoice');
     }
   });
 
@@ -152,14 +171,19 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
   app.post('/api/invoices/import', invoiceUpload.single('invoice'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No invoice uploaded' });
     try {
-      const pdfParser = new PDFParse({ data: fs.readFileSync(req.file.path) });
-      const { text } = await pdfParser.getText();
-      await pdfParser.destroy();
+      const text = await extractPdfText(req.file.path);
 
       const parsed = parseInvoice(text);
       if (!parsed.retailer) {
         return res.status(422).json({ error: parsed.error || 'Could not detect retailer from this PDF.' });
       }
+      // Bounds the LLM work and staging rows one upload can cause (#55).
+      if (parsed.lines.length > config.INVOICE_IMPORT_MAX_LINES) {
+        return res.status(422).json({
+          error: `This invoice has ${parsed.lines.length} lines, more than the ${config.INVOICE_IMPORT_MAX_LINES} an import accepts.`,
+        });
+      }
+      const warnings = [];
 
       // items.location_id is a vestigial column POST /api/items deliberately never writes —
       // item_locations is the real source of truth. Only offer a location suggestion when an
@@ -176,12 +200,6 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       const fuse = new Fuse(existingItems, { keys: ['name'], threshold: 0.3 });
       const cats = db.prepare('SELECT id, name FROM categories').all();
       const locs = db.prepare('SELECT id, name FROM locations').all();
-
-      const importInfo = db.prepare(`
-        INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename)
-        VALUES (?, ?, ?, ?)
-      `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname);
-      const importId = Number(importInfo.lastInsertRowid);
 
       const insertLine = db.prepare(`
         INSERT INTO invoice_import_lines
@@ -201,8 +219,9 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       // its item's category/location as the suggestion and record matched_item_id outright.
       // A fuzzy hit is suggestion-only — its category/location still pre-fill the review
       // screen, but matched_item_id stays null (never auto-applied — see item-matching.js).
-      // Only lines with neither get an LLM classify call, and those run in parallel — with a
-      // 32-line invoice, awaiting them one at a time would mean worst-case minutes of serial
+      // Only lines with neither are classified by the LLM, in batched calls run through a small
+      // concurrency pool (lib/llm-client.js) — one call per line would mean an unbounded burst
+      // of paid requests for a large invoice, and awaiting them serially would mean minutes of
       // network latency for something the UI is waiting on.
       const resolved = parsed.lines.map((line) => {
         const memoryHit = memoryStmt.get(normaliseName(line.raw_name));
@@ -220,11 +239,15 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         return { line, matchedItemId: null, needsClassify: true };
       });
 
-      await Promise.all(resolved.filter((r) => r.needsClassify).map(async (r) => {
-        const classified = await classifyLineWithLLM(r.line.raw_name, cats, locs);
-        r.suggestedCategoryId = classified.category_id;
-        r.suggestedLocationId = classified.location_id;
-      }));
+      const toClassify = resolved.filter((r) => r.needsClassify);
+      if (toClassify.length) {
+        const { results, failed } = await classifyLinesWithLLM(toClassify.map((r) => r.line.raw_name), cats, locs);
+        toClassify.forEach((r, i) => {
+          r.suggestedCategoryId = results[i].category_id;
+          r.suggestedLocationId = results[i].location_id;
+        });
+        if (failed) warnings.push(`Category and location suggestions could not be generated for ${failed} of ${toClassify.length} line(s); please set them in the review.`);
+      }
 
       // Anything still unmatched (no exact/barcode hit — whether or not a fuzzy candidate set
       // its category/location suggestion above) goes through one batched LLM match call for
@@ -232,7 +255,9 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       // broad non-branded item names (fixes the #40 follow-up report). A hit here inherits its
       // item's category/location, same as an exact/barcode match.
       const stillUnmatched = resolved.filter((r) => r.matchedItemId === null);
-      const llmMatches = await matchLinesWithLLM(existingItems, stillUnmatched.map((r) => r.line));
+      const llmMatches = await matchLinesWithLLM(existingItems, stillUnmatched.map((r) => r.line), {
+        onFailure: () => warnings.push('Automatic matching against existing items failed; please use the review screen to merge lines into existing items.'),
+      });
       llmMatches.forEach((itemId, i) => {
         if (!itemId) return;
         const item = existingItems.find((it) => it.id === itemId);
@@ -242,19 +267,31 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         stillUnmatched[i].suggestedLocationId = item.location_id;
       });
 
-      for (const r of resolved) {
-        insertLine.run(
-          importId, r.line.raw_name, r.line.qty_ordered, r.line.qty_supplied, r.line.unit_price, r.line.line_total,
-          r.line.gst_applicable ? 1 : 0, r.matchedItemId, r.suggestedCategoryId, r.suggestedLocationId
-        );
-      }
+      // The header and every line are written together after all the async work, in one
+      // transaction: a failure can never leave an empty or partial import to be reviewed.
+      const stageImport = db.transaction(() => {
+        const info = db.prepare(`
+          INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename)
+          VALUES (?, ?, ?, ?)
+        `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname);
+        const id = Number(info.lastInsertRowid);
+        for (const r of resolved) {
+          insertLine.run(
+            id, r.line.raw_name, r.line.qty_ordered, r.line.qty_supplied, r.line.unit_price, r.line.line_total,
+            r.line.gst_applicable ? 1 : 0, r.matchedItemId, r.suggestedCategoryId, r.suggestedLocationId
+          );
+        }
+        return id;
+      });
+      const importId = stageImport();
 
-      res.json(getImportWithLines(db, importId));
+      res.json({ ...getImportWithLines(db, importId), warnings });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to import invoice: ' + err.message });
+      const status = uploadErrorStatus(err);
+      if (status) return res.status(status).json({ error: err.message });
+      sendServerError(res, err, 'Failed to import invoice');
     } finally {
-      if (req.file) fs.unlink(req.file.path, () => {});
+      await discardUpload(req.file);
     }
   });
 
@@ -394,8 +431,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       broadcastUpdate('invoice_commit', {});
       res.json({ items_added: itemsAdded, items_matched: itemsMatched, total_value: Math.round(totalValue * 100) / 100 });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Failed to commit invoice import: ' + err.message });
+      sendServerError(res, err, 'Failed to commit invoice import');
     }
   });
 }

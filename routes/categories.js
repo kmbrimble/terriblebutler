@@ -1,30 +1,32 @@
+const { cleanName, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
+
 function registerCategoryRoutes(app, { db, broadcastUpdate }) {
   app.get('/api/categories', (req, res) => {
     res.json(db.prepare('SELECT * FROM categories').all());
   });
 
   app.post('/api/categories', (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+    let name;
+    try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
     try {
       const info = db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
       broadcastUpdate('categories_updated', {});
       res.status(201).json({ id: info.lastInsertRowid, name });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendNameWriteError(res, err, 'Category');
     }
   });
 
   app.put('/api/categories/:id', (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+    let name;
+    try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
     try {
       const info = db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(name, req.params.id);
       if (!info.changes) return res.status(404).json({ error: 'Category not found' });
       broadcastUpdate('categories_updated', {});
       res.json({ id: req.params.id, name });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendNameWriteError(res, err, 'Category');
     }
   });
 
@@ -41,7 +43,7 @@ function registerCategoryRoutes(app, { db, broadcastUpdate }) {
       broadcastUpdate('categories_updated', {});
       res.json({ message: 'Category deleted' });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, 'Failed to delete category');
     }
   });
 }

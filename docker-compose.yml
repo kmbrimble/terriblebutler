@@ -11,6 +11,12 @@ services:
       - PORT=2626
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=production
+      - PUID=99
+      - PGID=100
+      # Behind a reverse proxy, list the proxies' addresses so rate limits key on the real client
+      # IP (see CLAUDE.md "Client IP and rate limits"). Never true or *. Unset = trust nothing.
+      # - TRUST_PROXY=172.18.0.0/16
     volumes:
       - ./data:/app/data
+      # Must match UPLOADS_DIR (set in the Dockerfile to /app/public/uploads).
       - ./uploads:/app/public/uploads

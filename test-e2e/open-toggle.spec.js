@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { ITEM_CARD, OPEN_TOGGLE_BUTTON, QTY_DISPLAY_BUTTON, QTY_MODAL, QTY_MODAL_LOCATION_SELECT, QTY_MODAL_OPEN_TOGGLE } from './testids.js';
 
 // fixes #35 — some items had no way to be flagged as opened.

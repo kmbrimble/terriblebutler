@@ -58,7 +58,7 @@ export function BarcodeScannerModal({ onScan, onClose }: { onScan: (barcode: str
   }, []);
 
   return (
-    <div data-testid="barcode-scanner-modal" className="fixed inset-0 bg-black bg-opacity-95 z-[90] flex flex-col items-center justify-center p-4">
+    <div data-testid="barcode-scanner-modal" className="fixed inset-0 bg-black/95 z-90 flex flex-col items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-orange rounded-lg w-full max-w-md flex flex-col overflow-hidden">
         <div className="p-4 border-b border-rimmy-border flex justify-between items-center bg-rimmy-black">
           <h2 className="text-xl font-bold text-rimmy-orange">Scan Barcode</h2>

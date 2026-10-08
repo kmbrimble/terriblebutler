@@ -88,6 +88,8 @@ export interface Item {
   quantity: number;
   reorder_threshold: number;
   is_ignored_grocery: number | null;
+  /** Signed, expiring URL (`/media/<id>?exp=&sig=`), valid 1-2 hours; null if no image. Usable directly
+   *  as an `<img src>` / RN `Image` uri. Never persist it: refetch the item to get a fresh one. */
   image_path: string | null;
   last_price: number | null;
   lowest_price: number | null;
@@ -307,6 +309,9 @@ export interface InvoiceImportLine {
 export interface InvoiceImportState {
   import: InvoiceImport;
   lines: InvoiceImportLine[];
+  // Only present on the response to starting an import (not on later fetches): non-fatal
+  // problems such as the LLM classification or matching step failing.
+  warnings?: string[];
 }
 
 export async function startInvoiceImport(file: File): Promise<InvoiceImportState> {
@@ -506,6 +511,14 @@ export async function getDevices(): Promise<DeviceToken[]> {
 export async function revokeDevice(id: number): Promise<void> {
   const res = await authorizedFetch(`/api/auth/devices/${id}/revoke`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to revoke device.');
+}
+
+// "Sign out everywhere": the server ends every household session and revokes every device
+// token, including this one, so on success this device's own token is dead too.
+export async function revokeAllSessions(): Promise<void> {
+  const res = await authorizedFetch('/api/auth/revoke-all', { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to sign out everywhere.');
+  endSession();
 }
 
 export async function matchItem(name: string, barcode?: string): Promise<MatchResult | null> {

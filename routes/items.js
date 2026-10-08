@@ -8,6 +8,7 @@ const {
   finiteNumber,
   normaliseBarcode,
   sendMutationError,
+  sendServerError,
 } = require('../lib/domain-helpers');
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
@@ -238,7 +239,10 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
   });
 
   app.patch('/api/items/:id/ignore-grocery', (req, res) => {
-    const { is_ignored_grocery } = req.body;
+    // The grocery views filter on exactly 0 and 1, so anything else would hide the item from both.
+    const flag = req.body.is_ignored_grocery;
+    if (![0, 1, true, false].includes(flag)) return res.status(400).json({ error: 'is_ignored_grocery must be 0 or 1' });
+    const is_ignored_grocery = flag ? 1 : 0;
     const stmt = db.prepare("UPDATE items SET is_ignored_grocery = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
     try {
       const info = stmt.run(is_ignored_grocery, req.params.id);
@@ -247,7 +251,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       broadcastUpdate('update_ignore', updatedItem);
       res.json(updatedItem);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, 'Failed to update item');
     }
   });
 
@@ -275,6 +279,8 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     if (!item) return res.status(404).json({ error: 'Item not found' });
     db.transaction(() => {
       db.prepare('DELETE FROM price_history WHERE item_id = ?').run(id);
+      // Invoice history keeps its lines; they just no longer point at the deleted item.
+      db.prepare('UPDATE invoice_import_lines SET matched_item_id = NULL WHERE matched_item_id = ?').run(id);
       db.prepare('DELETE FROM items WHERE id = ?').run(id);
     })();
     broadcastUpdate('delete', item);

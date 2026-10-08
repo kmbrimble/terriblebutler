@@ -1,30 +1,32 @@
+const { cleanName, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
+
 function registerLocationRoutes(app, { db, broadcastUpdate }) {
   app.get('/api/locations', (req, res) => {
     res.json(db.prepare('SELECT * FROM locations').all());
   });
 
   app.post('/api/locations', (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+    let name;
+    try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
     try {
       const info = db.prepare('INSERT INTO locations (name) VALUES (?)').run(name);
       broadcastUpdate('locations_updated', {});
       res.status(201).json({ id: info.lastInsertRowid, name });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendNameWriteError(res, err, 'Location');
     }
   });
 
   app.put('/api/locations/:id', (req, res) => {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+    let name;
+    try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
     try {
       const info = db.prepare('UPDATE locations SET name = ? WHERE id = ?').run(name, req.params.id);
       if (!info.changes) return res.status(404).json({ error: 'Location not found' });
       broadcastUpdate('locations_updated', {});
       res.json({ id: req.params.id, name });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendNameWriteError(res, err, 'Location');
     }
   });
 
@@ -45,12 +47,15 @@ function registerLocationRoutes(app, { db, broadcastUpdate }) {
         }
         db.prepare('UPDATE invoice_import_lines SET suggested_location_id = NULL WHERE suggested_location_id = ?').run(req.params.id);
         db.prepare('UPDATE invoice_import_lines SET final_location_id = NULL WHERE final_location_id = ?').run(req.params.id);
+        // items.location_id is vestigial (item_locations is the source of truth) but still carries
+        // a foreign key, and migrated databases still hold values in it.
+        db.prepare('UPDATE items SET location_id = NULL WHERE location_id = ?').run(req.params.id);
         db.prepare('DELETE FROM locations WHERE id = ?').run(req.params.id);
       })();
       broadcastUpdate('locations_updated', {});
       res.json({ message: 'Location deleted' });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, 'Failed to delete location');
     }
   });
 }

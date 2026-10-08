@@ -62,7 +62,7 @@ export function ItemDetailModal({ item, locations, onClose }: { item: Item; loca
   const maxPrice = Math.max(...points.map((p) => p.price), 0) || 1;
 
   return (
-    <div data-testid="details-modal" className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
+    <div data-testid="details-modal" className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
       <div className="bg-rimmy-charcoal border border-rimmy-purple rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 data-testid="details-title" className="text-xl font-bold text-rimmy-orange">

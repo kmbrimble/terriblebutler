@@ -1,11 +1,23 @@
 /* Alternate skin for issue #37 (style 76, "Material 3 Expressive (Mobile)"). Tokens taken
    directly from the ui-ux-pro-max-skill style catalog (styles.csv, Style ID
    material-you-md3-mobile). Reuses every component/hook unchanged. */
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+@import '@fontsource/roboto/latin-400.css';
+@import '@fontsource/roboto/latin-500.css';
+@import '@fontsource/roboto/latin-700.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config '../../../tailwind.config.js';
+
+/* Tailwind 4 defaults borders to currentColor (3.x: gray-200); keep the 3.x look. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 :root {
   --color-bg: #FFFBFE;

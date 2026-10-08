@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -89,5 +89,25 @@ describe('pruneOldBackups', () => {
 
   it('is a no-op when the backup directory does not exist yet', () => {
     expect(() => pruneOldBackups(path.join(tmpDir, 'never-created'), 14)).not.toThrow();
+  });
+});
+
+describe('pruneOldBackups failures', () => {
+  it('logs and keeps pruning when an old backup cannot be removed', () => {
+    fs.mkdirSync(backupDir, { recursive: true });
+    const stuck = path.join(backupDir, 'inventory-2020-01-01.db');
+    const removable = path.join(backupDir, 'inventory-2020-01-02.db');
+    fs.mkdirSync(stuck); // unlinkSync on a directory fails
+    fs.writeFileSync(removable, 'x');
+    const old = (Date.now() - 40 * 24 * 60 * 60 * 1000) / 1000;
+    fs.utimesSync(stuck, old, old);
+    fs.utimesSync(removable, old, old);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => pruneOldBackups(backupDir, 14)).not.toThrow();
+
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('inventory-2020-01-01.db'), expect.any(String));
+    expect(fs.existsSync(removable)).toBe(false);
+    errSpy.mockRestore();
   });
 });

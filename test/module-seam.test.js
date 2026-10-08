@@ -8,12 +8,14 @@ const { app, server, db } = pkg;
 // This is the contract issue #32's server.js split had to preserve exactly — an empty
 // diff against this list is the strongest signal the refactor didn't change behaviour.
 const EXPECTED_ROUTES = [
+  'GET /media/:name',
   'GET /healthz',
   'POST /api/auth/login',
   'GET /api/health',
   'POST /api/auth/device-token',
   'GET /api/auth/devices',
   'POST /api/auth/devices/:id/revoke',
+  'POST /api/auth/revoke-all',
   'GET /api/locations',
   'POST /api/locations',
   'PUT /api/locations/:id',
@@ -39,7 +41,6 @@ const EXPECTED_ROUTES = [
   'PATCH /api/items/:id/open',
   'DELETE /api/items/:id',
   'DELETE /api/price-history/:id',
-  'POST /api/upload-image',
   'POST /api/parse-label-llm',
   'POST /api/invoices/parse',
   'POST /api/invoices/commit',
@@ -48,11 +49,11 @@ const EXPECTED_ROUTES = [
   'DELETE /api/invoices/import/:id',
   'PATCH /api/invoices/import/:id/lines/:lineId',
   'POST /api/invoices/import/:id/commit',
-  'GET *',
+  'GET /{*splat}',
 ];
 
 function dumpRoutes(expressApp) {
-  return expressApp._router.stack
+  return expressApp.router.stack
     .filter((layer) => layer.route)
     .map((layer) => {
       const methods = Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]);

@@ -71,4 +71,20 @@ describe('connectSocket connect_error handling', () => {
     expect(localStorage.getItem('tb_token')).toBe('still-valid');
     expect(cb).not.toHaveBeenCalled();
   });
+
+  it('ends the session when the server announces the credential was revoked', async () => {
+    const fakeSocket = makeFakeSocket();
+    vi.doMock('socket.io-client', () => ({ io: vi.fn(() => fakeSocket) }));
+    const { connectSocket } = await import('./socket');
+    const { onAuthExpired } = await import('./api');
+    localStorage.setItem('tb_token', 'revoked');
+    const cb = vi.fn();
+    onAuthExpired(cb);
+
+    connectSocket();
+    fakeSocket.emit('session_revoked');
+
+    expect(localStorage.getItem('tb_token')).toBeNull();
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
 });

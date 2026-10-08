@@ -1,10 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { AUTH_USERNAME, AUTH_PASSWORD } from './auth-fixtures.cjs';
 import { LOGIN_SCREEN, APP_ROOT, LOGIN_USERNAME_INPUT, LOGIN_PASSWORD_INPUT, LOGIN_SUBMIT_BUTTON, LOGIN_ERROR } from './testids.js';
 
-// The React client, now the default front end at /, proven here against the SAME testid
-// contract as the legacy front end at /legacy (test-e2e/auth.spec.js) — reusing those
-// constants unchanged is the proof the contract is genuinely front-end agnostic.
+// The React client's login flow, driven through the shared testid contract.
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -36,6 +34,7 @@ test('correct credentials transition to the authenticated view and the socket co
 
   await expect(page.getByTestId(LOGIN_SCREEN)).toBeHidden();
   await expect(page.getByTestId(APP_ROOT)).toBeVisible();
+  await expect(page.locator('header')).toContainText('Terrible');
   // Observable connected state, not a sleep: Playwright polls this attribute until the
   // socket's 'connect' event flips it, or the assertion times out.
   await expect(page.getByTestId(APP_ROOT)).toHaveAttribute('data-socket-connected', 'true');

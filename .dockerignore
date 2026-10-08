@@ -6,6 +6,7 @@ client/dist
 /inventory.db-shm
 /inventory.db-wal
 data/
+# Default UPLOADS_DIR (stored images) and the older top-level path: never baked into the image.
 public/uploads/
 .mcp.json
 docker-compose.yml
@@ -13,7 +14,7 @@ Download *
 index (1).html
 *.save
 test/
-vitest.config.js
+vitest.config.mjs
 *.md
 test-e2e/
 test-results/
@@ -23,3 +24,5 @@ test-e2e/
 test-results/
 playwright-report/
 playwright.config.js
+logs/
+uploads/

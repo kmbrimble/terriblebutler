@@ -1,6 +1,18 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import '@fontsource/lobster-two/latin-700.css';
+
+@import 'tailwindcss';
+@config '../tailwind.config.js';
+
+/* Tailwind 4 defaults borders to currentColor (3.x: gray-200); keep the 3.x look. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 /* Ported verbatim from public/index.html's <style> block — keep both in sync until
    index.html is retired. */

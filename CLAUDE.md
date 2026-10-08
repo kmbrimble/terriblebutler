@@ -1,9 +1,11 @@
 # Butler — project context
 
-Household food inventory web app ("Terrible Butler"). Node.js / Express / better-sqlite3 /
-Socket.IO, with a single large `public/index.html` front end (Tailwind via CDN, html5-qrcode
-barcode scanning, Cropper.js, Chart.js). Product labels and invoices are parsed via a local
-vision LLM.
+Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `engines`,
+`.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
+Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
+html5-qrcode barcode scanning, Cropper.js 2). The old single-file `public/index.html` front end and its
+`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels and invoices are parsed by
+Claude through the Anthropic Messages API (see constraint 6).
 
 Use British/Australian English in all writing, comments, and UI text.
 
@@ -19,14 +21,15 @@ milestone itself.
 - GitHub: `kmbrimble/terriblebutler`
 - Live container: `terrible-butler`, port 2626, `https://butler.kiztigs.com`
 - Live data: `/mnt/user/appdata/butler/data/inventory.db` (host) — **never touched by tests**
-- Live uploads: `/mnt/user/appdata/butler/uploads` (host)
+- Live uploads: `/mnt/user/appdata/butler/uploads` (host) → `/app/public/uploads` in the container = `UPLOADS_DIR`
 
 ## Test commands
 
 - **Backend (Vitest + supertest):** `npm test` — tests in `test/`
+- **Client unit (Vitest):** `npm run test:client` — tests beside the code in `client/src/`
 - **Frontend (Playwright):** `npm run test:e2e` — tests in `test-e2e/`
 
-Run `npm test` for any change. Also run `npm run test:e2e` if `public/index.html` or anything
+Run `npm test` for any change. Also run `npm run test:e2e` if `client/` or anything
 affecting browser behaviour changed.
 
 Tests use a temporary database via the `DB_PATH` environment variable. They must never read or
@@ -38,24 +41,38 @@ write the live database or uploads directory.
 re-exports `{ app, server, db }`. It does not itself contain route handlers, DB setup, or
 middleware logic. The actual code lives in:
 
-- `lib/config.js` — env-derived constants (`APP_VERSION`, `JWT_SECRET`, `AUTH_USERNAME`,
-  `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`).
+- `lib/config.js` — env-derived constants (`APP_VERSION`, `UPLOADS_DIR`, `JWT_SECRET`, `AUTH_USERNAME`,
+  `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`). Startup fails (non-zero exit,
+  variable named, value never printed) unless `AUTH_PASSWORD_HASH` is a bcrypt hash and
+  `JWT_SECRET` is at least 32 characters.
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
+- `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
+  startup credential-fingerprint check.
 - `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
-  handshake auth, `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
+  handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN` or same-origin), per-socket
+  credential, `disconnectSockets`, `watchExpiry` (a socket never outlives its credential), `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
   dependency cycle — the composition root builds `server` from `app`, then calls this before
   registering any routes.
-- `lib/middleware.js` — security headers, the rate-limiter factory and its configured
+- `lib/middleware.js` — security headers (incl. the CSP), the rate-limiter factory and its configured
   instances (`generalApiRateLimiter`, `mutationRateLimiterMiddleware`, `llmRateLimiter`,
-  `loginRateLimiter`), the multer upload configs, and `createAuth(db)` (`authenticateToken`,
-  `requireAuth`, `hashDeviceToken`).
+  `loginRateLimiter`), and `createAuth(db, authState)` (`authenticateToken` returns the credential
+  or null, `requireAuth`, `requireHouseholdJwt`; `hashDeviceToken` is a separate export). Multer
+  configs live in `lib/uploads.js`.
 - `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
   helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
   `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
-  Messages API), `classifyLineWithLLM`.
+  Messages API), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
+- `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
+  (`UPLOAD_TMP_DIR`), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
+  other than jpeg/png/webp blocked; HEIC/HEIF deliberately unsupported), `UPLOADS_DIR` storage, signed `/media/:name` delivery
+  (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound.
+  `items.image_path` holds the stored id; API/Socket.IO payloads carry a signed URL instead (via
+  `parseItemLocations`). There is no static `/uploads` and, for now, no endpoint that stores
+  client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
+  delivery are the tested base for a future photo feature.
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
@@ -78,8 +95,12 @@ from outside this project without checking against this list.
    `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` (bcrypt) and returns a 30-day JWT. All `/api/*`
    routes require `Authorization: Bearer <token>` (`requireAuth` in `lib/middleware.js`)
    except `/api/auth/login` and `/api/health`. Rate-limited to 5 attempts/15min on login.
-   Socket.IO validates the token on handshake (`lib/realtime.js`). Do not remove this auth
-   layer or make routes public without checking with the user first.
+   Socket.IO validates the token on handshake (`lib/realtime.js`). Household JWTs carry a
+   `jti` and the token epoch `ver` (`lib/auth-state.js`); a stale epoch is rejected, so
+   `POST /api/auth/revoke-all` or a changed `AUTH_USERNAME`/`AUTH_PASSWORD_HASH` (detected at
+   startup) ends every session and device token. Only a household JWT can mint device tokens.
+   Stored images are readable only through short-lived signed `/media/:name` URLs (`lib/uploads.js`).
+   Do not remove this auth layer or make routes public without checking with the user first.
 3. **Preserve the SQLite pragmas** (`lib/database.js`): `journal_mode = WAL`,
    `synchronous = FULL`, `foreign_keys = ON`.
 4. **Preserve `DB_PATH`** (`lib/database.js`):
@@ -105,21 +126,68 @@ from outside this project without checking against this list.
    header/auth settings were removed, so NPM now passes straight through) →
    `terrible-butler` on its unique port → app's own JWT auth.
 
+## Conventions
+
+Project rules that are not on the non-negotiable list above. They are enforced by tests, but
+loosening one is a normal, deliberate change rather than a stop-and-ask.
+
+- **Strict CSP, no third-party runtime assets.** `securityHeaders` sends a
+   `Content-Security-Policy` (`script-src 'self'`, `style-src 'self'`, no `unsafe-inline`/`unsafe-eval`).
+   Nothing may load from a third-party origin: fonts are bundled (`@fontsource/*`, OFL licences in
+   `client/public/font-licences`), and the pre-paint theme bootstrap is the external
+   `client/public/theme-init*.js`, not an inline script. Every e2e spec imports `test` from
+   `test-e2e/csp-guard.js`, which fails the test on any CSP violation; never import from
+   `@playwright/test` directly. A new feature needing a looser directive must widen it deliberately in
+   `lib/middleware.js` and `test/csp.test.js`.
+
 ## Database notes (read before any schema change)
 
-- Live schema tables: `items`, `locations`, `categories`, `price_history`, plus a **vestigial
-  `inventory` table** (`description, size, quantity`) left over from an early version. Confirm
-  nothing references `inventory` before touching it; do not write to it.
-- **There is no migrations table and no schema version tracking.** Columns have historically
-  been added by ad-hoc `ALTER TABLE ADD COLUMN` (for example `last_price`, `lowest_price`).
-  Any schema change must therefore be idempotent and safe to apply to an existing populated
-  database. State explicitly in the changelog what schema change was made.
+- Schema versioning is `PRAGMA user_version` via `db-migrations.js`: an append-only list of
+  numbered migrations (currently 5), each idempotent and safe on a populated database. Never
+  edit an applied migration; add a new one, and state the schema change in the changelog.
+  Migration 5 added `auth_state` (a single row: token epoch + credential fingerprint, never the
+  hash) and `device_tokens.issued_by_jti` (which household JWT minted each device token).
+- Live schema tables: `items`, `locations`, `categories`, `price_history`, `device_tokens`,
+  `auth_state`, the invoice-import staging tables, plus a **vestigial `inventory` table**
+  (`description, size, quantity`) left over from an early version. Confirm nothing references
+  `inventory` before touching it; do not write to it. `items.location_id` and `items.quantity`
+  are vestigial too: `item_locations` is the source of truth.
 - `invoice_imports` and `invoice_import_lines` hold the deterministic Coles/Woolworths
   import's server-side staging state (added alongside that flow; confirmed live-empty at the
   time of the stage-4 React port, 0 rows in each). The plain LLM-parse invoice upload
   (`/api/invoices/parse` + `/api/invoices/commit`) is unrelated and keeps its staging list
   entirely client-side — no table backs it. There is still no dedicated `vendor` table;
   vendors are free-text in `price_history.vendor`.
+
+## Container runtime (non-root)
+
+The image starts `docker-entrypoint.sh` as root only to `chown` the writable paths
+(`/app/data` or the dir of `DB_PATH`, `UPLOADS_DIR` (default `/app/public/uploads`), `LOG_DIR` /
+`/app/logs`) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
+runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
+
+- `PUID` / `PGID` env vars, defaults `99` / `100` (unRAID nobody:users). Must be numeric and
+  non-zero; the entrypoint refuses to run the app as root.
+- Existing root-owned files in the bind mounts (e.g. `inventory.db`) are chowned in place on
+  start; already-correct entries are skipped.
+- The base image is pinned by digest (`ARG NODE_IMAGE` in the Dockerfile, tag `node:24-slim`);
+  Dependabot bumps it. Debian apt packages are deliberately not version-pinned (builder stage
+  only, discarded; pinned apt versions disappear from mirrors and break builds).
+
+## Client IP and rate limits
+
+- `TRUST_PROXY` (`lib/config.js`, validated at startup, logged at listen): unset = trust no
+  forwarded headers (`req.ip` is the socket peer). Accepts a hop count or a comma-separated
+  list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
+  list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
+  so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
+  (IPv4-mapped IPv6 folded). Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
+- `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
+  (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
+  flight) and failures come back as `warnings` in the import response.
+- The action log (`logger.js`) records only authenticated, non-throttled mutating calls
+  (bodies redacted recursively and truncated); logins are body-less `event: login` audit lines.
+  500 responses carry a `correlation_id`; the full error is in the server log under that id.
 
 ## Pre-change backup
 
@@ -177,7 +245,10 @@ username/password, and this is intentionally the only recovery path:
    against the live container) to print a bcrypt hash.
 2. Set that hash as the `AUTH_PASSWORD_HASH` environment variable on the `terrible-butler`
    container in unRAID's Docker template (update `AUTH_USERNAME` too if it's changing).
-3. Force update / restart the container for the new env vars to take effect.
+3. Force update / restart the container for the new env vars to take effect. On that start
+   the changed credential is detected and every JWT and device token is revoked (everyone
+   logs in again). Optional env `APP_ORIGIN` (e.g. `https://butler.kiztigs.com`) pins the
+   allowed Socket.IO origin; unset means same-origin (Origin host must equal the Host header).
 
 ## Deploy and verify
 
@@ -194,5 +265,3 @@ username/password, and this is intentionally the only recovery path:
 
 - Do not modify `.github/workflows/` unless the request is explicitly about CI.
 - Do not modify the live container, live database, or live uploads directory.
-- `public/index.html` is large; use `repository-reader` to locate the relevant section rather
-  than reading the whole file into context.
