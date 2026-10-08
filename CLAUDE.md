@@ -252,7 +252,7 @@ username/password, and this is intentionally the only recovery path:
 3. Force update / restart the container for the new env vars to take effect. On that start
    the changed credential is detected and every JWT and device token is revoked (everyone
    logs in again). Optional env `APP_ORIGIN` (e.g. `https://butler.kiztigs.com`) pins the
-   allowed Socket.IO origin; unset means same-origin (Origin host must equal the Host header).
+   allowed Socket.IO origin; unset means the request's own origin (scheme+host+port; forwarded headers only from a `TRUST_PROXY` peer), so behind TLS set `APP_ORIGIN` or `TRUST_PROXY`.
 
 ## Deploy and verify
 

@@ -35,6 +35,9 @@ describe('rate-limit client key', () => {
     for (let i = 0; i < 7; i++) codes.push(hit(loginRateLimiter, `2001:db8:77:1:${i}::${i + 1}`));
     expect(codes.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
     expect(codes.slice(5)).toEqual([429, 429]);
+    const res = { headers: {}, setHeader(k, v) { this.headers[k] = v; }, status() { return this; }, json() {} };
+    loginRateLimiter(reqFor('2001:db8:77:1:9::9'), res, () => {});
+    expect(Number(res.headers['Retry-After'])).toBeGreaterThan(0);
   });
 });
 

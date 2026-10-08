@@ -7,11 +7,10 @@ function registerHealthzRoute(app) {
   });
 }
 
-function registerApiHealthRoute(app, { APP_VERSION, authenticateToken }) {
+function registerApiHealthRoute(app, { APP_VERSION, credentialFromRequest }) {
   app.get('/api/health', (req, res) => {
-    const [scheme, token] = (req.headers['authorization'] || '').split(' ');
     const body = { status: 'ok' };
-    if (scheme === 'Bearer' && token && authenticateToken(token)) body.version = APP_VERSION;
+    if (credentialFromRequest(req)) body.version = APP_VERSION;
     res.json(body);
   });
 }

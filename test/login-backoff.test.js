@@ -18,9 +18,12 @@ describe('login backoff', () => {
   it('lets the first attempts through at once, then spaces them out up to the cap', () => {
     const { backoff } = clocked({ free: 2, baseMs: 100, capMs: 400, maxWaitMs: 100000 });
     const waits = Array.from({ length: 7 }, () => backoff.reserve().waitMs);
-    expect(waits.slice(0, 3)).toEqual([0, 0, 0]);
-    // each later attempt starts a growing gap after the previous one: 100, 200, 400, 400
-    expect(waits.slice(3)).toEqual([100, 300, 700, 1100]);
+    // exactly `free` attempts run at once; the very next one already waits baseMs
+    expect(waits.slice(0, 2)).toEqual([0, 0]);
+    expect(waits[2]).toBe(100);
+    // later gaps grow (doubling) and stop growing at the cap
+    const gaps = waits.slice(2).map((w, i, arr) => (i ? w - arr[i - 1] : w));
+    expect(gaps).toEqual([100, 100, 200, 400, 400]);
   });
 
   it('sheds load rather than queueing without bound, and says when to retry', () => {

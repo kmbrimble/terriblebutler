@@ -82,7 +82,7 @@ if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWO
   console.log('[Auth] Login credential changed since last start: all sessions and device tokens revoked.');
 }
 
-const { authenticateToken, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
+const { authenticateToken, credentialFromRequest, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
 
 // Helper to broadcast inventory updates via Socket.io
 const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry, app.get('trust proxy fn'));
@@ -99,7 +99,7 @@ registerLoginRoute(app, {
   authState,
 });
 
-registerApiHealthRoute(app, { APP_VERSION, authenticateToken });
+registerApiHealthRoute(app, { APP_VERSION, credentialFromRequest });
 
 app.use('/api', requireAuth);
 

@@ -7,6 +7,7 @@
 - **Socket.IO origin check compares scheme + host + port.** Without `APP_ORIGIN`, the expected origin is the socket's own scheme + `Host`, or `X-Forwarded-Proto`/`X-Forwarded-Host` when the direct peer is trusted per `TRUST_PROXY`. A missing Origin is still allowed (browsers omit it on same-origin polling GETs, native clients never send one; the token is still required).
 - **Public health endpoints no longer disclose the version.** `/healthz` and unauthenticated `/api/health` return `{status:"ok"}`; `/api/health` with a valid bearer credential also returns `version`. (Neither the client nor e2e used the version; e2e readiness only needs status.)
 - **Guard tests:** JWT algorithm pin (HS384/HS512/`alg:none` rejected), a route sweep generated from the live route table (every `/api/*` route but login/health is 401 unauthenticated and with a bad token; case / trailing slash / double slash / percent-encoded variants never serve data), and a test pinning the owner decision that device-token holders may list/revoke devices and sign out everywhere.
+- Household JWTs must now carry a finite `exp` (login always issues one); per-client 429s now send `Retry-After`.
 - No schema change, no migration.
 
 ## Decisions
@@ -15,4 +16,14 @@
 
 ## Deploy notes
 - **Socket.IO behind TLS needs `TRUST_PROXY` (or `APP_ORIGIN`).** Previously only the host was compared; now the scheme is too. With neither set, a browser on `https://butler.kiztigs.com` talking to the plain-http Node port would be refused. The recommended `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` (CLAUDE.md) plus NPM's default `X-Forwarded-Proto`/`X-Forwarded-Host` headers is sufficient; alternatively set `APP_ORIGIN=https://butler.kiztigs.com`. Verify the live template has one before releasing, then check the app still shows live updates.
+- **Prefer `APP_ORIGIN=https://butler.kiztigs.com`**: it does not depend on NPM emitting the right `X-Forwarded-Proto`, which cannot be verified from the repo.
 - Anything polling `/healthz` or `/api/health` for the version will now see none.
+
+## Review (code-diff-reviewer, range 1bb8eea..HEAD)
+- Score 10, CALL band. 3 Sonnet passes (first attempt hit the session limit and was re-run clean): NO FINDINGS. 1 Mythos pass: one single-pass finding, the Socket.IO scheme deploy dependency (UNVERIFIABLE FROM THIS REPO; covered in Deploy notes above). Counsel (gpt-5.6-terra) raised 6:
+  - JWT without `exp` accepted: **fixed** (+ test).
+  - First post-free login attempt not delayed: **fixed** (+ test). Real off-by-one.
+  - Device token written to action log: **false positive**, `logger.js` `SENSITIVE_KEY` redacts `token` (line 21).
+  - `loginAuditLogger` finish handler throwing: **false positive**, `logAction` catches internally (`logger.js:133-143`).
+  - `RateLimit-Reset` is an absolute epoch, not seconds: pre-existing, **deferred** (changing the header semantics affects clients; `Retry-After` now added instead).
+  - Loose `Authorization` split: pre-existing, **deferred**; parsing is now one shared `credentialFromRequest`.
