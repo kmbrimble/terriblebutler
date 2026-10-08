@@ -286,3 +286,33 @@ describe('parsed line values are validated (#42)', () => {
     expect(freshDb.prepare('SELECT COUNT(*) AS n FROM invoice_imports').get().n).toBe(0);
   });
 });
+
+describe('import commit cannot apply twice (#43)', () => {
+  it('a commit that passes the early status check after another has committed changes nothing', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network unreachable'));
+    const res = await importPdf(app, COLES_PDF);
+    const importId = res.body.import.id;
+    db.prepare("UPDATE invoice_import_lines SET line_status = 'skipped' WHERE import_id = ?").run(importId);
+    db.prepare("UPDATE invoice_import_lines SET line_status = 'reviewed' WHERE id = (SELECT MIN(id) FROM invoice_import_lines WHERE import_id = ?)").run(importId);
+    // Another request committed between this one's early check and its transaction.
+    db.prepare("UPDATE invoice_imports SET status = 'committed' WHERE id = ?").run(importId);
+    const realPrepare = db.prepare.bind(db);
+    let blinded = false;
+    vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+      if (!blinded && /SELECT \* FROM invoice_imports WHERE id = \?/.test(sql)) {
+        blinded = true;
+        return { get: (id) => ({ ...realPrepare(sql).get(id), status: 'in_progress' }) };
+      }
+      return realPrepare(sql);
+    });
+    const itemsBefore = db.prepare('SELECT COUNT(*) AS n FROM items').get().n;
+    const historyBefore = db.prepare('SELECT COUNT(*) AS n FROM price_history').get().n;
+
+    const second = await api(app).post(`/api/invoices/import/${importId}/commit`);
+
+    expect(blinded).toBe(true);
+    expect(second.status).toBe(409);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM items').get().n).toBe(itemsBefore);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM price_history').get().n).toBe(historyBefore);
+  });
+});

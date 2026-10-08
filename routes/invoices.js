@@ -358,13 +358,15 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           rememberMatch.run(normaliseName(line.raw_name), itemId);
           totalValue += line.line_total || 0;
         }
-        db.prepare("UPDATE invoice_imports SET status = 'committed' WHERE id = ?").run(importId);
+        // Conditional, as the last step: a commit that lost a race rolls everything back.
+        const flipped = db.prepare("UPDATE invoice_imports SET status = 'committed' WHERE id = ? AND status <> 'committed'").run(importId);
+        if (flipped.changes !== 1) throw new ValidationError('This import has already been committed', 409);
       })();
 
       broadcastUpdate('invoice_commit', {});
       res.json({ items_added: itemsAdded, items_matched: itemsMatched, total_value: Math.round(totalValue * 100) / 100 });
     } catch (err) {
-      sendServerError(res, err, 'Failed to commit invoice import');
+      sendMutationError(res, err, 'Failed to commit invoice import');
     }
   });
 }
