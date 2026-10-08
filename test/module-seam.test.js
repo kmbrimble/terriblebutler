@@ -48,11 +48,11 @@ const EXPECTED_ROUTES = [
   'DELETE /api/invoices/import/:id',
   'PATCH /api/invoices/import/:id/lines/:lineId',
   'POST /api/invoices/import/:id/commit',
-  'GET *',
+  'GET /{*splat}',
 ];
 
 function dumpRoutes(expressApp) {
-  return expressApp._router.stack
+  return expressApp.router.stack
     .filter((layer) => layer.route)
     .map((layer) => {
       const methods = Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]);

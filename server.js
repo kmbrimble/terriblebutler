@@ -32,6 +32,12 @@ const server = http.createServer(app);
 
 // Middleware setup
 app.use(express.json({ limit: '1mb' }));
+// Express 5 leaves req.body undefined when a request carries no body (Express 4 gave {}).
+// Handlers destructure req.body directly, so restore the empty-object default.
+app.use((req, res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 // The React client is now the default front end, served at /.
 app.use(express.static(path.join(__dirname, 'client/dist')));
@@ -100,7 +106,7 @@ registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload: middleware.invo
 // React client SPA fallback. Registered after every /api route (and /uploads, /legacy above)
 // so this wildcard can't shadow them — any request that fell through all of those is a
 // client-side route or a hard refresh/deep link into the React app.
-app.get('*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'));
 });
 

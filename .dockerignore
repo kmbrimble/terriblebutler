@@ -13,7 +13,7 @@ Download *
 index (1).html
 *.save
 test/
-vitest.config.js
+vitest.config.mjs
 *.md
 test-e2e/
 test-results/
