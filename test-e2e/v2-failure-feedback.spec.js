@@ -130,3 +130,22 @@ test('label scan: a failed parse shows a message instead of silently doing nothi
   await expect(toast(page)).toContainText(/parse|Simulated failure/i);
   await expect(page.getByTestId(ADD_MODAL)).toBeVisible();
 });
+
+test('duplicate panel: a double-click on "Add as new item anyway" saves exactly once', async ({ page }) => {
+  let posts = 0;
+  await page.route('**/api/items', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    posts += 1;
+    await new Promise((r) => setTimeout(r, 400));
+    return route.continue();
+  });
+  await page.goto('/');
+  await page.getByTestId(ADD_OPEN_BUTTON).click();
+  await page.getByTestId(ITEM_NAME_INPUT).fill(`${single.name} x`);
+  await page.getByTestId(ITEM_FORM_SUBMIT_BUTTON).click();
+  const panel = page.getByTestId('dup-check-panel');
+  await expect(panel).toBeVisible();
+  await panel.getByText('Add as new item anyway').dblclick();
+  await expect(page.getByTestId(ADD_MODAL)).toBeHidden();
+  expect(posts).toBe(1);
+});

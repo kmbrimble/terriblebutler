@@ -54,6 +54,22 @@ export function ItemFormModal({
   const [locationSuggestion, setLocationSuggestion] = useState<ReturnType<typeof deriveLabelScanUpdate>['locationSuggestion']>(null);
   const [parsingLabel, setParsingLabel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // One save at a time: the duplicate panel stays up until a save succeeds, so a second click
+  // while a request is in flight must not send it again.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
+  async function exclusive(fn: () => Promise<void>) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await fn();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
 
   function buildPayload(): ItemPayload {
     const payload: ItemPayload = {
@@ -116,11 +132,16 @@ export function ItemFormModal({
     else onClose();
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Read the submitter before the event is used asynchronously.
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    return exclusive(() => submit(submitter));
+  }
+
+  async function submit(submitter: HTMLButtonElement | null) {
     // Both Save and Save-and-Add-Another are type="submit" (so the Name field's native
     // `required` validation applies to either) — SubmitEvent.submitter tells them apart.
-    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const addAnother = submitter?.value === 'addAnother';
     const payload = buildPayload();
 
@@ -144,19 +165,21 @@ export function ItemFormModal({
     await submitPayload(payload, addAnother);
   }
 
-  async function useExisting(existingId: number) {
-    if (!pendingPayload) return;
-    await mergeInto(existingId, pendingPayload, pendingKeepOpen);
+  function useExisting(existingId: number) {
+    if (!pendingPayload) return Promise.resolve();
+    return exclusive(() => mergeInto(existingId, pendingPayload, pendingKeepOpen));
   }
 
-  async function proceedAsNew() {
-    if (!pendingPayload) return;
+  function proceedAsNew() {
+    if (!pendingPayload) return Promise.resolve();
     // The panel stays up until the save succeeds, so a failed attempt can be retried or switched
     // to "Use this".
-    if (await submitPayload(pendingPayload, pendingKeepOpen)) {
-      setDupMatch(null);
-      setPendingPayload(null);
-    }
+    return exclusive(async () => {
+      if (await submitPayload(pendingPayload, pendingKeepOpen)) {
+        setDupMatch(null);
+        setPendingPayload(null);
+      }
+    });
   }
 
   const typeLabel = (type: MatchResult['type']) =>
@@ -341,13 +364,13 @@ export function ItemFormModal({
                     <span className="text-sm text-rimmy-text">
                       {c.name} <span className="text-xs text-rimmy-textMuted">(qty {c.quantity}, {typeLabel(dupMatch.type)})</span>
                     </span>
-                    <button type="button" onClick={() => useExisting(c.id)} className="touch-target px-3 py-1 bg-rimmy-purple text-white text-xs font-bold rounded">
+                    <button type="button" disabled={saving} onClick={() => useExisting(c.id)} className="touch-target px-3 py-1 bg-rimmy-purple text-white text-xs font-bold rounded">
                       Use this
                     </button>
                   </div>
                 ))}
               </div>
-              <button type="button" onClick={proceedAsNew} className="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">
+              <button type="button" disabled={saving} onClick={proceedAsNew} className="text-xs underline text-rimmy-textMuted hover:text-rimmy-orange">
                 Add as new item anyway
               </button>
             </div>
@@ -363,12 +386,13 @@ export function ItemFormModal({
                 name="intent"
                 value="addAnother"
                 data-testid="item-form-save-add-another-button"
+                disabled={saving}
                 className="touch-target flex-1 bg-rimmy-purple hover:bg-rimmy-purpleHover text-white rounded font-bold text-sm"
               >
                 Save + Add Another
               </button>
             )}
-            <button type="submit" name="intent" value="save" data-testid="item-form-submit-button" className="touch-target flex-1 bg-rimmy-orange text-white rounded font-bold">
+            <button type="submit" name="intent" value="save" data-testid="item-form-submit-button" disabled={saving} className="touch-target flex-1 bg-rimmy-orange text-white rounded font-bold">
               Save
             </button>
           </div>

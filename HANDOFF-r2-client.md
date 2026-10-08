@@ -33,7 +33,6 @@ components, pass now. Client unit: new module absent before.
 - Visible behaviour change from the review fix: a blank location on "Use this"/exact-name auto-merge against a
   multi-location existing item used to silently land in a phantom Unassigned row; it now returns 400 and the
   toast asks the user to choose.
-- Other modals' submit handlers lacking try/catch (outside these two flows) were not touched.
 
 ## Review
 code-diff-reviewer: score 7 (MID), 3 Sonnet + 1 Mythos, all parsed, cost ~US$2.56; counsel offered but skipped — unattended.
@@ -45,3 +44,28 @@ client unit and e2e). Advisor consulted last; its wording fix applied.
 Deduct a multi-location item (picker defaults/toast); add an item that triggers "Use this" with a price and
 check the item's price history; a blank-location duplicate add on a multi-location item shows the
 "choose which one first" toast.
+
+## Follow-up: failure feedback everywhere + precise `/quantity` errors
+**Client audit.** Every async user action now goes through `client/src/lib/actionFeedback.ts`:
+`runAction` (returns `{ok}` so the dialog stays open / state reverts on failure), `reportAction`
+(fire-and-forget), and `installRejectionToast` (net in `main.tsx` for any handler that forgets). It is silent
+when a 401 has just cleared the token (the login redirect is already happening).
+Fixed (previously silent or unhandled): quick +/- buttons, ignore and open toggles (`useInventory`), QtyModal
+set and open-toggle (reverts), ItemFormModal save/duplicate-check/"Add as new anyway"/"Use this"/label parse,
+SuggestBlock create, InvoiceImportModal line patch and resume, CropModal confirm and rebuild.
+Already correct and left as is: Login, Manage categories/locations/devices, Deduct, QtyModal move, invoice
+cancel/commit/upload, price-history delete, details load, barcode scanner start (own try/catch + toast).
+Background socket refetches keep their silent `.catch` (not user actions; `refetchItems` sets the error state).
+`matchItem` used to swallow failures and return "no match" (silently skipping duplicate detection); it now throws.
+**Real bug found by the new guard:** CropModal's resize rebuild raised `$ready is not a function` as an unhandled
+rejection on every label-scan; now waits for `customElements.whenDefined('cropper-image')` and reports failures.
+**Review finding fixed:** panel stays up until a save succeeds, so a double-click could POST twice; added an
+in-flight guard (`exclusive`) and disabled buttons, with an e2e that double-clicks.
+**e2e guard:** `test-e2e/csp-guard.js` (auto fixture, every spec) now also fails on any `unhandledrejection` or
+`pageerror`. Failure-injection coverage: `test-e2e/v2-failure-feedback.spec.js` (7 tests). Unit: `actionFeedback.test.ts`,
+`api.test.ts` (matchItem). Jsdom is not in this project, so handler classes are covered by e2e plus the helper unit tests.
+**`PATCH /quantity` / move-location:** 404 item not found; 400 invalid action (checked before stock, so a bad action
+never reads as a stock problem) and ambiguous location; 409 "This item has no stock at that location";
+409 "Insufficient quantity" (the old "or item not found" wording is gone). Shared constants and `hasStockRow` in
+`routes/items.js`, also used by deduct and move-location. Tests in `test/item-merge-deduct.test.js`.
+Review: score 6 (MID), 3 Sonnet + 1 Mythos, none failed; counsel offered but skipped (unattended).
