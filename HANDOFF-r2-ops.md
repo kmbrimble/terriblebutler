@@ -1,7 +1,7 @@
 # HANDOFF — r2-ops (branch security/r2-ops, base 1bb8eea)
 
 ## Changelog-ready text
-- **Container hardening:** the entrypoint now validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` before chowning as root (absolute, normalised, strictly inside `/app`, not application code, mutually disjoint, symlinks may not escape) and exits with a clear message otherwise. `lib/config.js` applies the same rules.
+- **Container hardening:** the entrypoint now validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` before chowning as root (absolute, normalised, strictly inside `/app`, not application code, mutually disjoint, symlinks may not escape; logs may sit inside the data dir) and exits with a clear message otherwise. `lib/config.js` applies the same rules.
 - **Image contents:** the runtime stage copies an explicit allow-list instead of `COPY . .` (client source no longer in the image); `.dockerignore` excludes `.env*`, `*.pem`, `*.key`, `.npmrc` and similar.
 - **PDF parsing:** text extraction runs in a worker thread with a hard deadline (20 s) and heap ceiling (256 MB); the page bound is pinned by a test.
 - **Anthropic calls:** explicit per-attempt timeout (45 s) and 1 retry (SDK defaults were 10 min / 2).
@@ -26,7 +26,7 @@
 Behaviour change to check in the unRAID template: `DB_PATH`/`UPLOADS_DIR`/`LOG_DIR` outside `/app`, or containing characters other than letters, digits, `.`, `_`, `-`, now stop the container. The documented live mounts (`/app/data`, `/app/public/uploads`) are fine. No migrations. CHANGELOG/version untouched.
 
 ## Decisions
-- Stdout log copy kept (LOG_DIR is not a mounted volume, so `docker logs` is the durable copy) rather than dropped.
+- Stdout log copy kept rather than dropped (`docker logs` remains a second copy).
 - Entrypoint `APP_ROOT=/app` is hardcoded; tests rewrite that one line to a temp root.
 - Overlap check in config only applies when `WRITABLE_ROOT` is set (tests/local runs share one temp dir).
 - Invoice parse timeout surfaces via the existing 500 + correlation_id path (routes/invoices.js is r2-invoices' file; not edited).
@@ -45,3 +45,8 @@ The suppressor was dropped because the root-running entrypoint *is* the repo cha
 - Finding (A, 3/4, conf 85, Sonnet+Mythos): second fs stream on fd 1 fails with EAGAIN on a full pipe and then disables the stdout copy. **Fixed** (uses process.stdout). The real-pipe regression test did NOT fail against the old code in this environment; it is a no-crash guard, and the docker smoke is the evidence.
 - Counsel (openai/gpt-5.6-terra) was called (CALL band). Decisions: UPLOAD_TMP_DIR validation **fixed**; PDF env bounds **fixed**; primitive log bodies **fixed**; matchLinesWithLLM 2048-token budget **fixed** (scales with lines); backup reschedule overlap **fixed**; scratch-dir symlink/mode check **not acted on** (default is the container's own /tmp, attacker would need to be inside already); prompt-injection delimiting **not acted on** (pre-existing, out of scope, damage bounded by strict schema + id validation); bounding the `existingItems` list sent to matching **left** (r2-invoices' area).
 - The fix commits after the review (and these last changes) were not re-reviewed.
+
+## Round 2 additions
+- **Action logs persist.** `LOG_DIR` now defaults to `<dir of DB_PATH>/logs` (`/app/data/logs` in the container), on the already-mounted data volume beside `backups/`; the entrypoint's recursive chown of the data directory covers it, and the 30-day pruning runs there as before. `LOG_DIR` may sit inside the data directory but not be or contain it (entrypoint and `lib/config.js` agree, parity-tested). **Deploy effect:** no template change; after the update, new logs appear on the host at `/mnt/user/appdata/butler/data/logs/`. Logs in the old `/app/logs` (inside the container layer) are not migrated. The stdout copy is kept. Smoke checks the log file lands on the data volume.
+- **Scratch dir hardening.** At startup `UPLOAD_TMP_DIR` is created 0700 if absent; if present it must be a real directory (not a symlink), owned by the runtime user, mode 0700, or the process refuses to start. **Deploy effect:** a pre-existing `/tmp/butler-upload-tmp` with another mode or owner (only possible if the container's /tmp persisted) stops startup with a clear message.
+- **Prompt delimiting.** `buildPrompt` in `lib/llm-client.js`: instructions first, a data-not-instructions notice, then each piece of untrusted text in `<<<BEGIN DATA name id=…>>>` blocks with a per-request random id (so text cannot forge an end marker); lists are JSON. Used for classification, matching, label scan (also flags the image as data) and invoice parse. **Integration note:** `routes/invoices.js` (invoice parse call) and `routes/uploads.js` changed at the prompt-building lines only; r2-invoices touching the same lines will conflict trivially — keep the `buildPrompt` calls.

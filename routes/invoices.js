@@ -2,7 +2,7 @@ const Fuse = require('fuse.js');
 const { findMatch, normaliseName } = require('../item-matching');
 const { validateInvoiceItems } = require('../llm-schema');
 const { parseInvoice } = require('../parsers/router');
-const { callClaudeForJSON, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
+const { callClaudeForJSON, buildPrompt, classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
 const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
 const { cleanText, finiteNumber, normaliseBarcode, sendMutationError, sendServerError } = require('../lib/domain-helpers');
@@ -39,7 +39,10 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     try {
       const rawText = await extractPdfText(req.file.path);
       const parsedJson = await callClaudeForJSON({
-        userContent: `Parse the following supermarket invoice text. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).\n\n${rawText}`,
+        userContent: buildPrompt(
+          'Parse the supermarket invoice text in the invoice_text data block. Extract items and return a JSON object with a single key "items" containing an array of objects. Each object must have keys: "name" (string, cleaned title), "container_details" (string), "quantity" (number, strict Supplied/Picked only, ignore Ordered/Out of Stock), "price" (number, unit price), "vendor" (string).',
+          { invoice_text: rawText },
+        ),
         toolName: 'invoice_items',
         toolDescription: 'Record the invoice line items extracted from the supplied invoice text.',
         schema: {

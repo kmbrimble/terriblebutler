@@ -1,11 +1,11 @@
 // Benign generated PDF with N one-line text pages (no binary fixtures to commit).
-export function minimalPdf(pageCount) {
+export function minimalPdf(pageCount, lineFor = (i) => `Page ${i + 1}`) {
   const objs = [];
   objs.push('<< /Type /Catalog /Pages 2 0 R >>');
   const kids = Array.from({ length: pageCount }, (_, i) => `${3 + i * 2} 0 R`).join(' ');
   objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>`);
   for (let i = 0; i < pageCount; i++) {
-    const stream = `BT /F1 12 Tf 20 100 Td (Page ${i + 1}) Tj ET`;
+    const stream = `BT /F1 12 Tf 20 100 Td (${lineFor(i)}) Tj ET`;
     objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents ${4 + i * 2} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>`);
     objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   }

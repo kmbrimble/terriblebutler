@@ -64,9 +64,12 @@ middleware logic. The actual code lives in:
   `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
   `LOCATIONS_BREAKDOWN_SQL` fragments).
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
-  Messages API), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
+  Messages API), `buildPrompt` (every prompt with untrusted text — PDF text, label context, item/category/
+  location names — goes through it: random-id data blocks plus a data-not-instructions notice; the strict
+  schema remains the primary control), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
 - `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
-  (`UPLOAD_TMP_DIR`), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
+  (`UPLOAD_TMP_DIR`, verified at startup: a real directory, not a symlink, runtime-owned, mode 0700, else the
+  process refuses to start), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
   other than jpeg/png/webp blocked; HEIC/HEIF deliberately unsupported), `UPLOADS_DIR` storage, signed `/media/:name` delivery
   (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound (text extracted in a worker thread, `lib/pdf-worker.js`, with a hard deadline `PDF_PARSE_TIMEOUT_MS` default 20 s and heap ceiling `PDF_WORKER_MEMORY_MB` default 256).
   `items.image_path` holds the stored id; API/Socket.IO payloads carry a signed URL instead (via
@@ -156,8 +159,8 @@ from outside this project without checking against this list.
 ## Container runtime (non-root)
 
 The image starts `docker-entrypoint.sh` as root only to `chown` the writable paths
-(`/app/data` or the dir of `DB_PATH`, `UPLOADS_DIR` (default `/app/public/uploads`), `LOG_DIR` /
-`/app/logs`) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
+(`/app/data` or the dir of `DB_PATH`, `UPLOADS_DIR` (default `/app/public/uploads`), `LOG_DIR`
+(default `<dir of DB_PATH>/logs`, i.e. `/app/data/logs`, on the persistent data mount)) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
 runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 
 - `PUID` / `PGID` env vars, defaults `99` / `100` (unRAID nobody:users). Must be numeric and
@@ -166,7 +169,8 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   start; already-correct entries are skipped.
 - The entrypoint validates `DB_PATH`, `UPLOADS_DIR` and `LOG_DIR` before chowning anything: absolute,
   normalised (letters, digits, `.`, `_`, `-`), strictly inside `/app`, not in the application code
-  (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`), and mutually disjoint — otherwise
+  (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`), and mutually disjoint (`LOG_DIR` may sit
+  inside the data directory, as the default does, but not be or contain it) — otherwise
   it exits non-zero with a message. `UPLOAD_TMP_DIR`, if set, is validated by the app (well-formed, and
   not overlapping those directories inside the container, since it is swept at startup). `lib/config.js` `validateStoragePaths` applies the same rules
   (containment when `WRITABLE_ROOT` is set; the Dockerfile sets `/app`). `test/entrypoint.test.js`
@@ -193,6 +197,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 - The action log (`logger.js`) records only authenticated, non-throttled mutating calls
   (bodies redacted recursively and truncated); logins are body-less `event: login` audit lines.
   500 responses carry a `correlation_id`; the full error is in the server log under that id.
+  Action logs default to `<dir of DB_PATH>/logs` (persistent, beside `backups/`), kept 30 days.
   The stdout copy (what `docker logs` shows) is a bounded async stream, not `console.log`;
   `ACTION_LOG_STDOUT=0` disables it.
 - Anthropic calls use `ANTHROPIC_TIMEOUT_MS` (default 45000, per attempt) and `ANTHROPIC_MAX_RETRIES`
