@@ -102,3 +102,27 @@ describe('revokeAllSessions', () => {
     expect(localStorage.getItem('tb_token')).toBe('live-token');
   });
 });
+
+describe('mergeIntoItem', () => {
+  it('posts the whole pending payload (quantity, location and purchase record) to the merge endpoint', async () => {
+    const { mergeIntoItem } = await import('./api');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: 5 }) });
+    await mergeIntoItem(5, {
+      barcode: '', name: 'Milk', category_id: '', container_details: '', reorder_threshold: 0,
+      location_id: '', quantity: 2, price: 3.2, vendor: 'Shop', purchase_date: '2026-01-02',
+    });
+    const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('/api/items/5/merge');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).not.toHaveProperty('location_id');
+    expect(JSON.parse(init.body)).toEqual({ quantity: 2, price: 3.2, vendor: 'Shop', purchase_date: '2026-01-02' });
+  });
+});
+
+describe('matchItem', () => {
+  it('rejects when the duplicate check fails instead of quietly reporting "no match"', async () => {
+    const { matchItem } = await import('./api');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: 'Simulated failure' }) });
+    await expect(matchItem('Milk')).rejects.toThrow('Simulated failure');
+  });
+});

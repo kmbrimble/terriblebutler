@@ -15,6 +15,13 @@ const {
 } = require('../lib/domain-helpers');
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
+  // Shared 409 wording for stock changes: the target location has no row at all, vs. has too little.
+  const NO_STOCK_HERE = 'This item has no stock at that location';
+  const INSUFFICIENT = 'Insufficient quantity';
+  const hasStockRow = (id, locationId) => Boolean(locationId === null
+    ? db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)
+    : db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id = ?').get(id, locationId));
+
   app.get('/api/items', (req, res) => {
     const stmt = db.prepare(`
       SELECT items.*, locations.name as location_name, categories.name as category_name,
@@ -192,10 +199,11 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     try {
       const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0, max: QUANTITY_MAX });
       const action = req.body.action;
+      if (!['add', 'subtract', 'set'].includes(action)) return res.status(400).json({ error: 'Invalid quantity action' });
       const locationId = resolveTargetLocation(id, req.body.location_id);
+      if (action === 'subtract' && !hasStockRow(id, locationId)) return res.status(409).json({ error: NO_STOCK_HERE });
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, action, amount))();
-      if (changed === null) return res.status(400).json({ error: 'Invalid quantity action' });
-      if (!changed) return res.status(409).json({ error: 'Insufficient quantity or item not found' });
+      if (!changed) return res.status(409).json({ error: INSUFFICIENT });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
@@ -209,13 +217,41 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     try {
       const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001, max: QUANTITY_MAX });
       const locationId = resolveTargetLocation(id, req.body.location_id);
+      if (!hasStockRow(id, locationId)) return res.status(409).json({ error: NO_STOCK_HERE });
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, 'subtract', amount))();
-      if (!changed) return res.status(409).json({ error: 'Insufficient quantity' });
+      if (!changed) return res.status(409).json({ error: INSUFFICIENT });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);
       res.json(item);
     } catch (err) { sendMutationError(res, err, 'Failed to deduct quantity'); }
+  });
+
+  // "Use this" on a duplicate prompt: the pending add-form payload applied to an existing item in
+  // one transaction — stock at the chosen location plus the optional purchase record (#50).
+  app.post('/api/items/:id/merge', (req, res) => {
+    const id = Number(req.params.id);
+    if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
+    try {
+      const quantity = finiteNumber(req.body.quantity ?? 0, { name: 'Quantity', min: 0 });
+      const locationId = resolveTargetLocation(id, req.body.location_id);
+      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
+      const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
+      const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
+      const merge = db.transaction(() => {
+        upsertItemLocationQuantity(id, locationId, 'add', quantity);
+        if (price && price > 0) {
+          if (purchaseDate) db.prepare('INSERT INTO price_history (item_id, price, vendor, recorded_at) VALUES (?, ?, ?, ?)').run(id, price, vendor, purchaseDate);
+          else db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)').run(id, price, vendor);
+          recalculateItemPrices(id);
+        }
+        db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+        return getItem(id);
+      });
+      const item = merge();
+      broadcastUpdate('update_quantity', item);
+      res.json(item);
+    } catch (err) { sendMutationError(res, err); }
   });
 
   app.patch('/api/items/:id/move-location', (req, res) => {
@@ -228,12 +264,13 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
       if (fromLocationId === toLocationId) {
         return res.status(400).json({ error: 'Source and destination locations must be different' });
       }
+      if (!hasStockRow(id, fromLocationId)) return res.status(409).json({ error: NO_STOCK_HERE });
       const moved = db.transaction(() => {
         if (!upsertItemLocationQuantity(id, fromLocationId, 'subtract', amount)) return false;
         upsertItemLocationQuantity(id, toLocationId, 'add', amount);
         return true;
       })();
-      if (!moved) return res.status(409).json({ error: 'Insufficient quantity at the source location' });
+      if (!moved) return res.status(409).json({ error: INSUFFICIENT });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
       broadcastUpdate('update_quantity', item);

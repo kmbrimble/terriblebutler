@@ -26,6 +26,7 @@ import {
 import { createLineUpdateQueue } from '../lib/lineUpdateQueue';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
+import { runAction, reportAction } from '../lib/actionFeedback';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 export const ACTIVE_IMPORT_KEY = 'tb_active_import_id';
@@ -87,12 +88,13 @@ export function InvoiceImportModal({
   useEffect(() => {
     const activeId = localStorage.getItem(ACTIVE_IMPORT_KEY);
     if (!activeId) return;
-    getInvoiceImport(Number(activeId))
-      .then((result) => {
+    reportAction(
+      getInvoiceImport(Number(activeId)).then((result) => {
         if (result && result.import.status !== 'committed') setState(result);
         else localStorage.removeItem(ACTIVE_IMPORT_KEY);
-      })
-      .catch(() => {});
+      }),
+      'Could not resume your previous invoice import.'
+    );
   }, []);
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {

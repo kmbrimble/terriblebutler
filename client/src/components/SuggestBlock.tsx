@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { SuggestionState } from '../lib/labelScan';
+import { runAction } from '../lib/actionFeedback';
 
 // Ports renderSuggestBlock()/onSuggestSelectChange()/createSuggested()/applySuggestion() from
 // public/index.html. Legacy has separate but identical copies of this for category and
@@ -24,14 +25,19 @@ export function SuggestBlock({
 
   const testidPrefix = kind === 'category' ? 'category' : 'location';
 
+  async function create(name: string): Promise<number | null> {
+    const result = await runAction(() => onCreate(name), `Failed to create the ${kind}.`);
+    return result.ok ? result.value.id : null;
+  }
+
   async function handleUse() {
     let id: number | null;
     if (selectValue === '__custom__') {
       const name = customName.trim();
       if (!name) return;
-      id = (await onCreate(name).catch(() => null))?.id ?? null;
+      id = await create(name);
     } else if (selectValue === '__new__') {
-      id = (await onCreate(suggestion.suggestedName).catch(() => null))?.id ?? null;
+      id = await create(suggestion.suggestedName);
     } else {
       id = parseInt(selectValue, 10);
     }
