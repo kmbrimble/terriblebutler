@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
+import os from 'os';
+import express from 'express';
 import path from 'path';
 import sharp from 'sharp';
 import request from 'supertest';
@@ -122,6 +124,36 @@ describe('uploaded images are not reachable without a valid signature (#41)', ()
     }
     // Even a genuine signature cannot make a non-canonical name resolvable.
     expect(() => uploads.signMediaUrl('../server.js')).toThrow();
+  });
+
+  it('denyUploadsUnder keeps a static mount from serving the uploads dir, however the path is spelled', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'butler-static-'));
+    try {
+      fs.mkdirSync(path.join(root, 'uploads'));
+      fs.writeFileSync(path.join(root, 'uploads', 'secret.txt'), 'private');
+      fs.writeFileSync(path.join(root, 'ok.txt'), 'public');
+      const mini = express();
+      mini.use('/legacy', uploads.denyUploadsUnder(root, path.join(root, 'uploads')));
+      mini.use('/legacy', express.static(root));
+      for (const spelling of [
+        '/legacy/uploads/secret.txt',
+        '/legacy/%75ploads/secret.txt',
+        '/legacy//uploads/secret.txt',
+        '/legacy/uploads%2Fsecret.txt',
+        '/legacy/./uploads/secret.txt',
+        '/legacy/x/../uploads/secret.txt',
+        '/legacy/%E0%A4%A',
+      ]) {
+        const res = await request(mini).get(spelling);
+        expect([400, 404], spelling).toContain(res.status);
+        expect(res.text, spelling).not.toContain('private');
+      }
+      const control = await request(mini).get('/legacy/ok.txt');
+      expect(control.status).toBe(200);
+      expect(control.text).toBe('public');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('requires authentication to upload', async () => {

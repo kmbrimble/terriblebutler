@@ -50,9 +50,10 @@ uploads.registerMediaRoute(app);
 // legacy: the original front end, kept live at /legacy as a one-week rollback safety net
 // after the cutover to the React client (see CHANGELOG). Scoped entirely under /legacy, so
 // it can't shadow /api or /media regardless of registration order.
-// UPLOADS_DIR defaults to public/uploads, so keep stored images off this static mount: they are
-// delivered only by the signed /media route. (Drop this line if /legacy is retired.)
-app.use('/legacy/uploads', (req, res) => res.status(404).json({ error: 'Not found' }));
+// UPLOADS_DIR defaults to public/uploads, so stored images must stay off this static mount: they
+// are delivered only by the signed /media route. The check is on the decoded, normalised path
+// (see uploads.denyUploadsUnder). Drop it if /legacy is retired.
+app.use('/legacy', uploads.denyUploadsUnder(path.join(__dirname, 'public')));
 app.use('/legacy', express.static(path.join(__dirname, 'public')));
 
 // Verbose action logging (#14): every mutating /api/* call, request + response body.
