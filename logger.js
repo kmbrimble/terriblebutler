@@ -7,6 +7,12 @@
 // MAX_BUFFERED_BYTES are waiting on the disk, new entries are dropped (and counted) rather
 // than queued, so a slow disk can never grow memory or stall the event loop. The first entry
 // accepted after a drop is preceded by a `log_overflow` record saying how many were lost.
+//
+// The stdout copy (what `docker logs` shows, and the only copy that survives the container, since
+// LOG_DIR is not a mounted volume) is kept, but no longer a synchronous console.log: stdout to a
+// pipe or file blocks the event loop when the reader is slow. It is a second stream on fd 1 with
+// the same bound and overflow record (prefixed `[Action] `), so the two copies behave alike.
+// ACTION_LOG_STDOUT=0 turns the copy off (the test suite does, to keep its output readable).
 const fs = require('fs');
 const path = require('path');
 
@@ -72,7 +78,50 @@ function pruneOldLogs(maxAgeDays = MAX_AGE_DAYS) {
 
 let stream = null;
 let streamFile = null;
-let dropped = 0;
+const fileState = { dropped: 0 };
+
+// Writes one line to a bounded stream. `state.dropped` counts entries refused since the last
+// accepted one; the next accepted entry is preceded by a log_overflow record.
+function boundedWrite(out, state, line, prefix = '') {
+  if (out.writableLength > MAX_BUFFERED_BYTES) {
+    state.dropped += 1;
+    return;
+  }
+  if (state.dropped) {
+    out.write(`${prefix}${JSON.stringify({ time: new Date().toISOString(), event: 'log_overflow', dropped: state.dropped })}\n`);
+    state.dropped = 0;
+  }
+  out.write(`${prefix}${line}\n`);
+}
+
+const stdoutState = { dropped: 0 };
+let stdoutStream = null;
+let stdoutBroken = false;
+
+function adoptStdout(opened) {
+  opened.on('error', (err) => {
+    // A closed stdout (EPIPE) must not take the process down; the file copy carries on.
+    stdoutBroken = true;
+    if (stdoutStream === opened) stdoutStream = null;
+    try { process.stderr.write(`[Logger] stdout action log disabled: ${err.message}\n`); } catch { /* nothing left to report to */ }
+  });
+  stdoutStream = opened;
+}
+
+function activeStdout() {
+  if (stdoutStream) return stdoutStream;
+  if (stdoutBroken || process.env.ACTION_LOG_STDOUT === '0') return null;
+  adoptStdout(fs.createWriteStream(null, { fd: 1, autoClose: false }));
+  return stdoutStream;
+}
+
+// For tests: route the stdout copy to a different stream (or null to restore fd 1).
+function setStdoutStream(replacement) {
+  stdoutStream = null;
+  stdoutBroken = false;
+  if (replacement) adoptStdout(replacement);
+  stdoutState.dropped = 0;
+}
 
 function closeStream() {
   const closing = stream;
@@ -117,16 +166,7 @@ function activeStream() {
 }
 
 function writeLine(line) {
-  const out = activeStream();
-  if (out.writableLength > MAX_BUFFERED_BYTES) {
-    dropped += 1;
-    return;
-  }
-  if (dropped) {
-    out.write(JSON.stringify({ time: new Date().toISOString(), event: 'log_overflow', dropped }) + '\n');
-    dropped = 0;
-  }
-  out.write(line + '\n');
+  boundedWrite(activeStream(), fileState, line);
 }
 
 function logAction(entry) {
@@ -135,7 +175,8 @@ function logAction(entry) {
     if ('request_body' in entry) record.request_body = sanitize(entry.request_body);
     if ('response_body' in entry) record.response_body = sanitize(entry.response_body);
     const line = JSON.stringify(record);
-    console.log(`[Action] ${line}`);
+    const out = activeStdout();
+    if (out) boundedWrite(out, stdoutState, line, '[Action] ');
     writeLine(line);
   } catch (err) {
     // Logging is best-effort: it must never fail the request it describes.
@@ -143,7 +184,12 @@ function logAction(entry) {
   }
 }
 
-// Resolves once every accepted entry is on disk. Used by shutdown and by tests.
-const flush = closeStream;
+// Resolves once every accepted entry is on disk and handed to stdout. Used by shutdown and tests.
+// fd 1 is never closed; an empty write's callback fires once the writes before it are done.
+function flush() {
+  const out = stdoutStream;
+  const stdoutDone = out ? new Promise((resolve) => out.write('', () => resolve())) : Promise.resolve();
+  return Promise.all([closeStream(), stdoutDone]).then(() => undefined);
+}
 
-module.exports = { logAction, pruneOldLogs, weekStartLabel, currentLogFile, flush, sanitize, LOG_DIR, MAX_BUFFERED_BYTES };
+module.exports = { logAction, pruneOldLogs, weekStartLabel, currentLogFile, flush, sanitize, setStdoutStream, LOG_DIR, MAX_BUFFERED_BYTES };
