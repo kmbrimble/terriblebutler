@@ -73,7 +73,7 @@ async function centreOf(locator) {
 
 // Shares the mutationRateLimiter (90/60s)/generalApiRateLimiter (240/60s, GETs included)
 // budget with every other spec in the run — see v2-inventory.spec.js's header. Measured: the
-// legacy + v2-inventory + v2-login specs alone already consume 87/90 of the mutation budget
+// earlier specs (as measured when the legacy suite still existed: 87/90) consumed nearly all of the mutation budget
 // before this file even starts (confirmed by running the suite with this file held out) —
 // only ~3 mutations of headroom, nowhere near enough for this file's fixtures, regardless of
 // how aggressively they're consolidated. The mutationRateLimiter is a fixed window that resets

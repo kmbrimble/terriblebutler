@@ -32,9 +32,9 @@
 - `test-e2e/v2-feedback-and-locations.spec.js`: three ported specs above.
 
 ## Results (Node 24.21, this branch)
-- `npm test`: backend 280/280, client 125/125.
+- `npm test`: backend 281/281, client 125/125 (final tree).
 - Client `npm run build`: passes (tsc + vite).
-- e2e (`flock /tmp/butler-e2e.lock npm run test:e2e`): 55/55, every spec under the CSP-violation guard.
+- e2e (`flock /tmp/butler-e2e.lock npm run test:e2e`, re-run on the final tree): 55/55, every spec under the CSP-violation guard.
 - Docker smoke (image `butler-sectest:frontend`, dummy auth env, probed from inside the container): `/` returns the CSP and `camera=(self)`; `/legacy/` serves the SPA shell; `/font-licences/...` and `/theme-init.js` 200; `/app/public/uploads` exists owned by 99:users.
 
 ## Decisions
@@ -59,7 +59,10 @@
 - Barcode scanning against a real camera on a real device is untested (the fake-camera stream only proves the scanner starts under the CSP).
 - No Playwright coverage of the second browser context in `v2-inventory` for CSP (it opens its own context; the guard covers the default one).
 
+## Flagged, not fixed
+- CLAUDE.md's opening still says labels/invoices are parsed "via a local vision LLM", which contradicts constraint #6 (Anthropic Messages API). Pre-existing; other agents edit that file, so left for integration. (The "Chart.js" mention was dropped: the client draws the price chart itself and has no such dependency.)
+
 ## Process notes
 `repository-reader` was not used: the files involved were small or located by grep. 
 ## Review
-`code-diff-reviewer`: escalation score 4 (OWN band), 3 Sonnet passes, no Mythos/counsel by band. Two passes returned NO FINDINGS (a known failure mode, not evidence of clean code); one raised a single-pass finding, verified real and fixed: `moderndark.html` was moved to the generic `theme-init.js` and lost its dark-only lock (the old inline script set `data-theme-locked`, hiding the no-op Dark Mode toggle); it now loads `theme-init-locked.js`, with a `test/csp.test.js` guard on which page uses which script. Advisor pass run last (see the hand-back).
+`code-diff-reviewer`: escalation score 4 (OWN band), 3 Sonnet passes, no Mythos/counsel by band. Two passes returned NO FINDINGS (a known failure mode, not evidence of clean code); one raised a single-pass finding, verified real and fixed: `moderndark.html` was moved to the generic `theme-init.js` and lost its dark-only lock (the old inline script set `data-theme-locked`, hiding the no-op Dark Mode toggle); it now loads `theme-init-locked.js`, with a `test/csp.test.js` guard on which page uses which script. Advisor pass run last; it prompted a check that only two inline-script behaviours existed at base (confirmed: normal, and dark-locked for Pixel Art + Modern Dark).
