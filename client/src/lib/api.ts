@@ -544,16 +544,29 @@ export async function getDevices(): Promise<DeviceToken[]> {
   return res.json();
 }
 
-export async function revokeDevice(id: number): Promise<void> {
-  const res = await authorizedFetch(`/api/auth/devices/${id}/revoke`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to revoke device.');
+// Revoking needs a FRESH LOGIN: the household password is re-entered and sent in the request body
+// (never stored or logged), whatever token this device holds. A wrong password is a 403 with a
+// clear message, deliberately not a 401, so it never ends the session as an expired one would.
+async function postWithPassword(path: string, password: string, failure: string): Promise<void> {
+  const res = await authorizedFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || failure);
+  }
+}
+
+export function revokeDevice(id: number, password: string): Promise<void> {
+  return postWithPassword(`/api/auth/devices/${id}/revoke`, password, 'Failed to revoke device.');
 }
 
 // "Sign out everywhere": the server ends every household session and revokes every device
 // token, including this one, so on success this device's own token is dead too.
-export async function revokeAllSessions(): Promise<void> {
-  const res = await authorizedFetch('/api/auth/revoke-all', { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to sign out everywhere.');
+export async function revokeAllSessions(password: string): Promise<void> {
+  await postWithPassword('/api/auth/revoke-all', password, 'Failed to sign out everywhere.');
   endSession();
 }
 

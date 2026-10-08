@@ -79,27 +79,63 @@ describe('authorizedFetch 401 handling', () => {
 });
 
 describe('revokeAllSessions', () => {
-  it('ends the local session once the server has revoked everything', async () => {
+  const ok = { ok: true, status: 200, json: async () => ({ success: true }) };
+
+  it('sends the re-entered password and ends the local session once the server has revoked everything', async () => {
     const { revokeAllSessions, onAuthExpired } = await import('./api');
+    localStorage.setItem('tb_token', 'live-token');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(ok);
+    const cb = vi.fn();
+    onAuthExpired(cb);
+
+    await revokeAllSessions('hunter2');
+
+    expect(fetch).toHaveBeenCalledWith('/api/auth/revoke-all', expect.objectContaining({ method: 'POST', body: JSON.stringify({ password: 'hunter2' }) }));
+    expect(localStorage.getItem('tb_token')).toBeNull();
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the session and surfaces the server message on a wrong password (403 is not an expired session)', async () => {
+    const { revokeAllSessions, onAuthExpired } = await import('./api');
+    localStorage.setItem('tb_token', 'live-token');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'Incorrect password.' }) });
+    const cb = vi.fn();
+    onAuthExpired(cb);
+
+    await expect(revokeAllSessions('nope')).rejects.toThrow('Incorrect password.');
+    expect(localStorage.getItem('tb_token')).toBe('live-token');
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a generic message when the server gives none', async () => {
+    const { revokeAllSessions } = await import('./api');
+    localStorage.setItem('tb_token', 'live-token');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 500, json: async () => { throw new Error('no body'); } });
+
+    await expect(revokeAllSessions('pw')).rejects.toThrow('Failed to sign out everywhere.');
+    expect(localStorage.getItem('tb_token')).toBe('live-token');
+  });
+});
+
+describe('revokeDevice', () => {
+  it('posts the password to the device revoke endpoint and keeps the session', async () => {
+    const { revokeDevice, onAuthExpired } = await import('./api');
     localStorage.setItem('tb_token', 'live-token');
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200, json: async () => ({ success: true }) });
     const cb = vi.fn();
     onAuthExpired(cb);
 
-    await revokeAllSessions();
+    await revokeDevice(7, 'hunter2');
 
-    expect(fetch).toHaveBeenCalledWith('/api/auth/revoke-all', expect.objectContaining({ method: 'POST' }));
-    expect(localStorage.getItem('tb_token')).toBeNull();
-    expect(cb).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith('/api/auth/devices/7/revoke', expect.objectContaining({ method: 'POST', body: JSON.stringify({ password: 'hunter2' }) }));
+    expect(localStorage.getItem('tb_token')).toBe('live-token');
+    expect(cb).not.toHaveBeenCalled();
   });
 
-  it('keeps the session and throws when the server refuses', async () => {
-    const { revokeAllSessions } = await import('./api');
-    localStorage.setItem('tb_token', 'live-token');
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
-
-    await expect(revokeAllSessions()).rejects.toThrow();
-    expect(localStorage.getItem('tb_token')).toBe('live-token');
+  it('rejects with the server message on a wrong password', async () => {
+    const { revokeDevice } = await import('./api');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 403, json: async () => ({ error: 'Incorrect password.' }) });
+    await expect(revokeDevice(7, 'nope')).rejects.toThrow('Incorrect password.');
   });
 });
 

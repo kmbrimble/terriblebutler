@@ -3,7 +3,7 @@ import request from 'supertest';
 import crypto from 'crypto';
 import './setup.js';
 import pkg from '../server.js';
-import { api, TEST_TOKEN } from './setup.js';
+import { api, TEST_TOKEN, TEST_PASSWORD } from './setup.js';
 
 const { app, db } = pkg;
 
@@ -51,7 +51,7 @@ describe('device token as bearer auth', () => {
   it('rejects a revoked device token', async () => {
     const issued = await issueDeviceToken('Old tablet');
     const row = db.prepare('SELECT id FROM device_tokens WHERE device_label = ?').get('Old tablet');
-    await api(app).post(`/api/auth/devices/${row.id}/revoke`).send();
+    await api(app).post(`/api/auth/devices/${row.id}/revoke`).send({ password: TEST_PASSWORD });
 
     const res = await request(app)
       .get('/api/items')
@@ -140,7 +140,7 @@ describe('device management endpoints', () => {
   });
 
   it('404s when revoking a nonexistent device id', async () => {
-    const res = await api(app).post('/api/auth/devices/999999/revoke').send();
+    const res = await api(app).post('/api/auth/devices/999999/revoke').send({ password: TEST_PASSWORD });
     expect(res.status).toBe(404);
   });
 
@@ -148,7 +148,7 @@ describe('device management endpoints', () => {
     const issued = await issueDeviceToken('Revoke-me tablet');
     const row = db.prepare('SELECT id FROM device_tokens WHERE device_label = ?').get('Revoke-me tablet');
 
-    const revokeRes = await api(app).post(`/api/auth/devices/${row.id}/revoke`).send();
+    const revokeRes = await api(app).post(`/api/auth/devices/${row.id}/revoke`).send({ password: TEST_PASSWORD });
     expect(revokeRes.status).toBe(200);
 
     const listRes = await api(app).get('/api/auth/devices');

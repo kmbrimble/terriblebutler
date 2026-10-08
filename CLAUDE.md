@@ -50,7 +50,7 @@ middleware logic. The actual code lives in:
 - `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
   startup credential-fingerprint check.
 - `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
-  handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN` or same-origin), per-socket
+  handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN`, or the full scheme+host+port of the request, taking `X-Forwarded-Proto/Host` only from a `TRUST_PROXY` peer; a missing Origin is allowed, the token is still required), per-socket
   credential, `disconnectSockets`, `watchExpiry` (a socket never outlives its credential), `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
   dependency cycle — the composition root builds `server` from `app`, then calls this before
@@ -74,6 +74,7 @@ middleware logic. The actual code lives in:
   `parseItemLocations`). There is no static `/uploads` and, for now, no endpoint that stores
   client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
   delivery are the tested base for a future photo feature.
+- `lib/login-backoff.js` — `createLoginBackoff()`: account-level login backstop (delay, never lockout).
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
@@ -95,7 +96,16 @@ from outside this project without checking against this list.
 2. **App-level auth via JWT.** `POST /api/auth/login` (`routes/auth.js`) checks
    `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` (bcrypt) and returns a 30-day JWT. All `/api/*`
    routes require `Authorization: Bearer <token>` (`requireAuth` in `lib/middleware.js`)
-   except `/api/auth/login` and `/api/health`. Rate-limited to 5 attempts/15min on login.
+   except `/api/auth/login` and `/api/health` (status only; the version is shown only to an authenticated caller).
+   Login is rate-limited to 5 attempts/15min per client (IPv6 keyed on its /64), plus an account-wide
+   progressive delay (`lib/login-backoff.js`; a delay, deliberately not a lockout, so an attacker cannot lock the family out).
+   Revoking a device and "Sign out everywhere" require a FRESH LOGIN (owner decision): the household password is
+   re-entered in that request, for every credential type, so a stolen device token alone cannot revoke anything. A
+   remembered tablet can still cut off a lost phone, but only by someone who knows the password. The check is bcrypt,
+   shares the login rate limit and account backoff (a failed re-auth counts as a failed login), answers 403 (never 401,
+   which the client reads as an expired session) and is never logged. Listing devices needs any valid credential;
+   minting needs a household JWT. The client prompts via `PasswordConfirmDialog`.
+   `Authorization` is read in one place (`parseBearerToken`): exactly `Bearer <token>`, anything else is unauthenticated.
    Socket.IO validates the token on handshake (`lib/realtime.js`). Household JWTs carry a
    `jti` and the token epoch `ver` (`lib/auth-state.js`); a stale epoch is rejected, so
    `POST /api/auth/revoke-all` or a changed `AUTH_USERNAME`/`AUTH_PASSWORD_HASH` (detected at
@@ -187,7 +197,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
   list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
   so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
-  (IPv4-mapped IPv6 folded). Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
+  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.
@@ -254,7 +264,7 @@ username/password, and this is intentionally the only recovery path:
 3. Force update / restart the container for the new env vars to take effect. On that start
    the changed credential is detected and every JWT and device token is revoked (everyone
    logs in again). Optional env `APP_ORIGIN` (e.g. `https://butler.kiztigs.com`) pins the
-   allowed Socket.IO origin; unset means same-origin (Origin host must equal the Host header).
+   allowed Socket.IO origin; unset means the request's own origin (scheme+host+port; forwarded headers only from a `TRUST_PROXY` peer), so behind TLS set `APP_ORIGIN` or `TRUST_PROXY`.
 
 ## Deploy and verify
 

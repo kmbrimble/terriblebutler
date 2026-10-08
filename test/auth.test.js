@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import './setup.js';
 import pkg from '../server.js';
 import { TEST_USERNAME, TEST_PASSWORD } from './setup.js';
+import { loadFreshApp } from './fresh-app.js';
 
 const { app } = pkg;
 
@@ -44,6 +45,7 @@ describe('POST /api/auth/login', () => {
   });
 
   it('rate-limits repeated login attempts from the same IP', async () => {
+    const { app } = loadFreshApp({ LOGIN_RATE_LIMIT_MAX: '5' });
     for (let i = 0; i < 5; i++) {
       await request(app)
         .post('/api/auth/login')

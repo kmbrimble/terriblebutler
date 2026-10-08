@@ -10,7 +10,7 @@ vi.setConfig({ testTimeout: 30000 });
 
 // Each mode needs a fresh app: TRUST_PROXY is read once at config load.
 function loadApp(trustProxy) {
-  return loadFreshApp({ TRUST_PROXY: trustProxy }).app;
+  return loadFreshApp({ TRUST_PROXY: trustProxy, LOGIN_RATE_LIMIT_MAX: '5' }).app;
 }
 
 // Burns the login limiter (5 attempts) for `forwardedFor`, then reports how a sixth attempt
