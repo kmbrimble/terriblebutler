@@ -206,10 +206,41 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
     try {
       const amount = finiteNumber(req.body.amount, { name: 'Amount', min: 0.000001 });
       const locationId = resolveTargetLocation(id, req.body.location_id);
+      const stocked = locationId === null
+        ? db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(id)
+        : db.prepare('SELECT 1 FROM item_locations WHERE item_id = ? AND location_id = ?').get(id, locationId);
+      if (!stocked) return res.status(409).json({ error: 'This item has no stock at that location' });
       const changed = db.transaction(() => upsertItemLocationQuantity(id, locationId, 'subtract', amount))();
       if (!changed) return res.status(409).json({ error: 'Insufficient quantity' });
       db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
       const item = getItem(id);
+      broadcastUpdate('update_quantity', item);
+      res.json(item);
+    } catch (err) { sendMutationError(res, err); }
+  });
+
+  // "Use this" on a duplicate prompt: the pending add-form payload applied to an existing item in
+  // one transaction — stock at the chosen location plus the optional purchase record (#50).
+  app.post('/api/items/:id/merge', (req, res) => {
+    const id = Number(req.params.id);
+    if (!getItem(id)) return res.status(404).json({ error: 'Item not found' });
+    try {
+      const quantity = finiteNumber(req.body.quantity ?? 0, { name: 'Quantity', min: 0 });
+      const locationId = resolveTargetLocation(id, req.body.location_id);
+      const price = finiteNumber(req.body.price, { name: 'Price', min: 0, allowNull: true });
+      const vendor = cleanText(req.body.vendor || 'Manual entry', { max: 200 });
+      const purchaseDate = req.body.purchase_date ? cleanText(req.body.purchase_date, { max: 40 }) : null;
+      const merge = db.transaction(() => {
+        upsertItemLocationQuantity(id, locationId, 'add', quantity);
+        if (price && price > 0) {
+          if (purchaseDate) db.prepare('INSERT INTO price_history (item_id, price, vendor, recorded_at) VALUES (?, ?, ?, ?)').run(id, price, vendor, purchaseDate);
+          else db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)').run(id, price, vendor);
+          recalculateItemPrices(id);
+        }
+        db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(id);
+        return getItem(id);
+      });
+      const item = merge();
       broadcastUpdate('update_quantity', item);
       res.json(item);
     } catch (err) { sendMutationError(res, err); }
