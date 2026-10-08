@@ -4,11 +4,22 @@ import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
 // Ports handleImageSelection()/confirmCrop()/cancelCrop() from public/index.html. Cropper.js
 // 2.x is a Web Components rewrite (no getCroppedCanvas()/viewMode/autoCropArea): the crop is
-// read via the <cropper-selection> element's $toCanvas(), and the 2.x template is the
-// default with the selection covering the whole image initially (legacy's autoCropArea: 1).
+// read via the <cropper-selection> element's $toCanvas(), and the 2.x template is
+// customised below (selection covers the whole image initially, legacy's autoCropArea: 1).
 // cropperjs registers its custom elements at import time, which needs a DOM, so it is
 // imported dynamically in the effect rather than at module load (keeps node-env unit tests
 // that import this component working).
+
+// Cropper 1's `viewMode: 1` kept the crop box inside the image; 2.x has no such option, so the
+// selection could be dragged or resized past the image edge (transparent area, black in the
+// JPEG sent for label parsing). Fix: the selection starts covering the whole image and carries
+// `min-inset="0"`, which makes Cropper reject any change that would put an edge outside the
+// canvas (sized to the image in the effect below). That only equals "inside the image" while the image fills the canvas, so the image's
+// pan/zoom/rotate/skew attributes are dropped too (the crop is a region pick, not a viewer).
+const CROP_TEMPLATE = (base: string) =>
+  base
+    .replace('<cropper-image rotatable scalable skewable translatable>', '<cropper-image data-testid="crop-image-layer">')
+    .replace('<cropper-selection initial-coverage="0.5" movable resizable>', '<cropper-selection data-testid="crop-selection" initial-coverage="1" min-inset="0" movable resizable>');
 
 export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string; onConfirm: (blob: Blob) => void; onCancel: () => void }) {
   useLockBodyScroll();
@@ -24,17 +35,54 @@ export function CropModal({ imageSrc, onConfirm, onCancel }: { imageSrc: string;
     if (!imgRef.current) return undefined;
     setReady(false);
     let cancelled = false;
+    let observer: ResizeObserver | undefined;
     const timer = setTimeout(async () => {
       const { default: CropperCtor, DEFAULT_TEMPLATE } = await import('cropperjs');
-      if (cancelled || !imgRef.current) return;
-      cropperRef.current = new CropperCtor(imgRef.current, {
-        template: DEFAULT_TEMPLATE.replace('initial-coverage="0.5"', 'initial-coverage="1"'),
-      });
+      const source = imgRef.current;
+      const container = source?.parentElement;
+      if (cancelled || !source || !container) return;
+      await source.decode().catch(() => undefined);
+      if (cancelled || !source.naturalWidth || !source.naturalHeight) return;
+
+      // Cropper 2 leaves <cropper-canvas> at its 200x100 default rather than following the
+      // <img>, which shrinks the crop area and letterboxes the image. Size the canvas to the
+      // image's own aspect, contained in the available space (CSSOM, so CSP-safe), BEFORE the
+      // image initialises, so the canvas is exactly the image and the selection's min-inset
+      // bounds are the image edge. (Cropper cannot re-fit an initialised image, so a resize
+      // rebuilds the cropper instead.)
+      const build = async () => {
+        cropperRef.current?.destroy();
+        const cropper = new CropperCtor(source, { template: CROP_TEMPLATE(DEFAULT_TEMPLATE) });
+        cropperRef.current = cropper;
+        const styles = getComputedStyle(container);
+        const availableWidth = container.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+        const availableHeight = container.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom);
+        const scale = Math.min(availableWidth / source.naturalWidth, availableHeight / source.naturalHeight);
+        const canvas = cropper.getCropperCanvas();
+        if (canvas && scale > 0) {
+          canvas.style.width = `${Math.floor(source.naturalWidth * scale)}px`;
+          canvas.style.height = `${Math.floor(source.naturalHeight * scale)}px`;
+        }
+        await cropper.getCropperImage()?.$ready();
+      };
+
+      await build();
+      if (cancelled) return;
       setReady(true);
+      let lastWidth = container.clientWidth;
+      let lastHeight = container.clientHeight;
+      observer = new ResizeObserver(() => {
+        if (container.clientWidth === lastWidth && container.clientHeight === lastHeight) return;
+        lastWidth = container.clientWidth;
+        lastHeight = container.clientHeight;
+        void build();
+      });
+      observer.observe(container);
     }, 50);
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      observer?.disconnect();
       cropperRef.current?.destroy();
       cropperRef.current = null;
     };
