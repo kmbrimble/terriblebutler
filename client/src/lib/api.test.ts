@@ -77,3 +77,28 @@ describe('authorizedFetch 401 handling', () => {
     expect(cb).not.toHaveBeenCalled();
   });
 });
+
+describe('revokeAllSessions', () => {
+  it('ends the local session once the server has revoked everything', async () => {
+    const { revokeAllSessions, onAuthExpired } = await import('./api');
+    localStorage.setItem('tb_token', 'live-token');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, status: 200, json: async () => ({ success: true }) });
+    const cb = vi.fn();
+    onAuthExpired(cb);
+
+    await revokeAllSessions();
+
+    expect(fetch).toHaveBeenCalledWith('/api/auth/revoke-all', expect.objectContaining({ method: 'POST' }));
+    expect(localStorage.getItem('tb_token')).toBeNull();
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the session and throws when the server refuses', async () => {
+    const { revokeAllSessions } = await import('./api');
+    localStorage.setItem('tb_token', 'live-token');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+
+    await expect(revokeAllSessions()).rejects.toThrow();
+    expect(localStorage.getItem('tb_token')).toBe('live-token');
+  });
+});

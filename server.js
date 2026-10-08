@@ -7,6 +7,7 @@ const { scheduleNightlyBackup } = require('./backup');
 
 const config = require('./lib/config');
 const { openDatabase } = require('./lib/database');
+const { createAuthState } = require('./lib/auth-state');
 const { createRealtime } = require('./lib/realtime');
 const middleware = require('./lib/middleware');
 const { createDomainHelpers, checkDuplicateBarcodes } = require('./lib/domain-helpers');
@@ -76,10 +77,17 @@ const { db, dbPath } = openDatabase();
 const domainHelpers = createDomainHelpers(db);
 const { getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity } = domainHelpers;
 
-const { authenticateToken, requireAuth } = middleware.createAuth(db);
+const authState = createAuthState(db);
+// Rotating AUTH_PASSWORD_HASH / AUTH_USERNAME ends every session: the epoch bump makes
+// existing JWTs stale and revokes all device tokens (see lib/auth-state.js).
+if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWORD_HASH) === 'rotated') {
+  console.log('[Auth] Login credential changed since last start: all sessions and device tokens revoked.');
+}
+
+const { authenticateToken, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
 
 // Helper to broadcast inventory updates via Socket.io
-const { io, broadcastUpdate } = createRealtime(server, authenticateToken);
+const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry);
 
 // --- AUTH ---
 registerLoginRoute(app, {
@@ -87,13 +95,14 @@ registerLoginRoute(app, {
   AUTH_USERNAME: config.AUTH_USERNAME,
   AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
   JWT_SECRET: config.JWT_SECRET,
+  authState,
 });
 
 registerApiHealthRoute(app, { APP_VERSION });
 
 app.use('/api', requireAuth);
 
-registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken });
+registerDeviceTokenRoutes(app, { db, hashDeviceToken: middleware.hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets });
 
 // --- LOCATION ENDPOINTS ---
 registerLocationRoutes(app, { db, broadcastUpdate });

@@ -510,6 +510,14 @@ export async function revokeDevice(id: number): Promise<void> {
   if (!res.ok) throw new Error('Failed to revoke device.');
 }
 
+// "Sign out everywhere": the server ends every household session and revokes every device
+// token, including this one, so on success this device's own token is dead too.
+export async function revokeAllSessions(): Promise<void> {
+  const res = await authorizedFetch('/api/auth/revoke-all', { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to sign out everywhere.');
+  endSession();
+}
+
 export async function matchItem(name: string, barcode?: string): Promise<MatchResult | null> {
   const params = new URLSearchParams({ name });
   if (barcode) params.set('barcode', barcode);

@@ -29,7 +29,12 @@ process.env.AUTH_USERNAME = TEST_USERNAME;
 process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 4);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
 
-export const TEST_TOKEN = jwt.sign({ sub: TEST_USERNAME }, process.env.JWT_SECRET, { expiresIn: '30d' });
+// A fresh DB starts at token epoch 1 (lib/auth-state.js), so a household JWT for these tests
+// carries ver 1. Tests that bump the epoch must log in again for a current token.
+export const TEST_TOKEN = jwt.sign({ sub: TEST_USERNAME, ver: 1 }, process.env.JWT_SECRET, {
+  expiresIn: '30d',
+  jwtid: 'test-setup-jwt',
+});
 
 // Wraps supertest so every call in existing test files is authenticated by default,
 // without having to add `.set('Authorization', ...)` at each of the ~50 call sites.

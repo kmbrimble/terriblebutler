@@ -85,6 +85,22 @@ const migrations = [
       );
     `);
   },
+  // #5: session revocation (#49/#54). auth_state holds the token epoch + credential
+  // fingerprint; device_tokens.issued_by_jti records which household JWT minted each
+  // device token. Both also live in lib/database.js's base CREATE TABLE block for fresh
+  // installs. Existing device tokens get a NULL issued_by_jti (provenance unknown).
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS auth_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        token_epoch INTEGER NOT NULL DEFAULT 1,
+        credential_fingerprint TEXT
+      );
+    `);
+    if (hasTable(db, 'device_tokens') && !hasColumn(db, 'device_tokens', 'issued_by_jti')) {
+      db.exec('ALTER TABLE device_tokens ADD COLUMN issued_by_jti TEXT');
+    }
+  },
 ];
 
 module.exports = { runMigrations, hasColumn, hasTable, migrations };

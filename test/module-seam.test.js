@@ -15,6 +15,7 @@ const EXPECTED_ROUTES = [
   'POST /api/auth/device-token',
   'GET /api/auth/devices',
   'POST /api/auth/devices/:id/revoke',
+  'POST /api/auth/revoke-all',
   'GET /api/locations',
   'POST /api/locations',
   'PUT /api/locations/:id',

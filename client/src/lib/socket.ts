@@ -15,6 +15,9 @@ export function connectSocket(): Socket {
     socket.on('connect_error', (err: Error) => {
       if (err.message === 'Unauthorized') endSession();
     });
+    // Sent by the server just before it drops this socket because its credential was
+    // revoked (device revoked, or sign out everywhere).
+    socket.on('session_revoked', () => endSession());
   }
   socket.auth = { token: getToken() ?? '' };
   socket.connect();
