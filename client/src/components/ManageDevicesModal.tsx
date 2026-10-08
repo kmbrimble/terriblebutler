@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getDevices, revokeDevice, type DeviceToken } from '../lib/api';
+import { getDevices, revokeAllSessions, revokeDevice, type DeviceToken } from '../lib/api';
 import { showToast } from '../lib/toast';
 import { useLockBodyScroll } from '../lib/useLockBodyScroll';
 
@@ -25,6 +25,16 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
       refresh();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to revoke device.', 'error');
+    }
+  }
+
+  async function handleSignOutEverywhere() {
+    if (!window.confirm('Sign out everywhere? Every device, including this one, will need to log in again.')) return;
+    try {
+      // On success api.ts ends the session, which sends App back to the login screen.
+      await revokeAllSessions();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to sign out everywhere.', 'error');
     }
   }
 
@@ -63,6 +73,15 @@ export function ManageDevicesModal({ onClose }: { onClose: () => void }) {
             </li>
           ))}
         </ul>
+
+        <button
+          type="button"
+          data-testid="manage-devices-sign-out-everywhere"
+          onClick={handleSignOutEverywhere}
+          className="mt-4 shrink-0 text-red-500 hover:text-red-700 font-bold py-2 border border-rimmy-border rounded"
+        >
+          Sign out everywhere
+        </button>
       </div>
     </div>
   );

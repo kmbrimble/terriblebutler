@@ -42,15 +42,18 @@ middleware logic. The actual code lives in:
 - `lib/config.js` — env-derived constants (`APP_VERSION`, `JWT_SECRET`, `AUTH_USERNAME`,
   `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`).
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
+- `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
+  startup credential-fingerprint check.
 - `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
-  handshake auth, `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
+  handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN` or same-origin), per-socket
+  credential and `disconnectSockets`, `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
   dependency cycle — the composition root builds `server` from `app`, then calls this before
   registering any routes.
 - `lib/middleware.js` — security headers, the rate-limiter factory and its configured
   instances (`generalApiRateLimiter`, `mutationRateLimiterMiddleware`, `llmRateLimiter`,
-  `loginRateLimiter`), the multer upload configs, and `createAuth(db)` (`authenticateToken`,
-  `requireAuth`, `hashDeviceToken`).
+  `loginRateLimiter`), the multer upload configs, and `createAuth(db, authState)` (`authenticateToken`
+  returns the credential or null, `requireAuth`, `requireHouseholdJwt`; `hashDeviceToken` is a separate export).
 - `lib/domain-helpers.js` — item shaping/validation (`createDomainHelpers(db)` plus the pure
   helpers `cleanText`, `finiteNumber`, `parseIntOrNull`, `normaliseBarcode`,
   `sendMutationError`, `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
@@ -79,8 +82,11 @@ from outside this project without checking against this list.
    `AUTH_USERNAME` / `AUTH_PASSWORD_HASH` (bcrypt) and returns a 30-day JWT. All `/api/*`
    routes require `Authorization: Bearer <token>` (`requireAuth` in `lib/middleware.js`)
    except `/api/auth/login` and `/api/health`. Rate-limited to 5 attempts/15min on login.
-   Socket.IO validates the token on handshake (`lib/realtime.js`). Do not remove this auth
-   layer or make routes public without checking with the user first.
+   Socket.IO validates the token on handshake (`lib/realtime.js`). Household JWTs carry a
+   `jti` and the token epoch `ver` (`lib/auth-state.js`); a stale epoch is rejected, so
+   `POST /api/auth/revoke-all` or a changed `AUTH_USERNAME`/`AUTH_PASSWORD_HASH` (detected at
+   startup) ends every session and device token. Only a household JWT can mint device tokens.
+   Do not remove this auth layer or make routes public without checking with the user first.
 3. **Preserve the SQLite pragmas** (`lib/database.js`): `journal_mode = WAL`,
    `synchronous = FULL`, `foreign_keys = ON`.
 4. **Preserve `DB_PATH`** (`lib/database.js`):
@@ -107,6 +113,10 @@ from outside this project without checking against this list.
    `terrible-butler` on its unique port → app's own JWT auth.
 
 ## Database notes (read before any schema change)
+
+- Schema versioning is `PRAGMA user_version` via `db-migrations.js` (append-only list; see the
+  file). `auth_state` is a single row (token epoch + credential fingerprint, never the hash);
+  `device_tokens.issued_by_jti` records which household JWT minted each device token.
 
 - Live schema tables: `items`, `locations`, `categories`, `price_history`, plus a **vestigial
   `inventory` table** (`description, size, quantity`) left over from an early version. Confirm
@@ -193,7 +203,10 @@ username/password, and this is intentionally the only recovery path:
    against the live container) to print a bcrypt hash.
 2. Set that hash as the `AUTH_PASSWORD_HASH` environment variable on the `terrible-butler`
    container in unRAID's Docker template (update `AUTH_USERNAME` too if it's changing).
-3. Force update / restart the container for the new env vars to take effect.
+3. Force update / restart the container for the new env vars to take effect. On that start
+   the changed credential is detected and every JWT and device token is revoked (everyone
+   logs in again). Optional env `APP_ORIGIN` (e.g. `https://butler.kiztigs.com`) pins the
+   allowed Socket.IO origin; unset means same-origin (Origin host must equal the Host header).
 
 ## Deploy and verify
 

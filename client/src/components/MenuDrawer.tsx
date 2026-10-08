@@ -125,6 +125,7 @@ export function MenuDrawer({
           <button
             type="button"
             onClick={() => pick(onOpenManageDevices)}
+            data-testid="menu-manage-devices-button"
             className="w-full bg-rimmy-black border border-rimmy-border hover:border-rimmy-orange text-rimmy-text font-bold py-2 rounded shadow-sm text-sm"
           >
             Manage Devices

@@ -30,6 +30,7 @@ function signJwt(payload, secret, expiresInSeconds) {
   return `${signingInput}.${signature}`;
 }
 
-const TEST_TOKEN = signJwt({ sub: AUTH_USERNAME }, JWT_SECRET, 30 * 24 * 60 * 60);
+// The e2e server starts on a fresh DB, so its token epoch is 1; `ver` and `jti` are required.
+const TEST_TOKEN = signJwt({ sub: AUTH_USERNAME, ver: 1, jti: 'e2e-fixture' }, JWT_SECRET, 30 * 24 * 60 * 60);
 
 module.exports = { AUTH_USERNAME, AUTH_PASSWORD, JWT_SECRET, AUTH_PASSWORD_HASH, TEST_TOKEN, signJwt };
