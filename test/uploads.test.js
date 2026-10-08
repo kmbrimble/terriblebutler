@@ -150,6 +150,8 @@ describe('uploaded images are not reachable without a valid signature (#41)', ()
       }
       const unsigned = await request(app).get(`/media/${name}`);
       expect(unsigned.status).toBe(403);
+      // Errors carry the strict /media policy too, not the app-wide one.
+      expect(unsigned.headers['content-security-policy']).toBe("default-src 'none'; sandbox");
     } finally {
       fs.rmSync(path.join(tmpUploadsDir, name), { force: true });
     }
