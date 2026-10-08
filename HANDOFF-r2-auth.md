@@ -6,8 +6,7 @@
 - **Rate-limit bucket eviction can no longer release a lockout.** At the 50,000-bucket cap the oldest bucket that is not over its limit is dropped; only if every bucket is locked is the soonest-expiring lockout dropped (memory stays bounded).
 - **Socket.IO origin check compares scheme + host + port.** Without `APP_ORIGIN`, the expected origin is the socket's own scheme + `Host`, or `X-Forwarded-Proto`/`X-Forwarded-Host` when the direct peer is trusted per `TRUST_PROXY`. A missing Origin is still allowed (browsers omit it on same-origin polling GETs, native clients never send one; the token is still required).
 - **Public health endpoints no longer disclose the version.** `/healthz` and unauthenticated `/api/health` return `{status:"ok"}`; `/api/health` with a valid bearer credential also returns `version`. (Neither the client nor e2e used the version; e2e readiness only needs status.)
-- **Guard tests:** JWT algorithm pin (HS384/HS512/`alg:none` rejected), a route sweep generated from the live route table (every `/api/*` route but login/health is 401 unauthenticated and with a bad token; case / trailing slash / double slash / percent-encoded variants never serve data), and a test pinning the owner decision that device-token holders may list/revoke devices and sign out everywhere.
-- Superseded: the "device tokens may revoke" behaviour above; see Follow-up.
+- **Guard tests:** JWT algorithm pin (HS384/HS512/`alg:none`/no-`exp` rejected) and a route sweep generated from the live route table (every `/api/*` route but login/health is 401 unauthenticated and with a bad token; case / trailing slash / double slash / percent-encoded variants never serve data). Revoking a device and "Sign out everywhere" require the household password re-entered in the request (see Follow-up); that rule is pinned by `test/step-up-reauth.test.js`.
 - Household JWTs must now carry a finite `exp` (login always issues one); per-client 429s now send `Retry-After`.
 - No schema change, no migration.
 
@@ -27,6 +26,7 @@
 - Anything polling `/healthz` or `/api/health` for the version will now see none.
 
 ## Review (code-diff-reviewer, range 1bb8eea..HEAD)
+- Round 1 counsel attestation was incomplete (it recorded a hash of the diff, which was not what PAL sent; PAL embedded the full contents of lib/middleware.js, lib/login-backoff.js, lib/realtime.js, routes/auth.js, routes/health.js, server.js).
 - Score 10, CALL band. 3 Sonnet passes (first attempt hit the session limit and was re-run clean): NO FINDINGS. 1 Mythos pass: one single-pass finding, the Socket.IO scheme deploy dependency (UNVERIFIABLE FROM THIS REPO; covered in Deploy notes above). Counsel (gpt-5.6-terra) raised 6:
   - JWT without `exp` accepted: **fixed** (+ test).
   - First post-free login attempt not delayed: **fixed** (+ test). Real off-by-one.
@@ -47,3 +47,30 @@
   - O(n) eviction scan when all 50,000 buckets are locked: **accepted**, already marked with a `ponytail:` comment. Reaching it needs more than 5 attempts from each of 50,000 distinct /64s; the account backoff still protects the password in that case.
   - Authenticated unknown `/api/*` GETs return the SPA HTML with 200 instead of a JSON 404: pre-existing, **deferred** (server.js route order; unauthenticated callers still get 401).
   - `setDevices` after unmount in `ManageDevicesModal`: low, **deferred** (r2-client edits that file; no warning in React 19).
+
+### Counsel — openai/gpt-5.6-terra (follow-up review, verbatim)
+[🔴 CRITICAL] lib/middleware.js:80-89 – The authenticated action logger records raw request and response bodies, exposing household passwords and newly minted device tokens in logs. Excerpt: `request_body: req.body,` / `response_body: body,` `POST /api/auth/devices/:id/revoke` and `/api/auth/revoke-all` include `{ password }` (routes/auth.js:73-90), while `/api/auth/device-token` returns `{ token }` (routes/auth.js:101-104). Because these routes are mounted after `actionLogger` (server.js:106-112), both credentials are persisted wherever `logAction` writes or forwards logs. Anyone with log access can authenticate or perform destructive actions. → Fix: Redact sensitive fields before logging, without modifying the actual request/response objects. At minimum redact `password` and `token`, including recursively nested values if arbitrary JSON bodies are logged.
+
+[🟠 HIGH] lib/middleware.js:129-136 – The rate-limit bucket eviction has an attacker-triggerable O(n) scan over up to 50,000 entries and can be driven into its worst case by locking all buckets. Excerpt: `for (const [key, bucket] of buckets) {` When a map reaches `MAX_RATE_LIMIT_BUCKETS` and all buckets exceed their limit, every new source address scans all 50,000 entries to find the earliest reset. For an internet-facing service, an attacker controlling many IPv6 /64 prefixes or distributed clients can repeatedly trigger this path, consuming the Node.js event loop and degrading all requests. The current fallback also deliberately evicts a locked bucket: `buckets.delete(soonest);` This weakens the stated guarantee that flooding cannot release active lockouts. → Fix: Avoid scanning the complete map on the request path. Track eviction candidates in an O(1) or O(log n) structure, or use a deliberately simple bounded insertion-order policy that does not inspect every bucket. If preserving locked buckets is required, maintain separate candidate tracking for unlocked buckets and the earliest locked reset rather than recalculating it on every insertion.
+
+[🟡 MEDIUM] server.js:130-135 – The SPA fallback also handles unmatched `/api/*` requests, returning the React HTML document with HTTP 200 to authenticated callers instead of a JSON API 404. Excerpt: `app.get('/{*splat}', (req, res) => {` For example, an authenticated request to a misspelled API path falls through `requireAuth` and then receives `index.html`. This obscures routing errors, makes client error handling unreliable, and can cause API consumers to treat HTML as successful JSON data. → Fix: Register an explicit API 404 handler after all API routes and before the SPA fallback.
+
+[🟡 MEDIUM] routes/auth.js:51-56 and routes/auth.js:101-104 – Authentication and device-token responses do not explicitly prohibit storage by browsers or intermediary reverse proxies. Excerpt: `res.json({ token });` The endpoints return bearer credentials. Although well-behaved caches generally do not cache POST responses without explicit freshness directives, auth-bearing responses should explicitly declare that they must not be stored, especially when the application is internet-facing behind a reverse proxy. → Fix: Set `Cache-Control: no-store` on responses that issue credentials.
+
+[🟢 LOW] client/src/components/ManageDevicesModal.tsx:14-20 – The device-list request can complete after the modal has closed and call `setDevices` on an unmounted component. Excerpt: `getDevices().then(setDevices)` This is unlikely to cause a security issue, but it can produce stale updates during rapid modal open/close cycles and makes the request lifecycle less explicit. → Fix: Guard the completion with an effect-local cancellation flag.
+
+Counsel's summary: "The major remaining concern is that this otherwise sound credential handling is defeated by raw action logging of passwords and issued device tokens. The rate-limit implementation also has a realistic worst-case availability risk for an internet-facing process." Top 3 priorities it listed: redact secrets from `actionLogger`; remove the O(50,000) eviction scan; add an explicit `/api` 404 handler.
+
+(Code-fix snippets in the original are omitted here for length; the findings above are otherwise unedited.)
+
+```
+counsel seeding attestation
+  model:            openai/gpt-5.6-terra
+  issues_found:     [] (empty)
+  conclusions sent: none
+  excluded:         CHANGELOG.md, CLAUDE.md, commit messages
+  material sent:    full contents of lib/middleware.js, routes/auth.js, server.js,
+                    client/src/lib/api.ts, client/src/components/ManageDevicesModal.tsx,
+                    client/src/components/PasswordConfirmDialog.tsx (PAL fully_embedded)
+  prompt sha256:    5e064f371ba5232bfb86518efa436bcb92b00570c396a81235f8139af20415a2
+```

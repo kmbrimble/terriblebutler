@@ -65,7 +65,7 @@ function registerLoginRoute(app, { loginRateLimiter, loginBackoff, AUTH_USERNAME
 // (step-up), whatever credential type is presented, so a stolen device token alone cannot
 // revoke anything. A remembered tablet can still cut off a lost phone, but only by someone who
 // knows the household password. The check shares the login rate limit and account backoff, and
-// a wrong password counts as a failed login. test/auth-guards.test.js pins all of this.
+// a wrong password counts as a failed login. test/step-up-reauth.test.js pins all of this.
 function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH }) {
   const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH });
 
