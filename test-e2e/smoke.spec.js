@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { TITLE } from './testids.js';
 
 test('browser launches and loads a data URL', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import path from 'node:path';
 import {
   INVOICE_IMPORT_OPEN_BUTTON,

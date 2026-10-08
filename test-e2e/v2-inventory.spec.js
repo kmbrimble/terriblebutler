@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import {
   ITEM_CARD,
   ITEM_LIST,

@@ -32,11 +32,11 @@ describe('Content-Security-Policy', () => {
     expect(csp['base-uri']).toEqual(["'none'"]);
     expect(csp['frame-ancestors']).toEqual(["'none'"]);
     expect(csp['form-action']).toEqual(["'self'"]);
+    expect(csp['style-src']).toEqual(["'self'"]);
     for (const [name, values] of Object.entries(csp)) {
-      if (name === 'style-src') continue;
       expect(values, name).not.toContain("'unsafe-inline'");
+      expect(values, name).not.toContain("'unsafe-eval'");
     }
-    for (const values of Object.values(csp)) expect(values).not.toContain("'unsafe-eval'");
   });
 
   it('allows what the camera, crop and scanner flows need, and nothing third-party', async () => {

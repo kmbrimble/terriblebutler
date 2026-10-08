@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './csp-guard.js';
 import { AUTH_USERNAME, AUTH_PASSWORD } from './auth-fixtures.cjs';
 import { LOGIN_SCREEN, APP_ROOT, LOGIN_USERNAME_INPUT, LOGIN_PASSWORD_INPUT, LOGIN_SUBMIT_BUTTON, LOGIN_ERROR } from './testids.js';
 
