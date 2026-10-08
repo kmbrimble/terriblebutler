@@ -288,6 +288,13 @@ describe('uploaded content is validated, re-encoded and renamed server-side (#41
     await scratchEmpty();
   });
 
+  it('refuses a multipart request padded with extra fields', async () => {
+    let req = api(app).post('/api/upload-image').attach('image', await solid(8, 8).jpeg().toBuffer(), { filename: 'a.jpg', contentType: 'image/jpeg' });
+    for (let i = 0; i < 20; i++) req = req.field(`f${i}`, 'x');
+    expect((await req).status).toBe(400);
+    await scratchEmpty();
+  });
+
   it('keeps raw uploads out of the served directory while processing', async () => {
     await storeJpeg();
     for (const f of storedFiles()) expect(f).toMatch(/^[0-9a-f]{32}\.webp$/);
