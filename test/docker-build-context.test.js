@@ -12,9 +12,58 @@ const dockerfile = read('Dockerfile');
 const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf('\nFROM '));
 
 describe('.dockerignore', () => {
-  const rules = read('.dockerignore').split('\n').map((l) => l.trim());
-  it.each(['.env', '.env.*', '*.pem', '*.key', '.npmrc', '.git', 'node_modules', 'public/uploads/', 'data/'])(
-    'excludes %s from the build context', (rule) => expect(rules).toContain(rule));
+  const rules = read('.dockerignore').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  it.each(['.git', 'node_modules', 'public/uploads/', 'data/'])('excludes %s from the build context', (rule) => expect(rules).toContain(rule));
+
+  // Docker's matching: `**/` is any directory depth (including none), `*` stays within one path
+  // segment, and a trailing `/` means a directory and everything under it.
+  const toRegExp = (rule) => {
+    const body = rule.replace(/\/$/, '').replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*\//g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '(?:.*/)?');
+    return new RegExp(`^${body}(?:/.*)?$`);
+  };
+  const ignored = (file) => rules.some((rule) => toRegExp(rule).test(file));
+
+  it.each([
+    '.env', '.env.local', '.env.production', 'client/.env', 'client/.env.production', 'a/b/c/.env',
+    'server.pem', 'certs/server.pem', 'tls/private.key', 'client/deploy.key', 'bundle.p12', 'x/bundle.pfx',
+    '.npmrc', 'client/.npmrc', '.netrc', 'home/.netrc', '.aws/credentials', 'x/.aws/config', '.ssh/id_rsa', 'x/.ssh/known_hosts',
+    'id_rsa', 'id_rsa.pub', 'keys/id_rsa', 'id_ed25519', 'keys/id_ed25519.pub',
+  ])('keeps the secret-looking file %s out of the build context', (file) => expect(ignored(file), file).toBe(true));
+
+  it.each([
+    'server.js', 'package.json', 'lib/config.js', 'client/src/main.tsx', 'client/package.json', 'docker-entrypoint.sh', 'routes/auth.js',
+    'client/public/theme-init.js', 'scripts/generate-password-hash.js', 'lib/environment.js',
+  ])('does not exclude %s, which the build needs', (file) => expect(ignored(file), file).toBe(false));
+});
+
+describe('docker-compose.yml', () => {
+  const compose = read('docker-compose.yml');
+  const live = compose.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+
+  it('has no obsolete top-level version key', () => expect(compose).not.toMatch(/^version:/m));
+
+  it('does not publish the Node port on any host interface by default (constraint #8)', () => {
+    expect(live).not.toMatch(/^\s*ports:/m);
+    expect(live).not.toMatch(/2626:2626/);
+  });
+
+  it('shows a loopback-only publish for local development, commented out', () => {
+    expect(compose).toMatch(/^\s*#\s*- "127\.0\.0\.1:2626:2626"/m);
+  });
+
+  it('attaches to the reverse proxy network, declared external', () => {
+    expect(live).toMatch(/networks:\s*\n\s*- proxynet/);
+    expect(live).toMatch(/^networks:\s*\n\s*proxynet:\s*\n(?:\s*#.*\n)?\s*external: true/m);
+  });
+
+  it('keeps the data and uploads mounts and the TRUST_PROXY guidance, including the gateway warning', () => {
+    expect(live).toMatch(/- \.\/data:\/app\/data/);
+    expect(live).toMatch(/- \.\/uploads:\/app\/public\/uploads/);
+    expect(compose).toMatch(/TRUST_PROXY=/);
+    expect(compose).toMatch(/gateway/i);
+    expect(compose).toMatch(/published host port/i);
+  });
 });
 
 describe('runtime stage copies an explicit allow-list', () => {
@@ -77,7 +126,7 @@ describe('UPLOADS_DIR default is the bind-mount target', () => {
     delete process.env.UPLOADS_DIR;
     process.env.AUTH_USERNAME ??= 'u';
     process.env.AUTH_PASSWORD_HASH ??= `$2b$10$${'a'.repeat(53)}`;
-    process.env.JWT_SECRET ??= 'x'.repeat(32);
+    process.env.JWT_SECRET ??= 'a'.repeat(64);
     const modPath = require.resolve('../lib/config');
     delete require.cache[modPath];
     try {

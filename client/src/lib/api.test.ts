@@ -170,16 +170,34 @@ describe('password confirmation rate limit (429)', () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: false,
       status: 429,
-      headers: new Headers({ 'Retry-After': '600' }),
+      headers: new Headers({ 'Retry-After': '600', 'RateLimit-Limit': '5' }),
       json: async () => ({ error: 'Too many requests. Please try again shortly.' }),
     });
-    await expect(revokeDevice(1, 'pw')).rejects.toThrow(/5 attempts every 15 minutes.*10 minutes/);
+    await expect(revokeDevice(1, 'pw')).rejects.toThrow(/allows 5 attempts at a time.*10 minutes/);
+  });
+
+  it('takes the attempt limit from the server, not a constant', async () => {
+    const { revokeDevice } = await import('./api');
+    localStorage.setItem('tb_token', 't');
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '30', 'RateLimit-Limit': '12' }),
+      json: async () => ({}),
+    });
+    const error = await revokeDevice(1, 'pw').catch((e: Error) => e);
+    expect((error as Error).message).toMatch(/allows 12 attempts at a time.*30 seconds/);
+    expect((error as Error).message).not.toMatch(/\b5\b|15 minutes/);
   });
 
   it('falls back to a generic wait when Retry-After is absent', async () => {
     const { passwordAttemptsMessage } = await import('./api');
     expect(passwordAttemptsMessage(null)).toMatch(/a few minutes/);
     expect(passwordAttemptsMessage('45')).toMatch(/45 seconds/);
+    // no limit header: nothing is claimed about the number
+    expect(passwordAttemptsMessage('45', null)).not.toMatch(/\d+ attempts?/);
+    expect(passwordAttemptsMessage(null, 'abc')).toMatch(/rate limited/);
+    expect(passwordAttemptsMessage(null, '1')).toMatch(/1 attempt at a time/);
   });
 });
 

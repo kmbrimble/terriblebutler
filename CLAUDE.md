@@ -30,6 +30,12 @@ milestone itself.
 - **Client unit (Vitest):** `npm run test:client` — tests beside the code in `client/src/`
 - **Frontend (Playwright):** `npm run test:e2e` — tests in `test-e2e/`
 
+`npm test` also runs ShellCheck over every `*.sh` (`test/shellcheck.test.js`). ShellCheck 0.11.0 is fetched once into `node_modules/.cache`
+from the official GitHub release and its SHA-256 is verified against a value pinned in `scripts/ensure-shellcheck.js` (needs network the
+first time, and `tar` with xz or `python3` to unpack; or set `SHELLCHECK_BIN`). Scanner hygiene: `semgrep --config p/default` and
+`hadolint Dockerfile` are kept clean; a justified false positive gets an inline `nosemgrep: <rule-id> -- reason` (checked by
+`test/repo-config.test.js`).
+
 Run `npm test` for any change. Also run `npm run test:e2e` if `client/` or anything
 affecting browser behaviour changed.
 
@@ -45,11 +51,15 @@ middleware logic. The actual code lives in:
 - `lib/config.js` — env-derived constants (`APP_VERSION`, `UPLOADS_DIR`, `JWT_SECRET`, `AUTH_USERNAME`,
   `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`). Startup fails (non-zero exit,
   variable named, value never printed) unless `AUTH_PASSWORD_HASH` is a bcrypt hash with a cost of
-  10-31 and `JWT_SECRET` is at least 32 characters.
+  10-31 and `JWT_SECRET` is machine-generated: at least 64 hexadecimal characters (32 bytes, `openssl rand -hex 32`). The
+  decoded bytes (`JWT_KEY`) are the key for JWT signing and the HKDF input for the media-URL key; the hex string itself is never used as a key.
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
 - `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
   startup credential-fingerprint check.
-- `lib/realtime.js` — `createRealtime(server, authenticateToken)`: Socket.IO construction,
+- `lib/realtime.js` — `createRealtime(server, authenticateToken, …, limits)`: Socket.IO construction, connection limits (handshake
+  rate `SOCKET_HANDSHAKE_RATE_LIMIT_MAX` 60/min, open sockets `SOCKET_MAX_PER_CLIENT` 20 and `SOCKET_MAX_TOTAL` 200, keyed exactly as the
+  Express limiters key clients — `proxy-addr` over the same compiled `TRUST_PROXY`, IPv6 /64 — and counted at the engine level so a
+  socket that never authenticates still counts),
   handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN`, or the full scheme+host+port of the request, taking `X-Forwarded-Proto/Host` only from a `TRUST_PROXY` peer; a missing Origin is allowed, the token is still required), per-socket
   credential, `disconnectSockets`, `watchExpiry` (a socket never outlives its credential), `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
@@ -84,6 +94,12 @@ middleware logic. The actual code lives in:
 - `lib/invoice-retention.js` — uncommitted invoice imports older than `INVOICE_IMPORT_RETENTION_DAYS`
   (default 30, max 3650) are deleted, lines first, at startup and daily; this also frees their duplicate key.
   Committed imports are never touched.
+- `lib/work-gate.js` — `createWorkGate({ concurrency, queue })`: the small semaphore with a bounded queue behind `heavyWork`
+  in `lib/uploads.js`. PDF extraction, `storeUploadedImage` and the label scanner's image decode/resize all run through it
+  (`HEAVY_WORK_CONCURRENCY` default 2, `HEAVY_WORK_QUEUE` default 4); beyond that the request is a 503 with `Retry-After` and
+  the upload is discarded. Per-client rate limits cannot bound what many clients ask at once; this does.
+- `lib/rate-limit-core.js` — config-free parts of rate limiting (`keyForAddress`: IPv4 / IPv6 /64 fold; `createHitCounter`: the
+  bounded fixed-window counter) shared by the Express limiters and the Socket.IO handshake limiter.
 - `lib/shutdown.js` — `setupGracefulShutdown({ db, io, server })`.
 - `routes/*.js` — one file per route group (`health`, `auth`, `locations`, `categories`,
   `items`, `price-history`, `uploads`, `invoices`), each exporting a `register*(app, deps)`
@@ -117,7 +133,13 @@ from outside this project without checking against this list.
    shares the login rate limit and account backoff (a failed re-auth counts as a failed login), answers 403 (never 401,
    which the client reads as an expired session) and is never logged. Listing devices needs any valid credential;
    minting needs a household JWT. The client prompts via `PasswordConfirmDialog`.
+   Passwords over 1024 bytes are simply wrong, at login and at re-auth: same backoff slot, same 401/403 as any wrong password,
+   and bcrypt is never called. (bcrypt itself only reads the first 72 bytes of a password, so a longer password's tail is
+   ignored; the 1024-byte bound exists to stop oversized input, it is not a statement that longer passwords are stronger.)
    `Authorization` is read in one place (`parseBearerToken`): exactly `Bearer <token>`, anything else is unauthenticated.
+   JSON bodies are parsed only under `/api`, after the general/mutation limiters and `requireAuth` (login: after its own limiter), via
+   `middleware.jsonBody` (which also restores the `req.body = {}` default); nothing outside `/api` parses a body, and a throttled or
+   unauthenticated caller never makes the server buffer one.
    Socket.IO validates the token on handshake (`lib/realtime.js`). Household JWTs carry a
    `jti` and the token epoch `ver` (`lib/auth-state.js`); a stale epoch is rejected, so
    `POST /api/auth/revoke-all` or a changed `AUTH_USERNAME`/`AUTH_PASSWORD_HASH` (detected at
@@ -168,7 +190,9 @@ from outside this project without checking against this list.
   `retailer|sha256:<normalised PDF text>`, so a re-import gets a 409 `duplicate_invoice`),
   `invoice_import_lines.category_cleared` / `location_cleared` (an explicit "none" must not revert to the
   suggestion at commit), and triggers rejecting negative `item_locations.quantity` (SQLite cannot add a
-  CHECK without a table rebuild). Cancelling an in-progress import frees its key; a committed one keeps it.
+  CHECK without a table rebuild). `QUANTITY_GUARD_SQL` (`db-migrations.js`) is re-run idempotently at every start, and 0.43 added to it
+  `item_locations_quantity_max_insert/_update` (refuse a quantity above `QUANTITY_MAX`, 1,000,000, or an *increase* past it; a legacy larger row can
+  still be reduced) with no new migration: `IF NOT EXISTS` triggers, no data touched. Changing the number later needs a migration that drops and recreates them. Cancelling an in-progress import frees its key; a committed one keeps it.
 - Live schema tables: `items`, `locations`, `categories`, `price_history`, `device_tokens`,
   `auth_state`, the invoice-import staging tables, plus a **vestigial `inventory` table**
   (`description, size, quantity`) left over from an early version. Confirm nothing references
@@ -225,10 +249,27 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   Action logs default to `<dir of DB_PATH>/logs` (persistent, beside `backups/`), kept 30 days.
   The stdout copy (what `docker logs` shows) is a bounded async stream, not `console.log`;
   `ACTION_LOG_STDOUT=0` disables it.
+- Socket.IO handshakes are limited separately (they bypass the Express limiters): `SOCKET_HANDSHAKE_RATE_LIMIT_MAX` (60/min per client),
+  `SOCKET_MAX_PER_CLIENT` (20 open) and `SOCKET_MAX_TOTAL` (200 open); refused handshakes are a 403 from engine.io.
+- Heavy upload work (PDF extraction, image decode/re-encode) is bounded process-wide: `HEAVY_WORK_CONCURRENCY` (2 at once) and
+  `HEAVY_WORK_QUEUE` (4 waiting), else 503 + `Retry-After: 5`. `INVOICE_MATCH_MAX_ITEMS` (400) caps the existing items offered to the
+  LLM matcher per import: an inventory that size or smaller is sent whole, a larger one is narrowed to the items sharing rare words with
+  the invoice's lines (`item-matching.js` `selectMatchCandidates`). All integer settings accept plain decimal digits only; anything else
+  (`1e3`, `0x10`, blanks, out of range) falls back to the default.
 - Anthropic calls use `ANTHROPIC_TIMEOUT_MS` (default 45000, per attempt) and `ANTHROPIC_MAX_RETRIES`
   (default 1); the SDK's own defaults are 10 minutes and 2.
 - Nightly DB backups (`backup.js`) are named `inventory-<UTC timestamp>.db`, kept 14 days; the older
   date-only names are still pruned.
+
+### Deployment and published ports
+
+`docker-compose.yml` is a reference file: it does not publish 2626 at all (constraint #8) and attaches the service to the reverse
+proxy's external network (`proxynet`). For local development only, publish it on loopback (`127.0.0.1:2626:2626`), never on all
+interfaces. `TRUST_PROXY` must list only the proxy's own network: never a network whose gateway can carry direct client traffic, because
+a published host port can arrive from the Docker gateway (userland proxy, host-local clients), and trusting that range lets such a
+caller choose its own client address. The unRAID template does publish 2626 (the proxy needs it), so keep `TRUST_PROXY` as narrow as the
+proxy's own address where practical, and check after any network change which source address a direct request to the published port
+arrives from.
 
 ## Pre-change backup
 
@@ -301,6 +342,22 @@ username/password, and this is intentionally the only recovery path:
    no 502 is expected.
 4. For UI changes, tell the user to eyeball `https://butler.kiztigs.com` — the automated
    Playwright tests confirm behaviour, not visual correctness.
+
+## Accepted by design (do not "fix")
+
+Reviewed and decided by the owner; a scanner or reviewer flagging these has found a trade-off, not a defect.
+
+- **Full request and response bodies are in the authenticated action log** (`logger.js`, `actionLogger`) — the owner asked for
+  verbose logging (#14). Secrets are redacted recursively and long values truncated; only authenticated, non-throttled mutating calls
+  are logged, and logins are body-less audit lines.
+- **The account-wide login backoff can be held full by a distributed attacker**, which slows (or intermittently 429s) *new* logins.
+  It never locks anyone out and never touches existing sessions or device tokens (`lib/login-backoff.js`). A hard lockout would let
+  anyone who can reach the login lock the family out, which is strictly worse.
+- **The text-hash invoice dedupe fallback cannot match a re-rendered PDF that has no invoice number** (`lib/invoice-dedupe.js`). With an
+  invoice number the key is `retailer|no:<number>`; without one the key is a hash of the extracted text, so only an identical rendering
+  matches.
+- **The JWT lives in `localStorage`** (client). The XSS control is the strict CSP (constraint #9), not cookie flags; there are no cookies
+  for the API, which is also why no CSRF middleware is needed.
 
 ## Scope notes
 

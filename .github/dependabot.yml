@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Let a new release age a week before a version-update PR is raised, so a compromised or
+    # withdrawn release is usually caught first. Security updates are not delayed by this.
+    cooldown:
+      default-days: 7
     groups:
       server-minor-patch:
         update-types: [minor, patch]
@@ -15,6 +19,9 @@ updates:
     directory: /client
     schedule:
       interval: weekly
+    # Cooldown: see the first block.
+    cooldown:
+      default-days: 7
     groups:
       client-minor-patch:
         update-types: [minor, patch]
@@ -26,11 +33,17 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Cooldown: see the first block.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # Cooldown: see the first block.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

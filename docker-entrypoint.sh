@@ -60,11 +60,20 @@ check_path() {
   esac
 }
 
+# True when $1 is $2 or lies inside it (both already normalised: no trailing slash).
+is_within() {
+  case "$1/" in
+    "$2"/*) return 0 ;;
+  esac
+  return 1
+}
+
 # Two writable directories may not be the same or nested: chowning one would reach the other.
 check_disjoint() {
-  case "$2/" in "$4"/*) ;; *) case "$4/" in "$2"/*) ;; *) return 0 ;; esac ;; esac
-  echo "entrypoint: $1 and $3 must be separate directories (neither may contain the other)" >&2
-  exit 1
+  if is_within "$2" "$4" || is_within "$4" "$2"; then
+    echo "entrypoint: $1 and $3 must be separate directories (neither may contain the other)" >&2
+    exit 1
+  fi
 }
 
 DB_FILE="${DB_PATH:-$APP_ROOT/data/inventory.db}"
@@ -78,7 +87,10 @@ check_path LOG_DIR "$LOGS"
 check_disjoint "the DB_PATH directory" "$DATA_DIR" UPLOADS_DIR "$UPLOADS"
 # The logs live on the persistent data mount by default, so LOG_DIR may sit inside the data
 # directory; it may not be, or contain, the data directory itself.
-case "$DATA_DIR/" in "$LOGS"/*) echo "entrypoint: LOG_DIR must not be, or contain, the DB_PATH directory" >&2; exit 1 ;; esac
+if is_within "$DATA_DIR" "$LOGS"; then
+  echo "entrypoint: LOG_DIR must not be, or contain, the DB_PATH directory" >&2
+  exit 1
+fi
 check_disjoint UPLOADS_DIR "$UPLOADS" LOG_DIR "$LOGS"
 
 REAL_ROOT="$(realpath "$APP_ROOT")"

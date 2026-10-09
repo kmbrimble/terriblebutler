@@ -26,7 +26,7 @@ function expectGeneric500(res, errSpy) {
   expect(res.body.correlation_id).toMatch(/^[0-9a-f-]{36}$/);
   expect(res.body.error).toContain(res.body.correlation_id.slice(0, 8));
   // The full error is logged server-side under the same id.
-  const logged = errSpy.mock.calls.find((call) => String(call[0]).includes(res.body.correlation_id));
+  const logged = errSpy.mock.calls.find((call) => call.some((arg) => arg === res.body.correlation_id));
   expect(logged).toBeTruthy();
   expect(logged.some((arg) => arg instanceof Error && arg.message === LEAK)).toBe(true);
 }

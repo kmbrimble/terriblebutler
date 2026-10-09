@@ -4,24 +4,32 @@ const crypto = require('crypto');
 const { cleanText } = require('../lib/domain-helpers');
 
 const DEVICE_LABEL_MAX = 100;
+// bcrypt only reads the first 72 bytes of a password, so anything longer adds nothing and only
+// costs a bigger request. Over this many bytes a password is simply wrong: it takes the same
+// path as any other wrong password (same backoff slot and delay, same response), minus the
+// bcrypt call.
+const PASSWORD_MAX_BYTES = 1024;
 
 // Checks a submitted household password through the account-level backoff (lib/login-backoff.js)
 // then bcrypt. Shared by login and by step-up re-authentication so both feed the same backoff:
 // a failed re-auth counts exactly like a failed login. Resolves to { valid } or, when the wait
 // queue is full, { retryAfterMs }; rejects if bcrypt itself fails (a misconfigured hash).
-function createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH }) {
+// `compare` is injectable so tests can make the comparator fail or observe that it was not called.
+function createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare = (password, hash) => bcrypt.compare(password, hash) }) {
   return async function checkPassword(password) {
     const slot = loginBackoff.reserve();
     if (slot.retryAfterMs) return { retryAfterMs: slot.retryAfterMs };
     if (slot.waitMs) await new Promise((resolve) => setTimeout(resolve, slot.waitMs));
-    return { valid: await bcrypt.compare(password, AUTH_PASSWORD_HASH) };
+    if (Buffer.byteLength(password, 'utf8') > PASSWORD_MAX_BYTES) return { valid: false };
+    return { valid: await compare(password, AUTH_PASSWORD_HASH) };
   };
 }
 
 // Registered before `requireAuth` is mounted — login must stay reachable unauthenticated.
-function registerLoginRoute(app, { loginRateLimiter, loginBackoff, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_SECRET, authState }) {
-  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH });
-  app.post('/api/auth/login', loginRateLimiter, async (req, res) => {
+function registerLoginRoute(app, { loginRateLimiter, jsonBody = [], loginBackoff, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_KEY, authState, compare }) {
+  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare });
+  // The limiter runs before the body is parsed, so a throttled client never costs a parse.
+  app.post('/api/auth/login', loginRateLimiter, jsonBody, async (req, res) => {
     const { username, password } = req.body || {};
     // bcrypt.compare rejects on non-strings, and an unhandled rejection kills the process.
     if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
@@ -48,7 +56,7 @@ function registerLoginRoute(app, { loginRateLimiter, loginBackoff, AUTH_USERNAME
     }
 
     loginBackoff.recordSuccess();
-    const token = jwt.sign({ sub: username, ver: authState.getEpoch() }, JWT_SECRET, {
+    const token = jwt.sign({ sub: username, ver: authState.getEpoch() }, JWT_KEY, {
       expiresIn: '30d',
       jwtid: crypto.randomUUID(),
       algorithm: 'HS256',
@@ -66,8 +74,8 @@ function registerLoginRoute(app, { loginRateLimiter, loginBackoff, AUTH_USERNAME
 // revoke anything. A remembered tablet can still cut off a lost phone, but only by someone who
 // knows the household password. The check shares the login rate limit and account backoff, and
 // a wrong password counts as a failed login. test/step-up-reauth.test.js pins all of this.
-function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH }) {
-  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH });
+function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH, compare }) {
+  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare });
 
   // Mounted per-route. Rejects (403, never 401, which the client reads as "session expired")
   // unless the body carries the correct household password.
@@ -97,7 +105,7 @@ function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJ
     try {
       label = cleanText(req.body?.device_label, { required: true, max: DEVICE_LABEL_MAX });
     } catch (err) {
-      return res.status(400).json({ error: `device_label is required and must be at most ${DEVICE_LABEL_MAX} characters.` });
+      return res.status(400).json({ error: `device_label is required, must be text, and must be at most ${DEVICE_LABEL_MAX} characters.` });
     }
     const token = crypto.randomBytes(32).toString('hex');
     db.prepare('INSERT INTO device_tokens (token_hash, device_label, issued_by_jti) VALUES (?, ?, ?)')

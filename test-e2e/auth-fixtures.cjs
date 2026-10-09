@@ -13,7 +13,9 @@ const bcrypt = require('bcryptjs');
 // secret the spawned server process is given.
 const AUTH_USERNAME = 'e2euser';
 const AUTH_PASSWORD = 'e2epass123';
-const JWT_SECRET = 'e2e-fixed-test-secret-2f9a6c1d4b7e8035';
+// Hex, as the server requires (64+ hex characters = 32+ bytes); the server signs with the decoded bytes.
+// nosemgrep: generic.secrets.security.detected-generic-secret.detected-generic-secret -- throwaway fixed e2e secret for a throwaway server, unrelated to any real secret
+const JWT_SECRET = '2f9a6c1d4b7e80352f9a6c1d4b7e80352f9a6c1d4b7e80352f9a6c1d4b7e8035';
 const AUTH_PASSWORD_HASH = bcrypt.hashSync(AUTH_PASSWORD, 10);
 
 // Hand-rolled HS256 signer, cross-checked against the server's `jsonwebtoken` verify.
@@ -26,7 +28,7 @@ function signJwt(payload, secret, expiresInSeconds) {
   const now = Math.floor(Date.now() / 1000);
   const body = { ...payload, iat: now, exp: now + expiresInSeconds };
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(body))}`;
-  const signature = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url');
+  const signature = crypto.createHmac('sha256', Buffer.from(secret, 'hex')).update(signingInput).digest('base64url');
   return `${signingInput}.${signature}`;
 }
 

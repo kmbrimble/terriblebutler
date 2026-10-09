@@ -1,22 +1,37 @@
-version: '3.8'
-
 services:
   terrible-butler:
     container_name: terrible-butler
     build: .
     restart: unless-stopped
-    ports:
-      - "2626:2626"
+    # No `ports:` on purpose (CLAUDE.md constraint #8: never expose the Node port raw). The app is
+    # reached through the reverse proxy over the shared network below, at terrible-butler:2626.
+    # For local development only, publish it on loopback (never on all interfaces):
+    #   ports:
+    #     - "127.0.0.1:2626:2626"
+    networks:
+      - proxynet
     environment:
       - PORT=2626
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=production
       - PUID=99
       - PGID=100
-      # Behind a reverse proxy, list the proxies' addresses so rate limits key on the real client
+      # Machine-generated and hex: openssl rand -hex 32 (at least 64 hex characters).
+      - JWT_SECRET=${JWT_SECRET}
+      - AUTH_USERNAME=${AUTH_USERNAME}
+      - AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH}
+      # Behind a reverse proxy, list the proxy's own address(es) so rate limits key on the real client
       # IP (see CLAUDE.md "Client IP and rate limits"). Never true or *. Unset = trust nothing.
+      # List ONLY the network the reverse proxy sits on. Never a network whose gateway can carry
+      # direct client traffic: a published host port (ports:) arrives from the Docker gateway, so
+      # trusting that range lets any caller choose its own client address via X-Forwarded-For.
       # - TRUST_PROXY=172.18.0.0/16
     volumes:
       - ./data:/app/data
       # Must match UPLOADS_DIR (set in the Dockerfile to /app/public/uploads).
       - ./uploads:/app/public/uploads
+
+networks:
+  proxynet:
+    # The reverse proxy's network, created outside this file (docker network create proxynet).
+    external: true

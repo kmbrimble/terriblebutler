@@ -145,7 +145,7 @@ describe('pruneOldBackups failures', () => {
 
     expect(() => pruneOldBackups(backupDir, 14)).not.toThrow();
 
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('inventory-2020-01-01.db'), expect.any(String));
+    expect(errSpy).toHaveBeenCalledWith(expect.any(String), 'inventory-2020-01-01.db', expect.any(String));
     expect(fs.existsSync(removable)).toBe(false);
     errSpy.mockRestore();
   });

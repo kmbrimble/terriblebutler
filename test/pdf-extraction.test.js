@@ -53,6 +53,14 @@ describe('deadline and limits', () => {
     expect(ticks).toBeGreaterThan(3); // the event loop kept running while the worker spun
   });
 
+  it('the ceiling is the configured one: ~64 MB of live heap passes under 512 MB and is killed under 16 MB', async () => {
+    // Without resourceLimits both runs would pass, so this fails if the cap is ever dropped or ignored.
+    const alloc = write('alloc.js', 'const { parentPort } = require("worker_threads"); const a = []; for (let i = 0; i < 8; i++) a.push(new Array(1e6).fill(1)); parentPort.postMessage({ ok: true, result: a.length });');
+    await expect(uploads.runWorker(alloc, {}, { timeoutMs: 10_000, memoryMb: 512 })).resolves.toBe(8);
+    await expect(uploads.runWorker(alloc, {}, { timeoutMs: 10_000, memoryMb: 16 }))
+      .rejects.toMatchObject({ status: 422, message: expect.stringContaining('too complex') });
+  });
+
   it('kills a worker that exhausts its memory ceiling', async () => {
     const hog = write('hog.js', 'const a = []; for (;;) a.push(new Array(1e6).fill(1));');
     await expect(uploads.runWorker(hog, {}, { timeoutMs: 10_000, memoryMb: 32 }))

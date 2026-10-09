@@ -14,6 +14,11 @@ function hasTable(db, table) {
 // non-negative stock rule is enforced with triggers (identical on fresh and migrated DBs).
 // UPDATE OF quantity means writes that leave quantity alone (e.g. is_open) are never blocked
 // by a legacy negative row.
+// Largest quantity one item_locations row may hold (also the cap on any single quantity input;
+// lib/domain-helpers.js re-exports it). Baked into the triggers below, which are created once
+// (IF NOT EXISTS): changing it needs a new migration that drops and recreates them.
+const QUANTITY_MAX = 1000000;
+
 const QUANTITY_GUARD_SQL = `
   CREATE TRIGGER IF NOT EXISTS item_locations_quantity_nonneg_insert
   BEFORE INSERT ON item_locations WHEN NEW.quantity < 0
@@ -21,6 +26,12 @@ const QUANTITY_GUARD_SQL = `
   CREATE TRIGGER IF NOT EXISTS item_locations_quantity_nonneg_update
   BEFORE UPDATE OF quantity ON item_locations WHEN NEW.quantity < 0
   BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not be negative'); END;
+  CREATE TRIGGER IF NOT EXISTS item_locations_quantity_max_insert
+  BEFORE INSERT ON item_locations WHEN NEW.quantity > ${QUANTITY_MAX}
+  BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not exceed ${QUANTITY_MAX}'); END;
+  CREATE TRIGGER IF NOT EXISTS item_locations_quantity_max_update
+  BEFORE UPDATE OF quantity ON item_locations WHEN NEW.quantity > ${QUANTITY_MAX} AND NEW.quantity > OLD.quantity
+  BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not exceed ${QUANTITY_MAX}'); END;
 `;
 
 // Duplicate-invoice enforcement (#44). Run after the migrations on every start: on an existing
@@ -164,4 +175,4 @@ const migrations = [
   },
 ];
 
-module.exports = { runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL };
+module.exports = { QUANTITY_MAX, runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL };

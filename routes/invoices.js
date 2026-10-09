@@ -3,7 +3,7 @@ const { findMatch, normaliseName } = require('../item-matching');
 const { parseInvoice } = require('../parsers/router');
 const { classifyLinesWithLLM, matchLinesWithLLM } = require('../lib/llm-client');
 const config = require('../lib/config');
-const { extractPdfText, discardUpload, uploadErrorStatus } = require('../lib/uploads');
+const { extractPdfText, discardUpload, sendUploadError } = require('../lib/uploads');
 const { cleanText, finiteNumber, sendMutationError, sendServerError, ValidationError, QUANTITY_MAX, PRICE_MAX, LINE_TOTAL_MAX } = require('../lib/domain-helpers');
 const { invoiceDedupeKey } = require('../lib/invoice-dedupe');
 
@@ -56,6 +56,9 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
     if (!req.file) return res.status(400).json({ error: 'No invoice uploaded' });
     let dedupeKey = null;
     try {
+      // The client's filename is only a display label: keep the last path component, drop
+      // control characters and bound it, rather than storing whatever was sent.
+      const sourceFilename = cleanText(String(req.file.originalname || '').split(/[\\/]/).pop().slice(0, 200), { max: 200 }) || null;
       const text = await extractPdfText(req.file.path);
 
       const parsed = parseInvoice(text);
@@ -184,7 +187,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
         const info = db.prepare(`
           INSERT INTO invoice_imports (retailer, invoice_number, invoice_date, source_filename, dedupe_key)
           VALUES (?, ?, ?, ?, ?)
-        `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, req.file.originalname, dedupeKey);
+        `).run(parsed.retailer, parsed.invoice_number || null, parsed.invoice_date || null, sourceFilename, dedupeKey);
         const id = Number(info.lastInsertRowid);
         for (const r of resolved) {
           insertLine.run(
@@ -198,8 +201,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
 
       res.json({ ...getImportWithLines(db, importId), warnings });
     } catch (err) {
-      const status = uploadErrorStatus(err);
-      if (status) return res.status(status).json({ error: err.message });
+      if (sendUploadError(res, err)) return;
       if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE' && dedupeKey) {
         const duplicate = findImportByDedupeKey(db, dedupeKey);
         if (duplicate) return sendDuplicateInvoice(res, duplicate);
