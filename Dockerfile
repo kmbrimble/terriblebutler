@@ -26,7 +26,11 @@ WORKDIR /app
 
 # Reproducible install from the lockfile (production dependencies only)
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Install scripts are an explicit allow-list (allowScripts in package.json: only better-sqlite3's native
+# build; npm 11.19 skips every install script that is not listed, and only warns). The require() fails the
+# build if that list is ever lost and the native binding was therefore not built.
+RUN npm ci --omit=dev --strict-allow-scripts \
+    && node -e "require('better-sqlite3'); console.log('better-sqlite3 native binding loads')"
 
 FROM ${NODE_IMAGE} AS client-builder
 
@@ -36,7 +40,7 @@ WORKDIR /app/client
 # devDependencies) that the server install above never installs. Building it here keeps
 # those devDependencies out of the runtime image.
 COPY client/package.json client/package-lock.json ./
-RUN npm ci
+RUN npm ci --strict-allow-scripts
 
 COPY client/ ./
 RUN npm run build

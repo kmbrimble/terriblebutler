@@ -13,6 +13,9 @@ const nodeRequire = createRequire(import.meta.url);
 const WOOLWORTHS_PDF = path.join(process.cwd(), 'test/fixtures/invoices/woolworths-example.pdf');
 const authed = (test) => test.set('Authorization', `Bearer ${TEST_TOKEN}`);
 const scratchFiles = () => fs.readdirSync(tmpUploadScratchDir);
+// The handler discards the upload in a `finally` that runs after the response has been sent, so the
+// file goes shortly after the client sees the status (same idiom as test/uploads.test.js).
+const scratchEmptied = () => vi.waitFor(() => expect(scratchFiles()).toEqual([]), { timeout: 5000 });
 
 beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
@@ -41,7 +44,7 @@ describe('POST /api/invoices/import: unreadable PDFs', () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toMatch(/could not be read/i);
     expect(res.body.correlation_id).toBeUndefined();
-    expect(scratchFiles()).toEqual([]);
+    await scratchEmptied();
   });
 
   it('a worker that hits its heap ceiling fails the request cleanly (422), not the server', async () => {
@@ -58,7 +61,7 @@ describe('POST /api/invoices/import: unreadable PDFs', () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toMatch(/too complex/i);
     expect(res.body.correlation_id).toBeUndefined();
-    expect(scratchFiles()).toEqual([]);
+    await scratchEmptied();
     // ...and the server carries on serving.
     expect((await authed(request(app).get('/api/health'))).status).toBe(200);
   });
@@ -126,12 +129,12 @@ describe('process-wide bound on heavy upload work (HEAVY_WORK_CONCURRENCY / HEAV
       const res = await authed(request(app).post('/api/invoices/import')).attach('invoice', WOOLWORTHS_PDF);
       expect(res.status).toBe(503);
       expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
-      expect(scratchFiles()).toEqual([]);
+      await scratchEmptied();
 
       const label = await authed(request(app).post('/api/parse-label-llm')).attach('image', path.join(process.cwd(), 'test/fixtures/product1.jpg'));
       expect(label.status).toBe(503);
       expect(Number(label.headers['retry-after'])).toBeGreaterThan(0);
-      expect(scratchFiles()).toEqual([]);
+      await scratchEmptied();
     } finally {
       release();
       await held;

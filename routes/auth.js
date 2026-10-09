@@ -14,20 +14,22 @@ const PASSWORD_MAX_BYTES = 1024;
 // then bcrypt. Shared by login and by step-up re-authentication so both feed the same backoff:
 // a failed re-auth counts exactly like a failed login. Resolves to { valid } or, when the wait
 // queue is full, { retryAfterMs }; rejects if bcrypt itself fails (a misconfigured hash).
-// `compare` is injectable so tests can make the comparator fail or observe that it was not called.
-function createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare = (password, hash) => bcrypt.compare(password, hash) }) {
+// `compare` and `sleep` are injectable so tests can make the comparator fail, observe that it was not
+// called, and see the backoff's delays without waiting for them.
+const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare = (password, hash) => bcrypt.compare(password, hash), sleep = realSleep }) {
   return async function checkPassword(password) {
     const slot = loginBackoff.reserve();
     if (slot.retryAfterMs) return { retryAfterMs: slot.retryAfterMs };
-    if (slot.waitMs) await new Promise((resolve) => setTimeout(resolve, slot.waitMs));
+    if (slot.waitMs) await sleep(slot.waitMs);
     if (Buffer.byteLength(password, 'utf8') > PASSWORD_MAX_BYTES) return { valid: false };
     return { valid: await compare(password, AUTH_PASSWORD_HASH) };
   };
 }
 
 // Registered before `requireAuth` is mounted — login must stay reachable unauthenticated.
-function registerLoginRoute(app, { loginRateLimiter, jsonBody = [], loginBackoff, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_KEY, authState, compare }) {
-  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare });
+function registerLoginRoute(app, { loginRateLimiter, jsonBody = [], loginBackoff, AUTH_USERNAME, AUTH_PASSWORD_HASH, JWT_KEY, authState, compare, sleep }) {
+  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare, sleep });
   // The limiter runs before the body is parsed, so a throttled client never costs a parse.
   app.post('/api/auth/login', loginRateLimiter, jsonBody, async (req, res) => {
     const { username, password } = req.body || {};
@@ -74,8 +76,8 @@ function registerLoginRoute(app, { loginRateLimiter, jsonBody = [], loginBackoff
 // revoke anything. A remembered tablet can still cut off a lost phone, but only by someone who
 // knows the household password. The check shares the login rate limit and account backoff, and
 // a wrong password counts as a failed login. test/step-up-reauth.test.js pins all of this.
-function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH, compare }) {
-  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare });
+function registerDeviceTokenRoutes(app, { db, hashDeviceToken, requireHouseholdJwt, authState, disconnectSockets, loginRateLimiter, loginBackoff, AUTH_PASSWORD_HASH, compare, sleep }) {
+  const checkPassword = createPasswordCheck({ loginBackoff, AUTH_PASSWORD_HASH, compare, sleep });
 
   // Mounted per-route. Rejects (403, never 401, which the client reads as "session expired")
   // unless the body carries the correct household password.

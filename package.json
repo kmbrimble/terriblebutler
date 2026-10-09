@@ -12,11 +12,14 @@
     "test:e2e": "playwright test",
     "test:all": "npm test && npm run test:e2e"
   },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "fsevents": false
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
-    "cors": "^2.8.6",
     "express": "^5.2.1",
     "fuse.js": "^7.5.0",
     "jsonwebtoken": "^9.0.3",

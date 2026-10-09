@@ -553,27 +553,41 @@ async function postWithPassword(path: string, password: string, failure: string)
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  if (res.status === 429) throw new Error(passwordAttemptsMessage(res.headers.get('Retry-After'), res.headers.get('RateLimit-Limit')));
+  if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    const window = /(?:^|;)\s*w=(\d+)/.exec(res.headers.get('RateLimit-Policy') ?? '');
+    throw new Error(passwordAttemptsMessage(res.headers.get('Retry-After'), res.headers.get('RateLimit-Limit'), data.limiter ?? null, window ? Number(window[1]) : null));
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || failure);
   }
 }
 
-// Password confirmations share the sign-in attempt limit (wrong passwords included), so say so, and
-// for how long, rather than a bare "too many requests". The limit and the wait come from the
-// server's own response headers (RateLimit-Limit, Retry-After), never from a constant here, so the
-// message stays true if the limit is reconfigured.
+// A 429 here can come from any of the server's limiters (it names the one that fired in the body's
+// `limiter` field and the RateLimit-Policy header). Only the sign-in limiter is about password
+// attempts, so only then say that; the limit, its window and the wait all come from the server's
+// own response, never from a constant here, so the message stays true if limits are reconfigured.
 function positiveNumber(value: string | null): number | null {
   const parsed = Number(value);
   return value && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-export function passwordAttemptsMessage(retryAfter: string | null, limit: string | null = null): string {
-  const seconds = positiveNumber(retryAfter);
+function describeWait(seconds: number | null): string {
+  return seconds === null ? 'a few minutes' : seconds < 90 ? `${Math.ceil(seconds)} seconds` : `${Math.ceil(seconds / 60)} minutes`;
+}
+
+export function passwordAttemptsMessage(
+  retryAfter: string | null,
+  limit: string | null = null,
+  limiter: string | null = null,
+  windowSeconds: number | null = null,
+): string {
+  const wait = describeWait(positiveNumber(retryAfter));
+  if (limiter !== 'login') return `Too many requests right now. Try again in ${wait}.`;
   const attempts = positiveNumber(limit);
-  const wait = seconds === null ? 'a few minutes' : seconds < 90 ? `${Math.ceil(seconds)} seconds` : `${Math.ceil(seconds / 60)} minutes`;
-  const rule = attempts === null ? 'which is rate limited' : `which allows ${Math.floor(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'} at a time`;
+  const per = windowSeconds && windowSeconds > 0 ? ` every ${describeWait(windowSeconds).replace(/^1 minutes$/, '1 minute')}` : ' at a time';
+  const rule = attempts === null ? 'which is rate limited' : `which allows ${Math.floor(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'}${per}`;
   return `Too many password attempts. Revoking counts as signing in, ${rule}. Try again in ${wait}.`;
 }
 

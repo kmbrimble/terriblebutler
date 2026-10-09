@@ -144,10 +144,11 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
           return { line, matchedItemId: memoryItem.id, suggestedCategoryId: memoryItem.category_id, suggestedLocationId: memoryItem.location_id };
         }
         const match = findMatch(existingItems, { barcode: null, name: line.raw_name }, fuse);
-        if (match.type === 'barcode' || match.type === 'exact_name') {
+        if (match.item) {
           return { line, matchedItemId: match.item.id, suggestedCategoryId: match.item.category_id, suggestedLocationId: match.item.location_id };
         }
-        if (match.type === 'fuzzy') {
+        // Fuzzy, or several items with the very same name (legacy data): a suggestion only, never auto-applied.
+        if (match.type) {
           return { line, matchedItemId: null, suggestedCategoryId: match.candidates[0].category_id, suggestedLocationId: match.candidates[0].location_id };
         }
         return { line, matchedItemId: null, needsClassify: true };
@@ -341,7 +342,7 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
             : null;
           if (!matchedItem) {
             const match = findMatch(existingItems, { barcode: line.barcode_scanned || null, name }, fuse);
-            if (match.type === 'barcode' || match.type === 'exact_name') matchedItem = match.item;
+            if (match.item) matchedItem = match.item;
           }
 
           let itemId;

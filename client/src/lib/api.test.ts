@@ -164,40 +164,46 @@ describe('matchItem', () => {
 });
 
 describe('password confirmation rate limit (429)', () => {
-  it('explains the shared sign-in limit and how long to wait', async () => {
+  const respond = (headers: Record<string, string>, body: unknown) =>
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 429, headers: new Headers(headers), json: async () => body });
+  const message = async () => {
     const { revokeDevice } = await import('./api');
     localStorage.setItem('tb_token', 't');
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: false,
-      status: 429,
-      headers: new Headers({ 'Retry-After': '600', 'RateLimit-Limit': '5' }),
-      json: async () => ({ error: 'Too many requests. Please try again shortly.' }),
-    });
-    await expect(revokeDevice(1, 'pw')).rejects.toThrow(/allows 5 attempts at a time.*10 minutes/);
+    return ((await revokeDevice(1, 'pw').catch((e: Error) => e)) as Error).message;
+  };
+
+  it('the sign-in limiter: explains the shared attempt limit, its window and how long to wait, all from the server', async () => {
+    respond({ 'Retry-After': '600', 'RateLimit-Limit': '5', 'RateLimit-Policy': '5;w=900;name="login"' }, { limiter: 'login' });
+    expect(await message()).toMatch(/signing in, which allows 5 attempts every 15 minutes.*10 minutes/);
   });
 
-  it('takes the attempt limit from the server, not a constant', async () => {
-    const { revokeDevice } = await import('./api');
-    localStorage.setItem('tb_token', 't');
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: false,
-      status: 429,
-      headers: new Headers({ 'Retry-After': '30', 'RateLimit-Limit': '12' }),
-      json: async () => ({}),
-    });
-    const error = await revokeDevice(1, 'pw').catch((e: Error) => e);
-    expect((error as Error).message).toMatch(/allows 12 attempts at a time.*30 seconds/);
-    expect((error as Error).message).not.toMatch(/\b5\b|15 minutes/);
+  it('takes the limit and window from the server, not a constant', async () => {
+    respond({ 'Retry-After': '30', 'RateLimit-Limit': '12', 'RateLimit-Policy': '12;w=300;name="login"' }, { limiter: 'login' });
+    const text = await message();
+    expect(text).toMatch(/allows 12 attempts every 5 minutes.*30 seconds/);
+    expect(text).not.toMatch(/\b5 attempts|15 minutes/);
+  });
+
+  it.each(['api', 'mutation', 'llm'])('the %s limiter is not blamed on password attempts', async (limiter) => {
+    respond({ 'Retry-After': '20', 'RateLimit-Limit': '240', 'RateLimit-Policy': `240;w=60;name="${limiter}"` }, { limiter });
+    const text = await message();
+    expect(text).toMatch(/Too many requests right now.*20 seconds/);
+    expect(text).not.toMatch(/password|signing in|attempt/i);
+  });
+
+  it('a 429 that does not say which limiter fired (or has no JSON body) is not attributed to sign-in either', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 429, headers: new Headers({ 'Retry-After': '45' }), json: async () => { throw new Error('not json'); } });
+    expect(await message()).toMatch(/Too many requests right now.*45 seconds/);
   });
 
   it('falls back to a generic wait when Retry-After is absent', async () => {
     const { passwordAttemptsMessage } = await import('./api');
     expect(passwordAttemptsMessage(null)).toMatch(/a few minutes/);
-    expect(passwordAttemptsMessage('45')).toMatch(/45 seconds/);
+    expect(passwordAttemptsMessage('45', null, 'login')).toMatch(/45 seconds/);
     // no limit header: nothing is claimed about the number
-    expect(passwordAttemptsMessage('45', null)).not.toMatch(/\d+ attempts?/);
-    expect(passwordAttemptsMessage(null, 'abc')).toMatch(/rate limited/);
-    expect(passwordAttemptsMessage(null, '1')).toMatch(/1 attempt at a time/);
+    expect(passwordAttemptsMessage('45', null, 'login')).not.toMatch(/\d+ attempts?/);
+    expect(passwordAttemptsMessage(null, 'abc', 'login')).toMatch(/rate limited/);
+    expect(passwordAttemptsMessage(null, '1', 'login', 60)).toMatch(/1 attempt every 60 seconds/);
   });
 });
 

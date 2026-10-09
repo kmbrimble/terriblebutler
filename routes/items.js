@@ -18,6 +18,8 @@ const {
 
 const SEARCH_QUERY_MAX = 100;
 const SEARCH_RESULT_LIMIT = 50;
+const MATCH_NAME_MAX = 200; // the longest item name POST /api/items accepts
+const BARCODE_MAX = 128; // likewise, see normaliseBarcode
 
 function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity }) {
   // Shared 409 wording for stock changes: the target location has no row at all, vs. has too little.
@@ -99,8 +101,15 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
   });
 
   app.get('/api/items/match', (req, res) => {
-    const barcode = req.query.barcode ? String(req.query.barcode).trim() : null;
-    const name = req.query.name ? String(req.query.name).trim() : '';
+    // Same discipline as /search: single string values, bounded, so a huge name cannot tie up the
+    // fuzzy matcher. The limits are the stored ones (name 200, barcode 128).
+    for (const field of ['name', 'barcode']) {
+      if (req.query[field] !== undefined && typeof req.query[field] !== 'string') return res.status(400).json({ error: `${field} must be a single value` });
+    }
+    const barcode = req.query.barcode ? req.query.barcode.trim() : null;
+    const name = req.query.name ? req.query.name.trim() : '';
+    if (name.length > MATCH_NAME_MAX) return res.status(400).json({ error: `name must be at most ${MATCH_NAME_MAX} characters` });
+    if (barcode && barcode.length > BARCODE_MAX) return res.status(400).json({ error: `barcode must be at most ${BARCODE_MAX} characters` });
     const existingItems = db.prepare(`
       SELECT items.id, items.name, items.barcode, items.location_id,
         ${TOTAL_QUANTITY_SQL} AS quantity
@@ -112,6 +121,7 @@ function registerItemRoutes(app, { db, broadcastUpdate, getItem, barcodeBelongsT
   });
 
   app.get('/api/items/barcode/:barcode', (req, res) => {
+    if (req.params.barcode.length > BARCODE_MAX) return res.status(400).json({ error: `barcode must be at most ${BARCODE_MAX} characters` });
     const stmt = db.prepare(`
       SELECT items.*, locations.name as location_name, categories.name as category_name,
         ${TOTAL_QUANTITY_SQL} AS quantity,

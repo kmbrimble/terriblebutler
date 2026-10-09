@@ -16,6 +16,8 @@ fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 cleanup() {
   docker rm -f "$NAME" "$NAME-bad" >/dev/null 2>&1 || true
   docker volume rm "$VOL_DATA" "$VOL_UPLOADS" >/dev/null 2>&1 || true
+  # The image this script built is removed too, but only if it is a smoketest- tag (never a caller's own tag).
+  case "$TAG" in smoketest-*) docker rmi "$TAG" >/dev/null 2>&1 || true ;; esac
 }
 trap cleanup EXIT INT TERM
 

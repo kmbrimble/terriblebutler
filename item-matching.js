@@ -1,5 +1,10 @@
 // Shared duplicate-detection hierarchy for invoice commits and manual item adds.
 // Order: barcode match > exact normalised-name match > fuzzy (suggestion only, never auto-applied).
+// Fuse's cost grows with the length of the pattern times the number of items (a 15 KB pattern over
+// 2,000 items blocked the event loop for about 10 s), and the first words of a name are what
+// identify it, so every fuzzy search clips its pattern to this many characters.
+const FUZZY_QUERY_MAX = 100;
+
 function normaliseName(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -7,19 +12,21 @@ function normaliseName(name) {
 // existingItems: array of {id, name, barcode, ...}. fuse: a Fuse instance built on the
 // same array (kept in sync by the caller as items are inserted), or null to skip fuzzy.
 // Returns { type: 'barcode'|'exact_name'|'fuzzy'|null, item, candidates }.
-// `item` is only set for barcode/exact_name — the single confident, safe-to-auto-apply match.
+// `item` is only set for barcode/exact_name when exactly ONE item matches — the single confident,
+// safe-to-auto-apply match. If several items share the barcode or name (legacy data can), `item` is null
+// and `candidates` lists them all: which one is meant is the user's call, never "whichever came first".
 // Fuzzy always returns `item: null`; a fuzzy candidate must be confirmed by the user first.
 function findMatch(existingItems, { barcode, name }, fuse) {
   if (barcode) {
-    const barcodeMatch = existingItems.find((i) => i.barcode && i.barcode === barcode);
-    if (barcodeMatch) return { type: 'barcode', item: barcodeMatch, candidates: [barcodeMatch] };
+    const barcodeMatches = existingItems.filter((i) => i.barcode && i.barcode === barcode);
+    if (barcodeMatches.length > 0) return { type: 'barcode', item: barcodeMatches.length === 1 ? barcodeMatches[0] : null, candidates: barcodeMatches };
   }
   const normalised = normaliseName(name);
   if (normalised) {
     const exactMatches = existingItems.filter((i) => normaliseName(i.name) === normalised);
-    if (exactMatches.length > 0) return { type: 'exact_name', item: exactMatches[0], candidates: exactMatches };
+    if (exactMatches.length > 0) return { type: 'exact_name', item: exactMatches.length === 1 ? exactMatches[0] : null, candidates: exactMatches };
   }
-  const fuzzyHits = fuse && name ? fuse.search(name).map((r) => r.item) : [];
+  const fuzzyHits = fuse && name ? fuse.search(String(name).slice(0, FUZZY_QUERY_MAX)).map((r) => r.item) : [];
   if (fuzzyHits.length > 0) return { type: 'fuzzy', item: null, candidates: fuzzyHits };
   return { type: null, item: null, candidates: [] };
 }
@@ -34,7 +41,7 @@ function resolveNamedMatch(list, rawName, fuse) {
   if (!name) return { id: null, suggested_name: null, similar: null };
   const exact = list.find((item) => item.name.toLowerCase() === name.toLowerCase());
   if (exact) return { id: exact.id, suggested_name: null, similar: null };
-  const fuzzyHits = fuse ? fuse.search(name) : [];
+  const fuzzyHits = fuse ? fuse.search(name.slice(0, FUZZY_QUERY_MAX)) : [];
   const similar = fuzzyHits.length > 0 ? { id: fuzzyHits[0].item.id, name: fuzzyHits[0].item.name } : null;
   return { id: null, suggested_name: name, similar };
 }
@@ -88,4 +95,4 @@ function selectMatchCandidates(items, lines, max) {
   return [...chosen].sort((a, b) => a - b).map((index) => items[index]);
 }
 
-module.exports = { normaliseName, findMatch, resolveNamedMatch, nameTokens, selectMatchCandidates };
+module.exports = { FUZZY_QUERY_MAX, normaliseName, findMatch, resolveNamedMatch, nameTokens, selectMatchCandidates };

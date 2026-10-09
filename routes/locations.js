@@ -1,4 +1,4 @@
-const { cleanName, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
+const { cleanName, NAME_LIST_MAX, QUANTITY_MAX, ValidationError, sendMutationError, sendNameWriteError } = require('../lib/domain-helpers');
 
 function registerLocationRoutes(app, { db, broadcastUpdate }) {
   app.get('/api/locations', (req, res) => {
@@ -8,6 +8,9 @@ function registerLocationRoutes(app, { db, broadcastUpdate }) {
   app.post('/api/locations', (req, res) => {
     let name;
     try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
+    if (db.prepare('SELECT COUNT(*) AS n FROM locations').get().n >= NAME_LIST_MAX) {
+      return res.status(409).json({ error: `There can be at most ${NAME_LIST_MAX} locations` });
+    }
     try {
       const info = db.prepare('INSERT INTO locations (name) VALUES (?)').run(name);
       broadcastUpdate('locations_updated', {});
@@ -39,6 +42,10 @@ function registerLocationRoutes(app, { db, broadcastUpdate }) {
         for (const row of stranded) {
           const unassigned = db.prepare('SELECT id, quantity FROM item_locations WHERE item_id = ? AND location_id IS NULL').get(row.item_id);
           if (unassigned) {
+            // Folding this stock into the item's unassigned row must stay within the same ceiling as any other add.
+            if (unassigned.quantity + row.quantity > QUANTITY_MAX) {
+              throw new ValidationError('Cannot delete this location: moving its stock into "Unassigned" would exceed the maximum quantity. Reduce or move some stock first.', 409);
+            }
             db.prepare('UPDATE item_locations SET quantity = quantity + ? WHERE id = ?').run(row.quantity, unassigned.id);
             db.prepare('DELETE FROM item_locations WHERE id = ?').run(row.id);
           } else {
@@ -55,7 +62,7 @@ function registerLocationRoutes(app, { db, broadcastUpdate }) {
       broadcastUpdate('locations_updated', {});
       res.json({ message: 'Location deleted' });
     } catch (err) {
-      sendServerError(res, err, 'Failed to delete location');
+      sendMutationError(res, err, 'Failed to delete location');
     }
   });
 }

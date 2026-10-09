@@ -1,29 +1,28 @@
+// FROZEN COPY of parsers/woolworths.js as of 0.44, kept only as the oracle for test/woolworths-parser-linear.test.js.
+// It is quadratic on long wrapped rows; do not use it in the app.
 // Deterministic parser for Woolworths "Supplied" invoice PDFs (text already extracted via
 // pdf-parse). No LLM involved — see CLAUDE.md / the invoice-import feature plan for why.
-const { parseAuDate, parseMoney, parseQuantity } = require('./shared');
+const { parseAuDate } = require('../../parsers/shared');
 
 // A resolved product row's tab-separated tail is always [description, ordered, supplied,
 // price, amount] once any line-number prefix has been stripped and any wrapped description
-// continuation has been joined back on. Rows are handled as token lists (the tab-separated
-// fields, trimmed, empties dropped) so a wrapped description can be extended one line at a time
-// without re-splitting everything buffered so far (that was quadratic in the number of wrapped
-// lines). Returns null if the tokens don't (yet) resolve to a complete row — the caller keeps
-// buffering lines until they do.
-const tokenise = (str) => str.split('\t').map((s) => s.trim()).filter((s) => s.length);
-
-function resolveTokens(parts) {
+// continuation has been joined back on. Returns null if `str` doesn't (yet) resolve to a
+// complete row — the caller keeps buffering lines until it does.
+function tryResolveRow(str) {
+  const parts = str.split('\t').map((s) => s.trim()).filter((s) => s.length);
   if (parts.length < 5) return null;
   const [priceTok, amountTok] = parts.slice(-2);
   const orderedTok = parts[parts.length - 4];
   const suppliedTok = parts[parts.length - 3];
+  const descTok = parts.slice(0, parts.length - 4).join(' ');
 
-  const price = parseMoney(priceTok);
-  const amount = parseMoney(amountTok);
-  const ordered = parseQuantity(orderedTok);
-  const supplied = parseQuantity(suppliedTok);
-  if (price === null || amount === null || ordered === null || supplied === null) return null;
+  const priceMatch = priceTok.match(/^\$?([\d.]+)$/);
+  const amountMatch = amountTok.match(/^\$?([\d.]+)$/);
+  const orderedMatch = orderedTok.match(/^([\d.]+)/);
+  const suppliedMatch = suppliedTok.match(/^([\d.]+)/);
+  if (!priceMatch || !amountMatch || !orderedMatch || !suppliedMatch) return null;
 
-  let name = parts.slice(0, parts.length - 4).join(' ');
+  let name = descTok;
   let gstApplicable = false;
   if (name.startsWith('*')) {
     gstApplicable = true;
@@ -31,30 +30,12 @@ function resolveTokens(parts) {
   }
   return {
     raw_name: name,
-    qty_ordered: ordered,
-    qty_supplied: supplied,
-    unit_price: price,
-    line_total: amount,
+    qty_ordered: parseFloat(orderedMatch[1]),
+    qty_supplied: parseFloat(suppliedMatch[1]),
+    unit_price: parseFloat(priceMatch[1]),
+    line_total: parseFloat(amountMatch[1]),
     gst_applicable: gstApplicable,
   };
-}
-
-// A real row, wrapped or not, is a few hundred characters at most. Buffering more than this means
-// the lines are not a product row at all, so the buffer is dropped rather than grown without bound.
-const MAX_PENDING_CHARS = 4000;
-
-// Appends a physical line to a buffered row. The buffered text and the line are joined with one
-// space, so the buffer's last field and the line's first field (the text either side of that
-// space, with no tab between) become a single field; every other tab still separates fields.
-function extendPending(pending, line) {
-  const [first, ...rest] = line.split('\t');
-  const tokens = pending.tokens.slice(0, -1);
-  tokens.push(`${pending.tokens[pending.tokens.length - 1]} ${first.trim()}`);
-  for (const field of rest) {
-    const trimmed = field.trim();
-    if (trimmed.length) tokens.push(trimmed);
-  }
-  return { tokens, chars: pending.chars + 1 + line.length };
 }
 
 function parseWoolworths(text) {
@@ -98,8 +79,8 @@ function parseWoolworths(text) {
 
     const numMatch = line.match(/^(\d+)\s+(.*)$/);
     if (numMatch) {
-      pending = { tokens: tokenise(numMatch[2]), chars: numMatch[2].length };
-      const resolved = resolveTokens(pending.tokens);
+      pending = numMatch[2];
+      const resolved = tryResolveRow(pending);
       if (resolved) {
         lines.push({ ...resolved, category_hint: categoryHint });
         pending = null;
@@ -109,13 +90,13 @@ function parseWoolworths(text) {
 
     // A long description wraps onto the next physical PDF line before its numeric columns.
     if (pending !== null) {
-      const combined = pending.tokens.length ? extendPending(pending, line) : { tokens: tokenise(line), chars: line.length };
-      const resolved = resolveTokens(combined.tokens);
+      const combined = `${pending} ${line}`;
+      const resolved = tryResolveRow(combined);
       if (resolved) {
         lines.push({ ...resolved, category_hint: categoryHint });
         pending = null;
       } else {
-        pending = combined.chars > MAX_PENDING_CHARS ? null : combined;
+        pending = combined;
       }
       continue;
     }
