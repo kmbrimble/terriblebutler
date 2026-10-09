@@ -84,6 +84,20 @@ grep -q "must be inside /app" "/tmp/$NAME-bad.err" || { cat "/tmp/$NAME-bad.err"
 rm -f "/tmp/$NAME-bad.err"
 echo "ok: bad DB_PATH refused"
 
+# JWT_SECRET must be machine-generated hex (64+ characters): a passphrase must stop the container,
+# naming the variable but never echoing the value.
+docker rm -f "$NAME-bad" >/dev/null 2>&1 || true
+set +e
+docker run --name "$NAME-bad" -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" \
+  -e "JWT_SECRET=smoketest-not-hex-passphrase-smoketest-not-hex-passphrase" "$TAG" >/dev/null 2>"/tmp/$NAME-bad.err"
+BAD=$?
+set -e
+[ "$BAD" -ne 0 ] || fail "container started with a non-hex JWT_SECRET"
+grep -q "JWT_SECRET must be at least 64 hexadecimal characters" "/tmp/$NAME-bad.err" || { cat "/tmp/$NAME-bad.err" >&2; fail "no clear JWT_SECRET refusal"; }
+! grep -q "smoketest-not-hex-passphrase" "/tmp/$NAME-bad.err" || fail "the JWT_SECRET value was echoed"
+rm -f "/tmp/$NAME-bad.err"
+echo "ok: non-hex JWT_SECRET refused"
+
 docker stop -t 15 "$NAME" >/dev/null
 CODE="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"
 [ "$CODE" = 0 ] || { docker logs "$NAME" >&2; fail "graceful stop exited $CODE"; }

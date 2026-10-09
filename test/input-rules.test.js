@@ -143,3 +143,22 @@ describe('openDatabase creates only the DB_PATH directory', () => {
     }
   });
 });
+
+describe('counsel follow-ups (round 3 review)', () => {
+  it('an unpriced matched invoice line still advances the item\'s updated_at', async () => {
+    const item = (await api(app).post('/api/items').send({ name: `Updated at ${Math.random()}`, price: 2, quantity: 1 })).body;
+    db.prepare("UPDATE items SET updated_at = '2001-01-01 00:00:00' WHERE id = ?").run(item.id);
+    const importId = db.prepare("INSERT INTO invoice_imports (retailer, status, dedupe_key) VALUES ('coles', 'in_progress', ?)").run(`upd-${Math.random()}`).lastInsertRowid;
+    db.prepare("INSERT INTO invoice_import_lines (import_id, raw_name, qty_supplied, unit_price, matched_item_id, line_status) VALUES (?, 'Unpriced', 2, NULL, ?, 'reviewed')").run(importId, item.id);
+    const res = await request(app).post(`/api/invoices/import/${importId}/commit`).set('Authorization', `Bearer ${TEST_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT updated_at FROM items WHERE id = ?').get(item.id).updated_at).not.toBe('2001-01-01 00:00:00');
+    expect((await api(app).get(`/api/items/${item.id}/details`)).body.last_price).toBe(2); // price still untouched
+  });
+
+  it('item_locations has a plain item_id index, and the item lookup uses an index', () => {
+    const plan = db.prepare('EXPLAIN QUERY PLAN SELECT SUM(quantity) FROM item_locations WHERE item_id = ?').all(1).map((r) => r.detail).join(' ');
+    expect(plan).toMatch(/idx_item_locations_item_id|idx_item_locations_unique/);
+    expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'idx_item_locations_item_id'").get()).toBeTruthy();
+  });
+});

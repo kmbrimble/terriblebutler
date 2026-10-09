@@ -295,6 +295,9 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
       INSERT INTO items (name, barcode, category_id, container_details, last_price, lowest_price)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
+    // Stock arriving on an unpriced line still changes the item, so it still counts as updated
+    // (the "Date Updated" sort); every other quantity change already does.
+    const touchUpdatedAt = db.prepare('UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?');
     const touchItem = db.prepare('UPDATE items SET last_price = ?, lowest_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
     const insertPriceHistory = db.prepare('INSERT INTO price_history (item_id, price, vendor) VALUES (?, ?, ?)');
     const markLineMatched = db.prepare('UPDATE invoice_import_lines SET matched_item_id = ? WHERE id = ?');
@@ -349,6 +352,8 @@ function registerInvoiceRoutes(app, { db, broadcastUpdate, invoiceUpload, validF
               if (!newLowest || price < newLowest) newLowest = price;
               touchItem.run(price, newLowest, itemId);
               matchedItem.lowest_price = newLowest;
+            } else {
+              touchUpdatedAt.run(itemId);
             }
             upsertItemLocationQuantity(itemId, locationId, 'add', qty);
             itemsMatched += 1;

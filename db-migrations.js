@@ -40,6 +40,13 @@ const QUANTITY_GUARD_SQL = `
 const INVOICE_DEDUPE_INDEX_SQL =
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_imports_dedupe_key ON invoice_imports(dedupe_key)';
 
+// item_locations is looked up by item_id alone on every item list/detail query (the stock total and
+// per-location breakdown). The two unique indexes are partial (location_id IS [NOT] NULL), which
+// SQLite will not use for a bare item_id filter, so this plain one serves those lookups. Index
+// only, created idempotently at every start (no migration; no data is read or changed).
+const ITEM_LOCATIONS_LOOKUP_INDEX_SQL =
+  'CREATE INDEX IF NOT EXISTS idx_item_locations_item_id ON item_locations(item_id)';
+
 // On a fresh DB, server.js's CREATE TABLE already reflects the latest schema, so nothing
 // needs replaying — just mark it caught up. On an existing DB, run pending migrations in
 // order, each in its own transaction. Migrations should guard themselves with hasColumn()
@@ -175,4 +182,4 @@ const migrations = [
   },
 ];
 
-module.exports = { QUANTITY_MAX, runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL };
+module.exports = { QUANTITY_MAX, runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL, ITEM_LOCATIONS_LOOKUP_INDEX_SQL };

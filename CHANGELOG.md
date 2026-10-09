@@ -8,7 +8,7 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ### Security remediation round 3: the remaining audit items
 
-**No migration.** `PRAGMA user_version` stays at 6. The startup-time trigger set (`QUANTITY_GUARD_SQL`, already re-run idempotently at every
+**No migration.** `PRAGMA user_version` stays at 6. The startup-time statement set (`QUANTITY_GUARD_SQL`, already re-run idempotently at every
 start) gains two `IF NOT EXISTS` triggers, `item_locations_quantity_max_insert` / `_update`, that refuse a quantity above 1,000,000 (or an
 increase past it); no rows are read or changed, and a legacy larger row can still be reduced.
 
@@ -19,6 +19,8 @@ increase past it); no rows are read or changed, and a legacy larger row can stil
 - Stock added through `add` (item adjust, merge, invoice commit) can no longer take a location past 1,000,000: refused with a 400 in code and by the
   database triggers above.
 - `source_filename` stores a display name (last path component, control characters removed, at most 200 characters), not the raw upload filename.
+- Committing an invoice line with no price now still advances the matched item's `updated_at` (the "Date Updated" sort); it was skipped when the unpriced-line fix in 0.42 stopped touching the item.
+- A plain index `idx_item_locations_item_id` on `item_locations(item_id)` is created idempotently at startup (not a migration): the two existing unique indexes are partial, which SQLite will not use for the bare `item_id` lookups behind every item list and detail query. Index only; no rows are read or changed.
 - `openDatabase()` creates only the `DB_PATH` directory (it used to always create `<repo>/data` too).
 - A corrupt, encrypted or unreadable PDF on `POST /api/invoices/import` is a 422 "This PDF could not be read" (was a 500). A test now forces a
   line-insert failure and asserts no header row remains (#43).
