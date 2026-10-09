@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -123,21 +123,25 @@ describe('quantity cap', () => {
 });
 
 describe('openDatabase creates only the DB_PATH directory', () => {
-  it('does not create <repo>/data when DB_PATH points elsewhere', () => {
-    const { openDatabase } = nodeRequire('../lib/database');
+  const { openDatabase } = nodeRequire('../lib/database');
+  const repoData = path.join(import.meta.dirname, '..', 'data');
+
+  it('never asks for <repo>/data when DB_PATH points elsewhere (independent of whether that directory already exists)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'butler-opendb-'));
     const nested = path.join(dir, 'a', 'b', 'inventory.db');
-    const repoData = path.join(import.meta.dirname, '..', 'data');
-    const existed = fs.existsSync(repoData);
     const saved = process.env.DB_PATH;
     process.env.DB_PATH = nested;
+    const mkdir = vi.spyOn(fs, 'mkdirSync');
     try {
       const { db: opened, dbPath } = openDatabase();
       opened.close();
       expect(dbPath).toBe(nested);
       expect(fs.existsSync(nested)).toBe(true);
-      expect(fs.existsSync(repoData)).toBe(existed);
+      const created = mkdir.mock.calls.map(([target]) => path.resolve(String(target)));
+      expect(created).toEqual([path.dirname(nested)]);
+      expect(created).not.toContain(path.resolve(repoData));
     } finally {
+      mkdir.mockRestore();
       process.env.DB_PATH = saved;
       fs.rmSync(dir, { recursive: true, force: true });
     }

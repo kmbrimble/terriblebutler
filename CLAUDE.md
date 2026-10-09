@@ -4,7 +4,8 @@ Household food inventory web app ("Terrible Butler"). Node.js 24 (Active LTS; `e
 `.nvmrc`, Dockerfile) / Express 5 / better-sqlite3 /
 Socket.IO, with a React 19 / Vite / Tailwind 4 client in `client/` (built to `client/dist`, served at `/`;
 html5-qrcode barcode scanning, Cropper.js 2). The old single-file `public/index.html` front end and its
-`/legacy` route were retired (#59); `public/` now only holds the `uploads/` mount point. Product labels are parsed by
+`/legacy` route were retired (#59); there is no `public/` in git any more: the uploads directory (`UPLOADS_DIR`, default
+`public/uploads` under the app root) is created at run time and is where the container's uploads volume mounts. Product labels are parsed by
 Claude through the Anthropic Messages API (see constraint 6); invoices by the deterministic Coles/Woolworths
 parsers, with Claude only classifying/matching lines they cannot place.
 
@@ -46,7 +47,12 @@ write the live database or uploads directory.
 
 `server.js` is a thin composition root — it wires modules together in a specific order and
 re-exports `{ app, server, db }`. It does not itself contain route handlers, DB setup, or
-middleware logic. The actual code lives in:
+middleware logic. The actual code lives in the top-level modules `logger.js` (action log, below),
+`backup.js` (nightly backups), `db-migrations.js` (migrations and the idempotent startup SQL),
+`item-matching.js` (duplicate hierarchy, LLM-candidate selection, fuzzy-query clipping) and `llm-schema.js`
+(validation of LLM output), `parsers/` (`router.js` picks Coles or Woolworths by ABN; `coles.js`,
+`woolworths.js`, `shared.js` — deterministic and linear in the input, guarded by `test/parser-complexity.test.js`),
+`scripts/` (`generate-password-hash.js`, `docker-smoke.sh`, `ensure-shellcheck.js`, `apply-stocktake.js`), and `lib/`:
 
 - `lib/config.js` — env-derived constants (`APP_VERSION`, `UPLOADS_DIR`, `JWT_SECRET`, `AUTH_USERNAME`,
   `AUTH_PASSWORD_HASH`, upload size limits, LLM defaults, `PORT`). Startup fails (non-zero exit,
@@ -75,9 +81,10 @@ middleware logic. The actual code lives in:
   helpers `cleanText`, `finiteNumber` (the one numeric rule: a missing value is an error unless the caller
   says `allowNull`/`defaultValue`; bounds `QUANTITY_MAX` 1,000,000, `PRICE_MAX` 100,000, `LINE_TOTAL_MAX`
   10,000,000), `cleanPurchaseDate` (a real `YYYY-MM-DD`, 2000-01-01 to today, stored as
-  `price_history.recorded_at`), `strictFlag` (booleans are `true`/`false`/`1`/`0` only), `parseIntOrNull`, `normaliseBarcode`,
+  `price_history.recorded_at`), `strictFlag` (booleans are `true`/`false`/`1`/`0` only), `normaliseBarcode`,
   `sendMutationError` (only a `ValidationError` carries its message to the client; anything else is a correlation-id 500), `parseItemLocations`, and the `TOTAL_QUANTITY_SQL` /
-  `LOCATIONS_BREAKDOWN_SQL` fragments).
+  `LOCATIONS_BREAKDOWN_SQL` fragments). `cleanName` bounds category/location names (100 characters) and `NAME_LIST_MAX` (500)
+  bounds how many there can be, because both lists go into every LLM prompt.
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
   Messages API), `buildPrompt` (every prompt with untrusted text — PDF text, label context, item/category/
   location names — goes through it: random-id data blocks plus a data-not-instructions notice; the strict
@@ -91,6 +98,8 @@ middleware logic. The actual code lives in:
   `parseItemLocations`). There is no static `/uploads` and, for now, no endpoint that stores
   client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
   delivery are the tested base for a future photo feature.
+- `lib/pdf-text.js` / `lib/pdf-worker.js` — page-bounded `pdf-parse` extraction and its worker-thread entry point (run by `lib/uploads.js`).
+- `lib/invoice-dedupe.js` — `invoiceDedupeKey()`: `retailer|no:<invoice number>`, else `retailer|sha256:<normalised text>`.
 - `lib/login-backoff.js` — `createLoginBackoff()`: account-level login backstop (delay, never lockout).
 - `lib/invoice-retention.js` — uncommitted invoice imports older than `INVOICE_IMPORT_RETENTION_DAYS`
   (default 30, max 3650) are deleted, lines first, at startup and daily; this also frees their duplicate key.
@@ -107,7 +116,9 @@ middleware logic. The actual code lives in:
   function called from `server.js` in the exact order the routes must be mounted. After the last one,
   any other `/api/*` request (any method) is a JSON 404; it sits behind `requireAuth`, so an
   unauthenticated caller gets 401 for real and made-up paths alike. `GET /api/items/search` is bounded
-  (query at most 100 characters, at most 50 results, a three-column Fuse index).
+  (query at most 100 characters, at most 50 results, a three-column Fuse index), and so is `GET /api/items/match` (name at most 200,
+  barcode at most 128, single values only, else 400). Every fuzzy search clips its pattern to `FUZZY_QUERY_MAX` (100) characters, because
+  Fuse's cost is pattern length times item count.
 
 `test/module-seam.test.js` snapshots the registered route table (method + path, in order) and
 asserts `{ app, server, db }` are still exported against `DB_PATH` — treat a failure there as a
@@ -119,7 +130,7 @@ These MUST be preserved. Generic "best practice" refactors break them; do not ap
 from outside this project without checking against this list.
 
 1. **Listen on all interfaces, port 2626.** `lib/config.js` sets
-   `PORT = process.env.PORT || 2626`, and `server.js` calls `server.listen(PORT, ...)` with NO
+   `PORT` defaults to 2626 (`boundedIntegerEnv('PORT', 2626, 65535, 0)`), and `server.js` calls `server.listen(PORT, ...)` with NO
    host argument. NEVER bind to `127.0.0.1` or any loopback address — it makes the app
    unreachable by Nginx Proxy Manager and by the LAN.
 2. **App-level auth via JWT.** `POST /api/auth/login` (`routes/auth.js`) checks
@@ -194,8 +205,9 @@ from outside this project without checking against this list.
   CHECK without a table rebuild). `QUANTITY_GUARD_SQL` (`db-migrations.js`) is re-run idempotently at every start, and 0.43 added to it
   `item_locations_quantity_max_insert/_update` (refuse a quantity above `QUANTITY_MAX`, 1,000,000, or an *increase* past it; a legacy larger row can
   still be reduced) with no new migration: `IF NOT EXISTS` triggers, no data touched. Changing the number later needs a migration that drops and recreates them. Cancelling an in-progress import frees its key; a committed one keeps it.
-- Live schema tables: `items`, `locations`, `categories`, `price_history`, `device_tokens`,
-  `auth_state`, the invoice-import staging tables, plus a **vestigial `inventory` table**
+- Live schema tables: `items`, `locations`, `categories`, `item_locations` (the stock; source of truth), `price_history`, `device_tokens`,
+  `auth_state`, the invoice-import staging tables (`invoice_imports`, `invoice_import_lines`), `invoice_line_match_memory`
+  (raw invoice description -> item, learned at commit and consulted at import), plus a **vestigial `inventory` table**
   (`description, size, quantity`) left over from an early version. Confirm nothing references
   `inventory` before touching it; do not write to it. `items.location_id` and `items.quantity`
   are vestigial too: `item_locations` is the source of truth.
@@ -240,7 +252,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
   list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
   so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
-  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). Revoke attempts share the 5/15-minute login limiter (intended: revoking is a fresh login, and a wrong password is a failed login); the client explains a 429 there. `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
+  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). Revoke attempts share the 5/15-minute login limiter (intended: revoking is a fresh login, and a wrong password is a failed login); the client explains a 429 there. `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Every response carries `RateLimit-Policy: <quota>;w=<window seconds>;name="<limiter>"` and a 429 body names the limiter that fired (`limiter`: `api`, `mutation`, `llm`, `login`), so the client words it truthfully. Limits: `GENERAL_API_RATE_LIMIT_MAX` 240, `MUTATION_RATE_LIMIT_MAX` 90, `LLM_RATE_LIMIT_MAX` 10 (per minute), `LOGIN_RATE_LIMIT_MAX` 5 (per 15 minutes), each per client. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.
@@ -255,8 +267,10 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 - Heavy upload work (PDF extraction, image decode/re-encode) is bounded process-wide: `HEAVY_WORK_CONCURRENCY` (2 at once) and
   `HEAVY_WORK_QUEUE` (4 waiting), else 503 + `Retry-After: 5`. `INVOICE_MATCH_MAX_ITEMS` (400) caps the existing items offered to the
   LLM matcher per import: an inventory that size or smaller is sent whole, a larger one is narrowed to the items sharing rare words with
-  the invoice's lines (`item-matching.js` `selectMatchCandidates`). All integer settings accept plain decimal digits only; anything else
-  (`1e3`, `0x10`, blanks, out of range) falls back to the default.
+  the invoice's lines (`item-matching.js` `selectMatchCandidates`). All integer settings (including `PORT`, 0-65535, where 0 means "any free port") accept plain decimal digits only; anything else
+  (`1e3`, `0x10`, blanks, out of range) falls back to the default. The one deliberate exception is `TRUST_PROXY`: a hop count is also digits-only
+  (0-32) but a bad value stops startup instead of falling back, because silently trusting nothing (or something else) would change
+  who the rate limiters see.
 - Anthropic calls use `ANTHROPIC_TIMEOUT_MS` (default 45000, per attempt) and `ANTHROPIC_MAX_RETRIES`
   (default 1); the SDK's own defaults are 10 minutes and 2.
 - Nightly DB backups (`backup.js`) are named `inventory-<UTC timestamp>.db`, kept 14 days; the older
@@ -336,8 +350,8 @@ username/password, and this is intentionally the only recovery path:
 ## Deploy and verify
 
 1. Push to `main`.
-2. Watch the GitHub Actions build: `gh run list --limit 1`, then
-   `gh run watch <id> --exit-status`.
+2. Watch GitHub Actions: the `gate` job (full test suite, e2e, scanners; `.github/workflows/build.yml`) must pass before `build-and-push` runs
+   and publishes `:latest`. `gh run list --workflow build.yml --limit 1`, then `gh run watch <id> --exit-status`.
 3. On success, tell the user: **force update the `terrible-butler` container in unRAID's Docker
    tab.** The `butler-proxynet-autoconnect` User Script re-attaches `proxynet` automatically, so
    no 502 is expected.

@@ -142,10 +142,16 @@ describe('every bounded integer setting falls back on a bad value and honours a 
     ['SOCKET_HANDSHAKE_RATE_LIMIT_MAX', 'SOCKET_HANDSHAKE_RATE_LIMIT_MAX', 60, '30', [...common, '100001']],
     ['SOCKET_MAX_PER_CLIENT', 'SOCKET_MAX_PER_CLIENT', 20, '5', [...common, '10001']],
     ['SOCKET_MAX_TOTAL', 'SOCKET_MAX_TOTAL', 200, '50', [...common, '100001']],
+    ['PORT', 'PORT', 2626, '8080', ['-1', 'Infinity', '2.5', 'abc', '', ' ', '1e3', '0x10', '65536', '99999999999']],
   ])('%s', (variable, exported, fallback, good, bad) => {
-    expect(loadConfig({})[exported]).toBe(fallback);
+    expect(loadConfig({ [variable]: '' })[exported]).toBe(fallback); // unset/blank (the suite itself sets PORT)
     expect(loadConfig({ [variable]: good })[exported]).toBe(Number(good));
     for (const value of bad) expect(loadConfig({ [variable]: value })[exported], `${variable}=${JSON.stringify(value)}`).toBe(fallback);
+  });
+
+  it('PORT=0 is kept (any free port), and the number is what server.listen receives', () => {
+    expect(loadConfig({ PORT: '0' }).PORT).toBe(0);
+    expect(loadConfig({ PORT: '2626' }).PORT).toBe(2626);
   });
 
   it('HEAVY_WORK_QUEUE accepts 0 (no waiting) and falls back on junk', () => {

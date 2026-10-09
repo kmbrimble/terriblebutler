@@ -1,4 +1,4 @@
-const { cleanName, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
+const { cleanName, NAME_LIST_MAX, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
 
 function registerLocationRoutes(app, { db, broadcastUpdate }) {
   app.get('/api/locations', (req, res) => {
@@ -8,6 +8,9 @@ function registerLocationRoutes(app, { db, broadcastUpdate }) {
   app.post('/api/locations', (req, res) => {
     let name;
     try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
+    if (db.prepare('SELECT COUNT(*) AS n FROM locations').get().n >= NAME_LIST_MAX) {
+      return res.status(409).json({ error: `There can be at most ${NAME_LIST_MAX} locations` });
+    }
     try {
       const info = db.prepare('INSERT INTO locations (name) VALUES (?)').run(name);
       broadcastUpdate('locations_updated', {});

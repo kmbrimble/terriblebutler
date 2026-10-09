@@ -1,5 +1,10 @@
 // Shared duplicate-detection hierarchy for invoice commits and manual item adds.
 // Order: barcode match > exact normalised-name match > fuzzy (suggestion only, never auto-applied).
+// Fuse's cost grows with the length of the pattern times the number of items (a 15 KB pattern over
+// 2,000 items blocked the event loop for about 10 s), and the first words of a name are what
+// identify it, so every fuzzy search clips its pattern to this many characters.
+const FUZZY_QUERY_MAX = 100;
+
 function normaliseName(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -19,7 +24,7 @@ function findMatch(existingItems, { barcode, name }, fuse) {
     const exactMatches = existingItems.filter((i) => normaliseName(i.name) === normalised);
     if (exactMatches.length > 0) return { type: 'exact_name', item: exactMatches[0], candidates: exactMatches };
   }
-  const fuzzyHits = fuse && name ? fuse.search(name).map((r) => r.item) : [];
+  const fuzzyHits = fuse && name ? fuse.search(String(name).slice(0, FUZZY_QUERY_MAX)).map((r) => r.item) : [];
   if (fuzzyHits.length > 0) return { type: 'fuzzy', item: null, candidates: fuzzyHits };
   return { type: null, item: null, candidates: [] };
 }
@@ -34,7 +39,7 @@ function resolveNamedMatch(list, rawName, fuse) {
   if (!name) return { id: null, suggested_name: null, similar: null };
   const exact = list.find((item) => item.name.toLowerCase() === name.toLowerCase());
   if (exact) return { id: exact.id, suggested_name: null, similar: null };
-  const fuzzyHits = fuse ? fuse.search(name) : [];
+  const fuzzyHits = fuse ? fuse.search(name.slice(0, FUZZY_QUERY_MAX)) : [];
   const similar = fuzzyHits.length > 0 ? { id: fuzzyHits[0].item.id, name: fuzzyHits[0].item.name } : null;
   return { id: null, suggested_name: name, similar };
 }
@@ -88,4 +93,4 @@ function selectMatchCandidates(items, lines, max) {
   return [...chosen].sort((a, b) => a - b).map((index) => items[index]);
 }
 
-module.exports = { normaliseName, findMatch, resolveNamedMatch, nameTokens, selectMatchCandidates };
+module.exports = { FUZZY_QUERY_MAX, normaliseName, findMatch, resolveNamedMatch, nameTokens, selectMatchCandidates };

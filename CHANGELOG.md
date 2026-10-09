@@ -4,6 +4,58 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.45 - 2026-10-09
+
+### Security remediation: final cleanup
+
+**No migration** (`user_version` stays 6; no schema or data change). New behaviour is described under Deploy notes.
+
+**Input bounds and denial of service**
+- `GET /api/items/match` now bounds its input like `/search`: `name` at most 200 characters, `barcode` at most 128, single values only, else a 400 (a 15 KB
+  name used to hold the event loop for about 10 s). `GET /api/items/barcode/:barcode` caps the barcode at 128 too.
+- Every fuzzy search (duplicate matching on item create and on invoice import and commit, and the match of LLM-suggested category/location names)
+  clips its pattern to 100 characters; Fuse's cost is pattern length times item count, and a 500-character invoice description over 2,000 items took
+  about 370 ms per line.
+- Categories and locations are capped at 500 each (a 409 beyond that): both lists go into every label-scan and invoice-classification prompt.
+- Found while auditing the regexes: `finiteNumber`'s decimal pattern could backtrack quadratically on a long digit string ending in a non-digit (a
+  1 MB string in a JSON body). It is now unambiguous, and numeric text over 64 characters is refused before matching.
+- The Woolworths invoice parser re-split the whole buffered description for every wrapped line (quadratic: 20,000 wrapped lines took about 19 s on the
+  main thread). It now extends the buffered fields one line at a time (linear: about 10 ms) and drops a buffer that grows past 4,000 characters
+  without becoming a row. Output is identical (a frozen copy of the old parser is the test oracle, over the real fixture and 3,000 random documents).
+  The Coles parser and the parser regexes were checked and are linear.
+
+**Rate-limit transparency**
+- Every response carries `RateLimit-Policy: <quota>;w=<window seconds>;name="<limiter>"`, and a 429 body includes `limiter` (`api`, `mutation`, `llm`
+  or `login`). The client's password-confirmation message now says "5 attempts every 15 minutes" only when the sign-in limiter fired, taking the quota
+  and window from the response; any other limiter gets a plain "Too many requests right now".
+
+**Supply chain and CI**
+- `.github/workflows/build.yml`: a required `gate` job runs before the image is built. It does `npm ci` (server and client) on Node 24, `npm test`
+  (server suite, ShellCheck, client unit), the client type-check and build, the Playwright e2e suite, Semgrep `p/default --error`, Hadolint, OSV-Scanner on
+  both lockfiles and `npm audit --audit-level=low` on both. `build-and-push` `needs` the gate and only runs for a push to `main`. Every action is pinned to a commit
+  SHA; Semgrep is pinned by version and the Hadolint and OSV-Scanner binaries by version and SHA-256. The workflow also runs on pushes to `security/**` and on pull
+  requests (gate only), so it can be proven before merging.
+- The unused direct dependency `cors` is removed (Socket.IO and engine.io bring their own); a test checks every production dependency is required by the server code.
+- `npm ci` no longer warns that better-sqlite3's install script is unreviewed. npm install scripts are now an explicit allow-list: `allowScripts` in `package.json` (only `better-sqlite3`'s native build; `fsevents` denied), `strict-allow-scripts=true`
+  in `.npmrc` (root and client) and `--strict-allow-scripts` on both `npm ci` in the Dockerfile, so npm is asked to enforce the list. Checked in the pinned image (npm 11.19): without the allow-list npm skips better-sqlite3's native build
+  and only warns, and with it the install is warning-free and the binding loads; the Dockerfile now also `require`s better-sqlite3 right after the install,
+  so a lost allow-list fails the build. A test checks every lockfile package that declares an install script has an explicit decision. `.npmrc` also sets `min-release-age=7`, matching the Dependabot cooldown (lockfile installs are unaffected).
+
+**Tests, docs and code**
+- New guards: the server closes a connection it refused (a raw WebSocket that never closes itself); `openDatabase()` creates only the `DB_PATH` directory
+  (checked on the `mkdir` calls, so it holds whether or not `<repo>/data` exists); `docs.test.js` keeps CLAUDE.md in step with the modules, tables and environment variables.
+- `scripts/docker-smoke.sh` now removes the image it built (only ever a `smoketest-` tag) as well as its containers and volumes.
+- Every login-backoff test now uses the injected clock and a recorded sleep (none reads the wall clock), correcting 0.43's claim that they were deterministic.
+- `PORT` follows the digits-only integer rule (0-65535, invalid values fall back to 2626). `TRUST_PROXY`'s hop count was already digits-only; it deliberately
+  refuses to start on a bad value instead of falling back (documented). The unused `parseIntOrNull` export is removed.
+- CLAUDE.md: the `public/` description is accurate (created at run time), `invoice_line_match_memory` and `item_locations` are in the table list, every module is in the layout
+  list, the rate-limit variables and headers are documented, and the deploy steps describe the gate.
+
+**Deploy notes**
+- Force update the container as usual. No new required environment variables, and no new optional ones apart from the existing `PORT` now being validated.
+- The first push of this release runs the new gate in GitHub Actions; if it fails, `:latest` is not updated.
+- Local `npm install` of a package younger than 7 days is refused by `min-release-age`; install an older version or wait.
+
 ## 0.44 - 2026-10-09
 
 ### Security remediation: Socket.IO connection-cap race
@@ -61,8 +113,8 @@ increase past it); no rows are read or changed, and a legacy larger row can stil
 - Passwords over 1024 bytes are rejected at login and at step-up re-authentication exactly like any wrong password (same response, same backoff
   slot); bcrypt is not called. bcrypt's 72-byte truncation is documented in CLAUDE.md.
 - The 429 message on password confirmation reads the attempt limit and wait from the server's `RateLimit-Limit` / `Retry-After` headers instead of a hard-coded "5 attempts every 15 minutes".
-- Deterministic tests for the login backoff (the old parallel-login test depended on bcrypt timing), the bcrypt-failure 500 path, and the PDF
-  worker heap ceiling.
+- Tests for the login backoff (the old parallel-login test depended on bcrypt timing and was replaced; two other route tests still
+  used wall-clock bounds, which 0.45 removed), the bcrypt-failure 500 path, and the PDF worker heap ceiling.
 
 **Container, CI and tooling**
 - `docker-compose.yml` no longer has the obsolete `version:` key and does not publish port 2626 (constraint #8): it attaches to an external `proxynet` and

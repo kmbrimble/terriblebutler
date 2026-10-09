@@ -1,4 +1,4 @@
-const { cleanName, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
+const { cleanName, NAME_LIST_MAX, sendMutationError, sendServerError, sendNameWriteError } = require('../lib/domain-helpers');
 
 function registerCategoryRoutes(app, { db, broadcastUpdate }) {
   app.get('/api/categories', (req, res) => {
@@ -8,6 +8,9 @@ function registerCategoryRoutes(app, { db, broadcastUpdate }) {
   app.post('/api/categories', (req, res) => {
     let name;
     try { name = cleanName(req.body.name); } catch (err) { return sendMutationError(res, err); }
+    if (db.prepare('SELECT COUNT(*) AS n FROM categories').get().n >= NAME_LIST_MAX) {
+      return res.status(409).json({ error: `There can be at most ${NAME_LIST_MAX} categories` });
+    }
     try {
       const info = db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
       broadcastUpdate('categories_updated', {});

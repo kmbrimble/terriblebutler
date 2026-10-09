@@ -184,3 +184,43 @@ describe('connection caps hold under a concurrent burst (atomic slot reservation
     expect(await settle(realtime, (s) => s.pending === 0, 1000)).toMatchObject({ open: 0, pending: 0 });
   });
 });
+
+describe('the server ends a session whose token it refused', () => {
+  // A raw WebSocket speaking the Engine.IO / Socket.IO framing by hand, that never closes itself:
+  // anything that ends the connection is the server's doing.
+  function rawSession(url, authToken) {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`${url.replace('http', 'ws')}/socket.io/?EIO=4&transport=websocket`);
+      const seen = { frames: [], closedAt: null, openedAt: null };
+      ws.onerror = () => reject(new Error('websocket error'));
+      ws.onmessage = (event) => {
+        const frame = String(event.data);
+        seen.frames.push(frame);
+        if (frame.startsWith('0')) { seen.openedAt = Date.now(); ws.send(`40${JSON.stringify({ token: authToken })}`); }
+        if (frame === '2') ws.send('3'); // answer pings so only the server can end this
+      };
+      ws.onclose = () => { seen.closedAt = Date.now(); resolve(seen); };
+      seen.ws = ws;
+      setTimeout(() => { if (!seen.closedAt) { ws.close(); resolve({ ...seen, neverClosedByServer: true }); } }, 4000).unref();
+    });
+  }
+
+  it('closes the connection after sending the refusal, and the slot is freed', async () => {
+    const server = http.createServer();
+    const realtime = createRealtime(server, (token) => (token === 't' ? { type: 'jwt', jti: 'x', expiresAt: Date.now() + 60_000 } : null), undefined, () => false, BIG);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    servers.push(server);
+    const url = `http://127.0.0.1:${server.address().port}`;
+
+    const refused = await rawSession(url, 'wrong');
+    expect(refused.neverClosedByServer).toBeUndefined();
+    expect(refused.frames.some((f) => f.startsWith('44') && f.includes('Unauthorized'))).toBe(true); // told why first
+    expect(refused.closedAt - refused.openedAt).toBeLessThan(2000);
+    expect(realtime.connectionStats()).toMatchObject({ open: 0, pending: 0 });
+
+    // control: a valid token is NOT closed
+    const accepted = await Promise.race([rawSession(url, 't'), new Promise((resolve) => setTimeout(() => resolve({ stillOpen: true }), 1500))]);
+    expect(accepted.stillOpen).toBe(true);
+    expect(realtime.connectionStats().open).toBe(1);
+  });
+});
