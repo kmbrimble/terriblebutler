@@ -102,3 +102,85 @@ describe('Socket.IO concurrent connection caps', () => {
     expect(await handshake(url)).toBe(403);
   });
 });
+
+describe('connection caps hold under a concurrent burst (atomic slot reservation)', () => {
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const settle = async (realtime, predicate, ms = 3000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end && !predicate(realtime.connectionStats())) await pause(20);
+    return realtime.connectionStats();
+  };
+  // engine.io awaits generateId between allowRequest and the new session being announced; a slow one
+  // widens that gap so that a count taken only at 'connection' would let the whole burst through.
+  const slowIds = async () => { await pause(80); return Math.random().toString(36).slice(2); };
+  const open = (url, token = 't') => new Promise((resolve) => {
+    const socket = connect(url, { auth: { token }, transports: ['websocket'], reconnection: false });
+    socket.on('connect', () => resolve({ socket }));
+    socket.on('connect_error', (error) => { socket.close(); resolve({ error }); });
+  });
+
+  async function startWith(limits, trustPeer) {
+    const server = http.createServer();
+    const authenticate = (token) => (token === 't' ? { type: 'jwt', jti: 'x', expiresAt: Date.now() + 60_000 } : null);
+    const realtime = createRealtime(server, authenticate, undefined, trustPeer, limits);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    servers.push(server);
+    return { realtime, url: `http://127.0.0.1:${server.address().port}` };
+  }
+
+  it('N simultaneous handshakes from one client against a cap of M let exactly M through', async () => {
+    const { url, realtime } = await startWith({ ...BIG, perClientMax: 3, generateId: slowIds });
+    const statuses = await Promise.all(Array.from({ length: 12 }, () => handshake(url)));
+    expect(statuses.filter((s) => s === 200)).toHaveLength(3);
+    expect(statuses.filter((s) => s === 403)).toHaveLength(9);
+    expect(realtime.connectionStats()).toMatchObject({ open: 3, pending: 0 });
+  });
+
+  it('the overall cap holds across clients in a burst too', async () => {
+    const { url, realtime } = await startWith({ ...BIG, totalMax: 4, generateId: slowIds }, () => true);
+    const statuses = await Promise.all(Array.from({ length: 10 }, (_, i) => handshake(url, { 'X-Forwarded-For': `198.51.100.${i + 1}` })));
+    expect(statuses.filter((s) => s === 200)).toHaveLength(4);
+    expect(realtime.connectionStats().open).toBe(4);
+  });
+
+  it('WebSocket bursts are capped exactly as well, and every slot is released when the sockets close', async () => {
+    const { url, realtime } = await startWith({ ...BIG, perClientMax: 3, generateId: slowIds });
+    const results = await Promise.all(Array.from({ length: 10 }, () => open(url)));
+    const sockets = results.filter((r) => r.socket).map((r) => r.socket);
+    expect(sockets).toHaveLength(3);
+    expect(realtime.connectionStats()).toMatchObject({ open: 3, pending: 0 });
+    sockets.forEach((s) => s.close());
+    expect(await settle(realtime, (s) => s.open === 0)).toEqual({ open: 0, pending: 0, openClients: 0, pendingClients: 0 });
+    const again = await open(url);
+    expect(again.socket?.connected).toBe(true); // the full cap is available again
+    again.socket?.close();
+  });
+
+  it('failed-auth handshakes release their slots (the server ends the session it refused)', async () => {
+    const { url, realtime } = await startWith({ ...BIG, perClientMax: 3, generateId: slowIds });
+    const bad = await Promise.all(Array.from({ length: 8 }, () => open(url, 'wrong')));
+    expect(bad.every((r) => r.error)).toBe(true);
+    expect(await settle(realtime, (s) => s.open === 0 && s.pending === 0)).toEqual({ open: 0, pending: 0, openClients: 0, pendingClients: 0 });
+    // and a legitimate client is not locked out by the failures
+    const good = await Promise.all(Array.from({ length: 3 }, () => open(url)));
+    expect(good.filter((r) => r.socket)).toHaveLength(3);
+    good.forEach((r) => r.socket?.close());
+  });
+
+  it('a handshake that passes allowRequest but never becomes a session frees its slot after the TTL', async () => {
+    const stuck = () => new Promise(() => {}); // never resolves
+    const { url, realtime } = await startWith({ ...BIG, perClientMax: 1, generateId: stuck, pendingTtlMs: 150 });
+    const first = handshake(url).catch(() => 'aborted');
+    await settle(realtime, (s) => s.pending === 1);
+    expect(await handshake(url)).toBe(403); // the reservation is counted while it is pending
+    expect(await settle(realtime, (s) => s.pending === 0)).toMatchObject({ open: 0, pending: 0, pendingClients: 0 });
+    void first;
+  });
+
+  it('a handshake that fails after allowRequest frees its slot at once, not at the TTL', async () => {
+    const failing = async () => { throw new Error('id source down'); };
+    const { url, realtime } = await startWith({ ...BIG, perClientMax: 1, generateId: failing, pendingTtlMs: 600_000 });
+    await handshake(url);
+    expect(await settle(realtime, (s) => s.pending === 0, 1000)).toMatchObject({ open: 0, pending: 0 });
+  });
+});
