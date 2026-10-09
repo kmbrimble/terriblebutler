@@ -26,6 +26,9 @@ kilobytes a page) is checked in the worker before the text is copied to the main
 **Scratch sweep uses `lstat`.** The start-up sweep of the upload scratch directory now looks at entries as they are: symbolic links are removed themselves (never followed, so what they point at is
 never read, aged or deleted), and one unreadable or dangling entry no longer stops the sweep.
 
+**Review.** Four passes (three Sonnet, one Mythos) found nothing; counsel (GPT-5.6) raised two points. Fixed: `test/key-rotation.test.js` now closes the servers it listens on. Not changed, deliberately: it again asked for the
+72-byte password limit to be enforced at login, which is the owner's documented decision (1024 bytes; see CLAUDE.md constraint 2).
+
 **New environment variables:** `PDF_MAX_TEXT_CHARS` (500000). `TRUST_PROXY` is now required in production (above).
 
 ## 0.46 - 2026-10-09

@@ -14,7 +14,11 @@ const S1 = crypto.randomBytes(32).toString('hex');
 const S2 = crypto.randomBytes(32).toString('hex');
 const bearer = (token) => ({ Authorization: `Bearer ${token}` });
 const openServers = [];
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  // Servers a test chose to listen on must not outlive it.
+  await Promise.all(openServers.splice(0).filter((server) => server.listening).map((server) => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); })));
+});
 
 function boot(secret) {
   const logged = [];
