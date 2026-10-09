@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import './setup.js';
-import { TEST_USERNAME, TEST_PASSWORD } from './setup.js';
+import { JWT_KEY, TEST_USERNAME, TEST_PASSWORD } from './setup.js';
 import { loadFreshApp } from './fresh-app.js';
 
 let app;
@@ -20,17 +20,17 @@ describe('JWT algorithm pin', () => {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 
   it('accepts the HS256 baseline (so the rejections below mean something)', async () => {
-    const t = jwt.sign(claims(), process.env.JWT_SECRET, { algorithm: 'HS256', jwtid: 'guard-baseline', expiresIn: '1h' });
+    const t = jwt.sign(claims(), JWT_KEY, { algorithm: 'HS256', jwtid: 'guard-baseline', expiresIn: '1h' });
     expect((await request(app).get('/api/items').set(bearer(t))).status).toBe(200);
   });
 
   it.each(['HS384', 'HS512'])('rejects a token signed with %s using the right secret', async (algorithm) => {
-    const t = jwt.sign(claims(), process.env.JWT_SECRET, { algorithm, jwtid: `guard-${algorithm}`, expiresIn: '1h' });
+    const t = jwt.sign(claims(), JWT_KEY, { algorithm, jwtid: `guard-${algorithm}`, expiresIn: '1h' });
     expect((await request(app).get('/api/items').set(bearer(t))).status).toBe(401);
   });
 
   it('rejects a correctly signed token that carries no expiry', async () => {
-    const t = jwt.sign(claims(), process.env.JWT_SECRET, { algorithm: 'HS256', jwtid: 'guard-no-exp' });
+    const t = jwt.sign(claims(), JWT_KEY, { algorithm: 'HS256', jwtid: 'guard-no-exp' });
     expect(jwt.decode(t).exp).toBeUndefined();
     expect((await request(app).get('/api/items').set(bearer(t))).status).toBe(401);
   });

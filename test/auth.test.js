@@ -3,7 +3,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import './setup.js';
 import pkg from '../server.js';
-import { TEST_USERNAME, TEST_PASSWORD } from './setup.js';
+import { JWT_KEY, TEST_USERNAME, TEST_PASSWORD } from './setup.js';
 import { loadFreshApp } from './fresh-app.js';
 
 const { app } = pkg;
@@ -17,7 +17,7 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(200);
     expect(typeof res.body.token).toBe('string');
 
-    const decoded = jwt.verify(res.body.token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(res.body.token, JWT_KEY);
     expect(decoded.sub).toBe(TEST_USERNAME);
   });
 
@@ -92,7 +92,7 @@ describe('auth middleware', () => {
   it('allows a protected route with a valid token', async () => {
     const res = await request(app)
       .get('/api/items')
-      .set('Authorization', `Bearer ${jwt.sign({ sub: TEST_USERNAME, ver: 1 }, process.env.JWT_SECRET, { expiresIn: '30d', jwtid: 'auth-test' })}`);
+      .set('Authorization', `Bearer ${jwt.sign({ sub: TEST_USERNAME, ver: 1 }, JWT_KEY, { expiresIn: '30d', jwtid: 'auth-test' })}`);
     expect(res.status).toBe(200);
   });
 });

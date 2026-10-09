@@ -57,6 +57,10 @@ export default async function globalSetup() {
       MUTATION_RATE_LIMIT_MAX: '5000',
       LOGIN_RATE_LIMIT_MAX: '200',
       LLM_RATE_LIMIT_MAX: '1000',
+      // Every page load opens sockets from that same one address.
+      SOCKET_HANDSHAKE_RATE_LIMIT_MAX: '5000',
+      SOCKET_MAX_PER_CLIENT: '500',
+      SOCKET_MAX_TOTAL: '2000',
     },
     stdio: 'inherit',
   });

@@ -40,10 +40,12 @@ process.env.LOGIN_RATE_LIMIT_MAX ??= '1000';
 process.env.AUTH_USERNAME = TEST_USERNAME;
 process.env.AUTH_PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex');
+// What the app actually signs with: the decoded bytes of JWT_SECRET (lib/config.js JWT_KEY).
+export const JWT_KEY = Buffer.from(process.env.JWT_SECRET, 'hex');
 
 // A fresh DB starts at token epoch 1 (lib/auth-state.js), so a household JWT for these tests
 // carries ver 1. Tests that bump the epoch must log in again for a current token.
-export const TEST_TOKEN = jwt.sign({ sub: TEST_USERNAME, ver: 1 }, process.env.JWT_SECRET, {
+export const TEST_TOKEN = jwt.sign({ sub: TEST_USERNAME, ver: 1 }, JWT_KEY, {
   expiresIn: '30d',
   jwtid: 'test-setup-jwt',
 });

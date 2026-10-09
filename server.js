@@ -26,6 +26,7 @@ const { registerUploadRoutes } = require('./routes/uploads');
 const { registerInvoiceRoutes } = require('./routes/invoices');
 
 const APP_VERSION = config.APP_VERSION;
+// nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage -- CSRF needs ambient credentials (cookies); this API authenticates only with an explicit Authorization bearer header, which a cross-site request cannot attach
 const app = express();
 
 app.disable('x-powered-by');
@@ -34,16 +35,11 @@ app.set('trust proxy', config.TRUST_PROXY);
 
 app.use(middleware.securityHeaders);
 
+// nosemgrep: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server -- TLS is terminated by the reverse proxy in front of this port (CLAUDE.md constraint #8); the port is never exposed raw
 const server = http.createServer(app);
 
-// Middleware setup
-app.use(express.json({ limit: '1mb' }));
-// Express 5 leaves req.body undefined when a request carries no body (Express 4 gave {}).
-// Handlers destructure req.body directly, so restore the empty-object default.
-app.use((req, res, next) => {
-  if (req.body === undefined) req.body = {};
-  next();
-});
+// No global body parser: JSON is parsed only under /api, after the rate limiters (and, except
+// for login, after authentication). See middleware.jsonBody.
 
 // The React client is now the default front end, served at /.
 app.use(express.static(path.join(__dirname, 'client/dist')));
@@ -83,7 +79,11 @@ if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWO
 const { authenticateToken, credentialFromRequest, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
 
 // Helper to broadcast inventory updates via Socket.io
-const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry, app.get('trust proxy fn'));
+const { io, broadcastUpdate, disconnectSockets } = createRealtime(server, authenticateToken, credentialExpiry, app.get('trust proxy fn'), {
+  handshakeMax: config.SOCKET_HANDSHAKE_RATE_LIMIT_MAX,
+  perClientMax: config.SOCKET_MAX_PER_CLIENT,
+  totalMax: config.SOCKET_MAX_TOTAL,
+});
 
 // --- AUTH ---
 // One backoff for login and for step-up re-authentication, so a failed re-auth counts as a failed login.
@@ -92,16 +92,20 @@ const loginBackoff = createLoginBackoff();
 app.use('/api/auth/login', middleware.loginAuditLogger(logAction));
 registerLoginRoute(app, {
   loginRateLimiter: middleware.loginRateLimiter,
+  jsonBody: middleware.jsonBody,
   loginBackoff,
   AUTH_USERNAME: config.AUTH_USERNAME,
   AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
-  JWT_SECRET: config.JWT_SECRET,
+  JWT_KEY: config.JWT_KEY,
   authState,
 });
 
 registerApiHealthRoute(app, { APP_VERSION, credentialFromRequest });
 
 app.use('/api', requireAuth);
+
+// Everything below login needs a body only once the caller is authenticated.
+app.use('/api', middleware.jsonBody);
 
 // Verbose action logging (#14, #52): mounted after the rate limiters and requireAuth so only
 // authenticated, non-throttled requests have their bodies logged.

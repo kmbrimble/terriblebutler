@@ -14,6 +14,11 @@ function hasTable(db, table) {
 // non-negative stock rule is enforced with triggers (identical on fresh and migrated DBs).
 // UPDATE OF quantity means writes that leave quantity alone (e.g. is_open) are never blocked
 // by a legacy negative row.
+// Largest quantity one item_locations row may hold (also the cap on any single quantity input;
+// lib/domain-helpers.js re-exports it). Baked into the triggers below, which are created once
+// (IF NOT EXISTS): changing it needs a new migration that drops and recreates them.
+const QUANTITY_MAX = 1000000;
+
 const QUANTITY_GUARD_SQL = `
   CREATE TRIGGER IF NOT EXISTS item_locations_quantity_nonneg_insert
   BEFORE INSERT ON item_locations WHEN NEW.quantity < 0
@@ -21,6 +26,12 @@ const QUANTITY_GUARD_SQL = `
   CREATE TRIGGER IF NOT EXISTS item_locations_quantity_nonneg_update
   BEFORE UPDATE OF quantity ON item_locations WHEN NEW.quantity < 0
   BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not be negative'); END;
+  CREATE TRIGGER IF NOT EXISTS item_locations_quantity_max_insert
+  BEFORE INSERT ON item_locations WHEN NEW.quantity > ${QUANTITY_MAX}
+  BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not exceed ${QUANTITY_MAX}'); END;
+  CREATE TRIGGER IF NOT EXISTS item_locations_quantity_max_update
+  BEFORE UPDATE OF quantity ON item_locations WHEN NEW.quantity > ${QUANTITY_MAX} AND NEW.quantity > OLD.quantity
+  BEGIN SELECT RAISE(ABORT, 'item_locations.quantity must not exceed ${QUANTITY_MAX}'); END;
 `;
 
 // Duplicate-invoice enforcement (#44). Run after the migrations on every start: on an existing
@@ -28,6 +39,13 @@ const QUANTITY_GUARD_SQL = `
 // create it.
 const INVOICE_DEDUPE_INDEX_SQL =
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_imports_dedupe_key ON invoice_imports(dedupe_key)';
+
+// item_locations is looked up by item_id alone on every item list/detail query (the stock total and
+// per-location breakdown). The two unique indexes are partial (location_id IS [NOT] NULL), which
+// SQLite will not use for a bare item_id filter, so this plain one serves those lookups. Index
+// only, created idempotently at every start (no migration; no data is read or changed).
+const ITEM_LOCATIONS_LOOKUP_INDEX_SQL =
+  'CREATE INDEX IF NOT EXISTS idx_item_locations_item_id ON item_locations(item_id)';
 
 // On a fresh DB, server.js's CREATE TABLE already reflects the latest schema, so nothing
 // needs replaying — just mark it caught up. On an existing DB, run pending migrations in
@@ -164,4 +182,4 @@ const migrations = [
   },
 ];
 
-module.exports = { runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL };
+module.exports = { QUANTITY_MAX, runMigrations, hasColumn, hasTable, migrations, QUANTITY_GUARD_SQL, INVOICE_DEDUPE_INDEX_SQL, ITEM_LOCATIONS_LOOKUP_INDEX_SQL };

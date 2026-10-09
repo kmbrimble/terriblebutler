@@ -11,7 +11,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 process.env.AUTH_USERNAME ??= 'u';
 process.env.AUTH_PASSWORD_HASH ??= `$2b$10$${'a'.repeat(53)}`;
-process.env.JWT_SECRET ??= 'x'.repeat(32);
+process.env.JWT_SECRET ??= 'a'.repeat(64);
 const { validateStoragePaths } = require('../lib/config');
 
 const repo = path.resolve(import.meta.dirname, '..');

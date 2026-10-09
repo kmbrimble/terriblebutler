@@ -4,7 +4,7 @@ import { io as connect } from 'socket.io-client';
 import request from 'supertest';
 import './setup.js';
 import pkg from '../server.js';
-import { TEST_USERNAME, TEST_PASSWORD } from './setup.js';
+import { JWT_KEY, TEST_USERNAME, TEST_PASSWORD } from './setup.js';
 import jwt from 'jsonwebtoken';
 import { createRealtime } from '../lib/realtime.js';
 import { createAuthState } from '../lib/auth-state.js';
@@ -145,7 +145,7 @@ describe('Socket.IO sessions end at credential expiry (#56)', () => {
   it('disconnects a socket whose JWT expires while it is open', async () => {
     const token = jwt.sign(
       { sub: TEST_USERNAME, ver: createAuthState(db).getEpoch(), exp: Math.floor(Date.now() / 1000) + 2 },
-      process.env.JWT_SECRET,
+      JWT_KEY,
       { jwtid: 'short-lived' },
     );
     const socket = await openSocket(token);

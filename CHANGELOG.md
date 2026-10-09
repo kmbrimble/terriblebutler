@@ -4,6 +4,83 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.43 - 2026-10-09
+
+### Security remediation round 3: the remaining audit items
+
+**No migration.** `PRAGMA user_version` stays at 6. The startup-time statement set (`QUANTITY_GUARD_SQL`, already re-run idempotently at every
+start) gains two `IF NOT EXISTS` triggers, `item_locations_quantity_max_insert` / `_update`, that refuse a quantity above 1,000,000 (or an
+increase past it); no rows are read or changed, and a legacy larger row can still be reduced.
+
+**Input and data integrity**
+- `cleanText` accepts text only: arrays, objects, numbers and booleans are a 400 (they used to be stored as `"x"` / `"[object Object]"`; a
+  `device_label` array was accepted). Control characters become spaces. `finiteNumber` accepts plain decimals only (`"0x10"`, `"1e3"`,
+  `"Infinity"` are refused). Every bounded integer environment variable likewise accepts plain digits only.
+- Stock added through `add` (item adjust, merge, invoice commit) can no longer take a location past 1,000,000: refused with a 400 in code and by the
+  database triggers above.
+- `source_filename` stores a display name (last path component, control characters removed, at most 200 characters), not the raw upload filename.
+- Committing an invoice line with no price now still advances the matched item's `updated_at` (the "Date Updated" sort); it was skipped when the unpriced-line fix in 0.42 stopped touching the item.
+- A plain index `idx_item_locations_item_id` on `item_locations(item_id)` is created idempotently at startup (not a migration): the two existing unique indexes are partial, which SQLite will not use for the bare `item_id` lookups behind every item list and detail query. Index only; no rows are read or changed.
+- `openDatabase()` creates only the `DB_PATH` directory (it used to always create `<repo>/data` too).
+- A corrupt, encrypted or unreadable PDF on `POST /api/invoices/import` is a 422 "This PDF could not be read" (was a 500). A test now forces a
+  line-insert failure and asserts no header row remains (#43).
+
+**Request pipeline and denial-of-service bounds**
+- JSON bodies are parsed only under `/api`, after the general and mutation limiters and after authentication (login: after its own limiter). A
+  throttled client gets 429 for a malformed body, not 400; an unauthenticated one gets 401; nothing outside `/api` parses a body. The
+  `req.body = {}` default and the 1 MB limit are unchanged.
+- Socket.IO handshakes (which bypass the Express limiters) are rate limited per client, and open connections are capped per client and overall,
+  counted at the engine level so unauthenticated sockets count. Clients are keyed exactly as the Express limiters key them (the same trusted
+  `TRUST_PROXY` rule via `proxy-addr`, IPv6 /64). Refused handshakes are a 403.
+- A process-wide gate (`lib/work-gate.js`) bounds PDF extraction, `storeUploadedImage` and the label scanner's image decode: when full the
+  request is a 503 with `Retry-After: 5` and the upload is discarded.
+- Invoice matching no longer sends the whole inventory in one prompt: up to `INVOICE_MATCH_MAX_ITEMS` items are sent (an inventory that size or
+  smaller whole, so match quality for a household is unchanged; a larger one is narrowed to the items sharing rare words with the invoice's lines,
+  best candidates of every line first), names and line text are clipped, and only an offered id is accepted from the model.
+- `PDF_WORKER_MEMORY_MB` has a floor of 64: V8 aborts the whole process (not just the worker) when asked for a few-MB worker heap.
+
+**Auth**
+- `JWT_SECRET` must be machine-generated: at least 64 hexadecimal characters (32 bytes), e.g. `openssl rand -hex 32`. The decoded bytes are the
+  key for JWT signing and for the HKDF media-URL key. The startup error names the variable only.
+- Passwords over 1024 bytes are rejected at login and at step-up re-authentication exactly like any wrong password (same response, same backoff
+  slot); bcrypt is not called. bcrypt's 72-byte truncation is documented in CLAUDE.md.
+- The 429 message on password confirmation reads the attempt limit and wait from the server's `RateLimit-Limit` / `Retry-After` headers instead of a hard-coded "5 attempts every 15 minutes".
+- Deterministic tests for the login backoff (the old parallel-login test depended on bcrypt timing), the bcrypt-failure 500 path, and the PDF
+  worker heap ceiling.
+
+**Container, CI and tooling**
+- `docker-compose.yml` no longer has the obsolete `version:` key and does not publish port 2626 (constraint #8): it attaches to an external `proxynet` and
+  shows a commented loopback-only publish for local development. It now also lists the required `JWT_SECRET`, `AUTH_USERNAME` and `AUTH_PASSWORD_HASH`.
+  `TRUST_PROXY` guidance warns against trusting a network whose gateway can carry direct client traffic.
+- `.dockerignore` secret patterns now match at any depth (`**/.env`, `**/*.pem`, ...); a test checks them against sample paths.
+- `.github/dependabot.yml`: 7-day cooldown on version updates. `.github/workflows/claude.yml`: the `@claude` job only runs for `OWNER`, `MEMBER` or `COLLABORATOR`.
+- `docker-entrypoint.sh` is restructured (`is_within`) so semgrep can parse it, and ShellCheck 0.11.0 (pinned download, SHA-256 verified, no npm
+  dependency tree) is part of `npm test`.
+- Every remaining semgrep `p/default` finding was triaged: log calls with interpolated format strings were fixed (`logger.js`, `backup.js`,
+  `lib/uploads.js`, `lib/llm-client.js`, `lib/domain-helpers.js`); the rest carry a precise inline `nosemgrep: <rule-id> -- reason`. Hadolint DL3008 has a documented `# hadolint ignore`.
+- New dependency: `proxy-addr` (already installed as Express's own dependency; now declared).
+
+**New environment variables** (all optional; invalid values fall back to the default)
+| Variable | Default | Meaning |
+|---|---|---|
+| `HEAVY_WORK_CONCURRENCY` / `HEAVY_WORK_QUEUE` | 2 (max 32) / 4 (0-1000) | PDF/image work running at once / waiting; beyond that 503 |
+| `SOCKET_HANDSHAKE_RATE_LIMIT_MAX` | 60 per minute per client | Socket.IO handshakes |
+| `SOCKET_MAX_PER_CLIENT` / `SOCKET_MAX_TOTAL` | 20 / 200 | open Socket.IO connections |
+| `INVOICE_MATCH_MAX_ITEMS` | 400 (max 2000) | existing items offered to the LLM matcher per import |
+| `PDF_WORKER_MEMORY_MB` | 256 (now 64-4096) | floor added |
+
+**Accepted by design** (now stated in CLAUDE.md): full bodies in the authenticated action log (secrets redacted); the account-wide login backoff
+can be held full by a distributed attacker (slows new logins, never locks out existing sessions); the text-hash dedupe fallback cannot match a
+re-rendered PDF with no invoice number; the JWT in `localStorage` (the strict CSP is the XSS control).
+
+**Deploy notes**
+- **`JWT_SECRET` must be 64+ hex characters or the container will not start** (the live one already is). Because the key material changes from the UTF-8 of the
+  hex string to its decoded bytes, **every existing JWT and every signed `/media` image URL becomes invalid on deploy**: everyone logs in once; image URLs
+  are re-signed on the next list fetch. Device tokens (opaque, stored hashed) are unaffected.
+- No pre-change database backup is required for the schema (there is no migration), but the standard one is cheap.
+- If the unRAID template or a compose file publishes 2626, keep `TRUST_PROXY` to the proxy's own address(es) (see CLAUDE.md "Deployment and published ports").
+- `PDF_WORKER_MEMORY_MB` below 64 (or any integer variable written as `1e3`, `0x10`, ...) now falls back to its default.
+
 ## 0.42 - 2026-10-09
 
 ### Security remediation round 2: invoices, client failure handling, auth, container, and the remaining audit items

@@ -24,15 +24,17 @@ logs/
 uploads/
 
 # Secrets and credentials must never enter the build context (and so never an image layer).
-.env
-.env.*
-*.pem
-*.key
-*.p12
-*.pfx
-.npmrc
-.netrc
-.aws/
-.ssh/
-id_rsa*
-id_ed25519*
+# `**/` makes each rule match at any depth: a bare `.env` pattern would only match the context
+# root, and the client build stage copies the whole client/ directory.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/.npmrc
+**/.netrc
+**/.aws/
+**/.ssh/
+**/id_rsa*
+**/id_ed25519*

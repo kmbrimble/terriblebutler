@@ -74,7 +74,7 @@ function pruneOldLogs(maxAgeDays = MAX_AGE_DAYS) {
     try {
       if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
     } catch (err) {
-      console.error(`[Logger] failed to prune old log ${file}:`, err.message);
+      console.error('[Logger] failed to prune old log %s:', file, err.message);
     }
   }
 }

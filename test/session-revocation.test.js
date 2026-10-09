@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 import { createRequire } from 'module';
 import './setup.js';
 import pkg from '../server.js';
-import { TEST_USERNAME, TEST_PASSWORD, TEST_TOKEN } from './setup.js';
+import { JWT_KEY, TEST_USERNAME, TEST_PASSWORD, TEST_TOKEN } from './setup.js';
 import { createAuthState } from '../lib/auth-state.js';
 import { createAuth } from '../lib/middleware.js';
 
@@ -24,7 +24,7 @@ async function login() {
   return res.body.token;
 }
 const session = () =>
-  jwt.sign({ sub: TEST_USERNAME, ver: authState.getEpoch() }, process.env.JWT_SECRET, { expiresIn: '30d', jwtid: crypto.randomUUID() });
+  jwt.sign({ sub: TEST_USERNAME, ver: authState.getEpoch() }, JWT_KEY, { expiresIn: '30d', jwtid: crypto.randomUUID() });
 
 const get = (url, token) => request(app).get(url).set('Authorization', `Bearer ${token}`);
 const post = (url, token) => request(app).post(url).set('Authorization', `Bearer ${token}`);
@@ -44,12 +44,12 @@ describe('household JWT versioning (#49)', () => {
   });
 
   it('rejects a legacy JWT that has no epoch claim', async () => {
-    const legacy = jwt.sign({ sub: TEST_USERNAME }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const legacy = jwt.sign({ sub: TEST_USERNAME }, JWT_KEY, { expiresIn: '30d' });
     expect((await get('/api/items', legacy)).status).toBe(401);
   });
 
   it('rejects an HS384-signed token even with the right secret', async () => {
-    const t = jwt.sign({ sub: TEST_USERNAME, ver: authState.getEpoch() }, process.env.JWT_SECRET, { algorithm: 'HS384' });
+    const t = jwt.sign({ sub: TEST_USERNAME, ver: authState.getEpoch() }, JWT_KEY, { algorithm: 'HS384' });
     expect(auth.authenticateToken(t)).toBeNull();
   });
 

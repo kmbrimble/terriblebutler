@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createRequire } from 'module';
@@ -44,7 +44,7 @@ describe('login backoff', () => {
   });
 
   describe('on POST /api/auth/login', () => {
-    function loginApp(loginBackoff) {
+    function loginApp(loginBackoff, compare) {
       const app = express();
       app.use(express.json());
       registerLoginRoute(app, {
@@ -52,8 +52,9 @@ describe('login backoff', () => {
         loginBackoff,
         AUTH_USERNAME: process.env.AUTH_USERNAME,
         AUTH_PASSWORD_HASH: process.env.AUTH_PASSWORD_HASH,
-        JWT_SECRET: process.env.JWT_SECRET,
+        JWT_KEY: Buffer.from(process.env.JWT_SECRET, 'hex'),
         authState: { getEpoch: () => 1 },
+        compare,
       });
       return app;
     }
@@ -69,15 +70,29 @@ describe('login backoff', () => {
       expect(Date.now() - started).toBeGreaterThanOrEqual(50);
     });
 
-    it('delays parallel guesses so they cannot outrun the cap, and answers 429 when the queue is full', async () => {
-      const app = loginApp(createLoginBackoff({ free: 1, baseMs: 100, capMs: 100, maxWaitMs: 150 }));
+    // Deterministic: the clock is frozen and attempts are sequential, so the outcome depends only
+    // on the backoff arithmetic (free: 1; then a 100 ms gap each; queue at most 150 ms deep),
+    // never on how long bcrypt takes under load.
+    it('answers 429 with Retry-After once the wait queue is full, without running bcrypt', async () => {
+      const compare = vi.fn(async () => false);
+      const app = loginApp(createLoginBackoff({ free: 1, baseMs: 100, capMs: 100, maxWaitMs: 150, now: () => 1_000_000 }), compare);
+      const codes = [];
+      let last;
+      for (let i = 0; i < 3; i++) {
+        last = await attempt(app, 'wrong');
+        codes.push(last.status);
+      }
+      // attempt 1 free, attempt 2 waits 100 ms (inside the queue), attempt 3 would wait 200 ms (> 150): shed
+      expect(codes).toEqual([401, 401, 429]);
+      expect(Number(last.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+      expect(compare).toHaveBeenCalledTimes(2);
+    });
+
+    it('delays an attempt by the wait the backoff reserves', async () => {
+      const app = loginApp({ reserve: () => ({ waitMs: 120 }), recordSuccess() {} });
       const started = Date.now();
-      const results = await Promise.all(Array.from({ length: 8 }, () => attempt(app, 'wrong')));
-      const codes = results.map((r) => r.status);
-      expect(codes.filter((c) => c === 429).length).toBeGreaterThan(0);
-      expect(results.find((r) => r.status === 429).headers['retry-after']).toBeTruthy();
-      expect(codes.filter((c) => c === 401).length).toBeLessThan(8);
-      expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+      expect((await attempt(app, 'wrong')).status).toBe(401);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(110); // a lower bound only: it can't be early
     });
 
     it('a successful login resets the delay', async () => {

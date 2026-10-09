@@ -553,21 +553,28 @@ async function postWithPassword(path: string, password: string, failure: string)
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  if (res.status === 429) throw new Error(passwordAttemptsMessage(res.headers.get('Retry-After')));
+  if (res.status === 429) throw new Error(passwordAttemptsMessage(res.headers.get('Retry-After'), res.headers.get('RateLimit-Limit')));
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || failure);
   }
 }
 
-// Password confirmations share the sign-in attempt limit (5 per 15 minutes, wrong passwords
-// included), so say that and for how long, rather than a bare "too many requests".
-export function passwordAttemptsMessage(retryAfter: string | null): string {
-  const seconds = Number(retryAfter);
-  const wait = !retryAfter || !Number.isFinite(seconds) || seconds <= 0
-    ? 'a few minutes'
-    : seconds < 90 ? `${Math.ceil(seconds)} seconds` : `${Math.ceil(seconds / 60)} minutes`;
-  return `Too many password attempts. Revoking counts as signing in, which is limited to 5 attempts every 15 minutes. Try again in ${wait}.`;
+// Password confirmations share the sign-in attempt limit (wrong passwords included), so say so, and
+// for how long, rather than a bare "too many requests". The limit and the wait come from the
+// server's own response headers (RateLimit-Limit, Retry-After), never from a constant here, so the
+// message stays true if the limit is reconfigured.
+function positiveNumber(value: string | null): number | null {
+  const parsed = Number(value);
+  return value && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function passwordAttemptsMessage(retryAfter: string | null, limit: string | null = null): string {
+  const seconds = positiveNumber(retryAfter);
+  const attempts = positiveNumber(limit);
+  const wait = seconds === null ? 'a few minutes' : seconds < 90 ? `${Math.ceil(seconds)} seconds` : `${Math.ceil(seconds / 60)} minutes`;
+  const rule = attempts === null ? 'which is rate limited' : `which allows ${Math.floor(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'} at a time`;
+  return `Too many password attempts. Revoking counts as signing in, ${rule}. Try again in ${wait}.`;
 }
 
 export function revokeDevice(id: number, password: string): Promise<void> {

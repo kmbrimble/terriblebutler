@@ -12,6 +12,10 @@ RUN sed -i '/debian-security/!s|http://deb.debian.org/debian|http://ftp.au.debia
 
 # Build tools only as a fallback for compiling better-sqlite3 / sharp when no prebuilt
 # binary matches the platform. Not present in the final image.
+# Not pinned, deliberately (hadolint DL3008): this is the discarded builder stage, the base image is
+# pinned by digest above, and pinned Debian package versions are withdrawn from the mirrors, which
+# breaks otherwise-unchanged builds. Nothing from this layer reaches the runtime image.
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         make \
@@ -76,5 +80,7 @@ COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # Expose app port
 EXPOSE 2626
 
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint -- deliberate: the entrypoint runs as root only to chown the writable mounts, then setpriv drops to PUID:PGID (never root) before exec'ing node
 ENTRYPOINT ["docker-entrypoint.sh"]
+# nosemgrep: dockerfile.security.missing-user.missing-user -- same: privileges are dropped by the entrypoint (setpriv --no-new-privs), see docker-entrypoint.sh
 CMD ["node", "server.js"]

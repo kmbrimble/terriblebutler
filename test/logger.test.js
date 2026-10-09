@@ -150,7 +150,7 @@ describe('pruneOldLogs failures', () => {
     fs.utimesSync(stale, old, old);
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => pruneOldLogs(30)).not.toThrow();
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('actions-2020-01-06.log'), expect.any(String));
+    expect(errSpy).toHaveBeenCalledWith(expect.any(String), 'actions-2020-01-06.log', expect.any(String));
   });
 });
 

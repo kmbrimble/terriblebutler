@@ -66,6 +66,7 @@ test('renaming a location updates its tab live, and deleting the active one fall
   await page.goto('/');
   await expect(page.getByTestId(APP_ROOT)).toHaveAttribute('data-socket-connected', 'true');
 
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- `name` is a fixed test constant, never user input
   const tab = (name) => page.getByTestId(LOCATION_TAB_BUTTON).filter({ hasText: new RegExp(`^${name}$`) });
   await tab(originalName).click();
   await expect(tab(originalName)).toHaveClass(/bg-rimmy-purple/);

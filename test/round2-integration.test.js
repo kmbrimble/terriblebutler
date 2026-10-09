@@ -320,7 +320,7 @@ describe('abandoned invoice import retention', () => {
     purgeAbandonedImports(db, 30, now);
   });
 
-  it('INVOICE_IMPORT_RETENTION_DAYS defaults to 30 and falls back on a bad value', async () => {
+  it('INVOICE_IMPORT_RETENTION_DAYS defaults to 30 (bad values: test/config-validation.test.js)', async () => {
     const config = (await import('../lib/config.js')).default;
     expect(config.INVOICE_IMPORT_RETENTION_DAYS).toBe(30);
   });

@@ -2,7 +2,7 @@ const Fuse = require('fuse.js');
 const { resolveNamedMatch } = require('../item-matching');
 const { validateLabelResult } = require('../llm-schema');
 const { callClaudeForJSON, buildPrompt } = require('../lib/llm-client');
-const { openValidatedImage, discardUpload, uploadErrorStatus } = require('../lib/uploads');
+const { openValidatedImage, discardUpload, sendUploadError, heavyWork } = require('../lib/uploads');
 
 function registerUploadRoutes(app, { db, imageUpload }) {
   app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) => {
@@ -14,14 +14,18 @@ function registerUploadRoutes(app, { db, imageUpload }) {
     console.log(`[Label Parser] Received file (${req.file.size} bytes)`);
     try {
       // Validate first: a non-image is a 400, not an LLM call or a silent empty result.
-      const image = await openValidatedImage(req.file.path);
+      // Decoding and resizing run through the process-wide gate (503 + Retry-After when full);
+      // the LLM call below does not, it is bounded by the LLM rate limiter.
+      const resizedBuffer = await heavyWork.run(async () => {
+        const image = await openValidatedImage(req.file.path);
+        return image
+          .rotate()
+          .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+      });
       const locs = db.prepare('SELECT id, name FROM locations').all();
       const cats = db.prepare('SELECT id, name FROM categories').all();
-      const resizedBuffer = await image
-        .rotate()
-        .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
       const base64Image = resizedBuffer.toString('base64');
       console.log(`[Label Parser] Resized image base64 length: ${base64Image.length} characters`);
       const promptText = buildPrompt(`Read the text on this product label. Extract the information into a JSON object.
@@ -72,8 +76,7 @@ function registerUploadRoutes(app, { db, imageUpload }) {
         similar_location: locationMatch.similar
       });
     } catch (err) {
-      const status = uploadErrorStatus(err);
-      if (status) return res.status(status).json({ error: err.message });
+      if (sendUploadError(res, err)) return;
       console.error("[Label Parser Exception]", err);
       return res.json(fallbackObject);
     } finally {

@@ -17,7 +17,9 @@ const BACKUP_NAME = /^inventory-\d{4}-\d{2}-\d{2}(T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+
 // Never overwrites: on a (same-millisecond) name clash a counter is appended.
 function uniqueBackupPath(backupDir, date = new Date()) {
   const base = backupFileName(date).slice(0, -3);
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- backupDir is the server's own directory next to DB_PATH and base is built from a Date, never request input
   let dest = path.join(backupDir, `${base}.db`);
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- same: server-chosen directory, name built from a Date and a counter
   for (let n = 1; fs.existsSync(dest); n++) dest = path.join(backupDir, `${base}-${n}.db`);
   return dest;
 }
@@ -35,11 +37,12 @@ function pruneOldBackups(backupDir, maxAgeDays = MAX_AGE_DAYS) {
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   for (const file of fs.readdirSync(backupDir)) {
     if (!BACKUP_NAME.test(file)) continue;
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- `file` was just matched against BACKUP_NAME (no separators possible) from readdir of the server's own directory
     const full = path.join(backupDir, file);
     try {
       if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
     } catch (err) {
-      console.error(`[Backup] failed to prune old backup ${file}:`, err.message);
+      console.error('[Backup] failed to prune old backup %s:', file, err.message);
     }
   }
 }
