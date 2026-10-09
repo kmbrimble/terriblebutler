@@ -70,10 +70,13 @@ const domainHelpers = createDomainHelpers(db);
 const { getItem, barcodeBelongsToAnotherItem, validForeignId, recalculateItemPrices, resolveTargetLocation, upsertItemLocationQuantity } = domainHelpers;
 
 const authState = createAuthState(db);
-// Rotating AUTH_PASSWORD_HASH / AUTH_USERNAME ends every session: the epoch bump makes
+// Rotating AUTH_PASSWORD_HASH / AUTH_USERNAME / JWT_SECRET ends every session: the epoch bump makes
 // existing JWTs stale and revokes all device tokens (see lib/auth-state.js).
-if (authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWORD_HASH) === 'rotated') {
+const fingerprintResult = authState.syncCredentialFingerprint(config.AUTH_USERNAME, config.AUTH_PASSWORD_HASH, config.JWT_KEY);
+if (fingerprintResult === 'rotated') {
   console.log('[Auth] Login credential changed since last start: all sessions and device tokens revoked.');
+} else if (fingerprintResult === 'key_rotated') {
+  console.log('[Auth] JWT signing key changed since last start: all sessions and device tokens revoked.');
 }
 
 const { authenticateToken, credentialFromRequest, requireAuth, requireHouseholdJwt, credentialExpiry } = middleware.createAuth(db, authState);
@@ -178,7 +181,10 @@ if (require.main === module) {
     // Without either, the Socket.IO origin check expects the Node port's own plain-http origin, so
     // browsers behind a TLS-terminating proxy lose live updates (the page itself still loads).
     if (!process.env.APP_ORIGIN && !config.TRUST_PROXY) {
-      console.warn('[Config] Neither APP_ORIGIN nor TRUST_PROXY is set: behind a TLS proxy, browser Socket.IO connections will be refused, and every client is keyed on the proxy\'s address. Set APP_ORIGIN=https://<your host>, and TRUST_PROXY to Nginx Proxy Manager\'s proxynet address only (with NPM restoring the visitor from CF-Connecting-IP); see CLAUDE.md "Client IP and rate limits".');
+      console.warn('[Config] Neither APP_ORIGIN nor a trusted proxy is configured: behind a TLS proxy, browser Socket.IO connections will be refused. Set APP_ORIGIN=https://<your host> (or let TRUST_PROXY name the proxy so the origin can be derived).');
+    }
+    if (!config.TRUST_PROXY) {
+      console.warn('[Config] TRUST_PROXY is "none": no forwarded headers are trusted, so behind a reverse proxy every client shares the proxy\'s address (one rate-limit bucket). Fine for direct access; otherwise set it to the proxy\'s address only (with NPM restoring the visitor from CF-Connecting-IP), see CLAUDE.md "Client IP and rate limits".');
     }
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));

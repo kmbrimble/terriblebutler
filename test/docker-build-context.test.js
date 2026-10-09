@@ -57,8 +57,9 @@ describe('docker-compose.yml', () => {
     expect(live).toMatch(/^networks:\s*\n\s*proxynet:\s*\n(?:\s*#.*\n)?\s*external: true/m);
   });
 
-  it('passes TRUST_PROXY and APP_ORIGIN through, empty by default (test/trust-proxy.test.js shows the app reads empty as unset)', () => {
-    expect(live).toMatch(/- TRUST_PROXY=\$\{TRUST_PROXY:-\}/);
+  it('requires TRUST_PROXY (compose refuses to start without it) and passes APP_ORIGIN through, empty by default', () => {
+    expect(live).toMatch(/- TRUST_PROXY=\$\{TRUST_PROXY:\?[^}]+\}/);
+    expect(live).toMatch(/- NODE_ENV=production/);
     expect(live).toMatch(/- APP_ORIGIN=\$\{APP_ORIGIN:-\}/);
   });
 

@@ -4,6 +4,33 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.47 - 2026-10-09
+
+### Security remediation: key rotation, PDF text cap, explicit TRUST_PROXY
+
+**No migration** (`user_version` stays 6; no schema change).
+
+**Deploy notes: `TRUST_PROXY` is now mandatory in production.** With `NODE_ENV=production` (the Dockerfile sets it) the container refuses to start unless `TRUST_PROXY` is set to
+the proxy's address or CIDR list (for this deployment Nginx Proxy Manager's proxynet address, `172.18.0.5`; see the 0.46 notes and CLAUDE.md for the full NPM / Cloudflare setup), a hop count,
+or the literal `none` (trust no forwarded headers: direct access, or until NPM has been set up). **Set it in the unRAID template before updating, or the container will stop at start-up** with a
+message naming the variable. Left unset it used to silently turn the per-client rate limits into one household-wide bucket. Outside production (tests, local development) unset still means trust
+nothing. `docker-compose.yml` requires it (`${TRUST_PROXY:?...}`). The startup log now says when TRUST_PROXY is `none`.
+
+**Rotating `JWT_SECRET` now revokes device tokens.** The persisted auth fingerprint now carries a keyed digest of the JWT signing key (HMAC-SHA256 of a fixed label under the key; the key itself is never
+stored or logged), so changing `JWT_SECRET` bumps the token epoch and revokes every device token at the next start, exactly like a password-hash change (it used to leave remembered tablets logged in).
+The first start after this release only records the digest: the deploy itself revokes nothing beyond what 0.43 already did. The recovery notes in CLAUDE.md cover rotating the key.
+
+**PDF text is capped inside the worker.** A small compressed PDF can expand to megabytes of text. `PDF_MAX_TEXT_CHARS` (default 500,000 characters, range 1,000-50,000,000; real invoices are a few
+kilobytes a page) is checked in the worker before the text is copied to the main thread; over it the import is a 422 "far larger than any invoice".
+
+**Scratch sweep uses `lstat`.** The start-up sweep of the upload scratch directory now looks at entries as they are: symbolic links are removed themselves (never followed, so what they point at is
+never read, aged or deleted), and one unreadable or dangling entry no longer stops the sweep.
+
+**Review.** Four passes (three Sonnet, one Mythos) found nothing; counsel (GPT-5.6) raised two points. Fixed: `test/key-rotation.test.js` now closes the servers it listens on. Not changed, deliberately: it again asked for the
+72-byte password limit to be enforced at login, which is the owner's documented decision (1024 bytes; see CLAUDE.md constraint 2).
+
+**New environment variables:** `PDF_MAX_TEXT_CHARS` (500000). `TRUST_PROXY` is now required in production (above).
+
 ## 0.46 - 2026-10-09
 
 ### Security remediation: final pass

@@ -83,9 +83,10 @@ describe('client-IP / proxy guidance matches the verified topology', () => {
     const compose = read('docker-compose.yml');
     expect(compose).toMatch(/e\.g\. TRUST_PROXY=172\.18\.0\.5/);
     expect(compose).toContain('CF-Connecting-IP');
-    const warning = read('server.js').split('\n').find((l) => l.includes('Neither APP_ORIGIN nor TRUST_PROXY'));
+    const server = read('server.js');
+    const warning = server.split('\n').find((l) => l.includes('TRUST_PROXY is "none"'));
     expect(warning).toContain('CF-Connecting-IP');
-    expect(warning).toContain('proxynet');
+    expect(warning).toContain('Client IP and rate limits');
     expect(warning).not.toContain('172.17');
   });
 });
