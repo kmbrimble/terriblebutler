@@ -152,6 +152,14 @@ describe('private permissions on persistent data', () => {
     }
   });
 
+  it('creates missing parent directories of custom paths traversable (0755), so the app can still reach its own directory', () => {
+    const base = path.join(root, 'custom-parents');
+    const res = run({ DB_PATH: `${base}/storage/db/inv.db`, LOG_DIR: `${base}/var/log`, UPLOADS_DIR: `${base}/media/up` });
+    expect(res.status, res.stderr).toBe(0);
+    const mode = (p) => fs.statSync(p).mode & 0o777;
+    for (const parent of ['storage', 'storage/db', 'var', 'media']) expect(mode(path.join(base, parent)), parent).toBe(0o755);
+  });
+
   it('never follows links (no -L / -H) and never repairs before the path checks passed', () => {
     const res = run({ UPLOADS_DIR: '/etc/uploads' });
     expect(res.status).toBe(1);

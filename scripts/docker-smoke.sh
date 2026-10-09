@@ -82,6 +82,12 @@ for f in /app/data/legacy.db /app/data/olddir/old.log /app/public/uploads/oldsub
 done
 echo "ok: private modes (dirs 700, files 600, umask 077, leftovers repaired)"
 
+# A custom path whose parents do not exist yet: the app (after the privilege drop) must still reach it.
+docker run --rm -e LOG_DIR=/app/var/log -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+  -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
+  sh -c 'test -w /app/var/log && [ "$(stat -c %a /app/var)" = 755 ] && [ "$(stat -c %a /app/var/log)" = 700 ]' || fail "custom LOG_DIR with new parents is not reachable/private for the app user"
+echo "ok: new parents of a custom path stay traversable"
+
 # A mutating call must reach the action log on stdout (what `docker logs` shows).
 LOGIN="$(call POST /api/auth/login '' '{"username":"smoketest","password":"smoketest-password"}' || true)"
 TOKEN="$(printf '%s' "$LOGIN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"

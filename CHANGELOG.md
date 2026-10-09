@@ -40,6 +40,9 @@ is never chmod'd. `scripts/docker-smoke.sh` seeds world-readable leftovers and a
   test is the real guard, because npm 11.19 only warns on an unlisted install script and `require('better-sqlite3')` passes on a prebuilt binary.
 - 0.45 said the Woolworths parser's output was identical to the old one; that predated the strict-number follow-up (311 of 6,000 fuzz documents differed, all a single malformed-number row now
   skipped). The test oracle now uses the strict rules, the generator emits malformed numbers, the oracle's header names the right test file, and the 0.45 sentence is corrected.
+- Found in this release's review (Mythos): with `umask 077` set, the entrypoint's `mkdir -p` would have created the missing *parent* directories of a custom `DB_PATH`, `LOG_DIR` or
+  `UPLOADS_DIR` (for example `/app/var/log`) root-owned 0700, locking the app out of its own directory after the privilege drop. Parents are now created 0755 and only the target is narrowed to 0700;
+  the entrypoint suite and the docker smoke both cover it.
 - CLAUDE.md said the `Authorization` header must be exactly `Bearer <token>`; the code (deliberately) follows RFC 7235: case-insensitive scheme, one or more spaces. Reworded.
 
 ## 0.45 - 2026-10-09

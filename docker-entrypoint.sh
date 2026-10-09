@@ -111,7 +111,10 @@ repair_modes() {
 
 REAL_ROOT="$(realpath "$APP_ROOT")"
 for dir in "$DATA_DIR" "$UPLOADS" "$LOGS"; do
-  mkdir -p "$dir"
+  # Any missing parents (a custom DB_PATH/LOG_DIR/UPLOADS_DIR such as /app/var/log) stay traversable: under the
+  # umask 077 above they would be 0700 root-owned and the app could not reach its own directory. repair_modes
+  # below narrows the target itself to 0700.
+  (umask 022 && mkdir -p "$dir")
   # A symlink inside the image or a bind mount must not redirect the chown out of the app.
   case "$(realpath "$dir")/" in
     "$REAL_ROOT"/?*) ;;
