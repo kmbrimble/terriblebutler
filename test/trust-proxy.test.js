@@ -44,7 +44,7 @@ describe('TRUST_PROXY parsing', () => {
   });
 
   it('accepts IPs, CIDRs and named ranges', () => {
-    expect(parseTrustProxy('172.17.0.0/16, 172.18.0.5,loopback')).toEqual(['172.17.0.0/16', '172.18.0.5', 'loopback']);
+    expect(parseTrustProxy('172.18.0.0/16, 172.18.0.5,loopback')).toEqual(['172.18.0.0/16', '172.18.0.5', 'loopback']);
   });
 
   it.each(['true', 'TRUE', '*', '10.0.0.1,*', '0.0.0.0/0', '::/0'])('rejects trust-everything value %s', (value) => {
@@ -86,9 +86,9 @@ describe('rate limiter client address', () => {
   });
 
   it('walks past every trusted hop to the first untrusted address', async () => {
-    const app = loadApp('loopback,172.17.0.0/16,172.18.0.0/16');
-    // client, cloudflared hop, NPM hop (peer is loopback under supertest)
-    const { same, other } = await exhaustLogin(app, '203.0.113.7, 172.17.0.7, 172.18.0.5', '203.0.113.8, 172.17.0.7, 172.18.0.5');
+    const app = loadApp('loopback,172.18.0.5');
+    // visitor, then the address NPM appended for it, then NPM itself (the peer is loopback under supertest)
+    const { same, other } = await exhaustLogin(app, '203.0.113.7, 172.18.0.5', '203.0.113.8, 172.18.0.5');
     expect(same).toBe(429);
     expect(other).toBe(401);
   });

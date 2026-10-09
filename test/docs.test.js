@@ -62,3 +62,30 @@ describe('CLAUDE.md lists every live table and every environment variable', () =
     expect(claude).not.toMatch(/`public\/` now only holds/);
   });
 });
+
+describe('client-IP / proxy guidance matches the verified topology', () => {
+  const read = (f) => fs.readFileSync(path.join(repo, f), 'utf8');
+
+  it('CLAUDE.md describes Cloudflare DNS -> port-forward -> NPM -> proxynet, not the tunnel', () => {
+    for (const phrase of ['does NOT use the cloudflared', 'Cloudflare-proxied', 'router port-forward', '172.18.0.5', 'CF-Connecting-IP', 'set_real_ip_from', 'AdGuardHome', 'Remove the host publish of port 2626']) {
+      expect(claude, phrase).toContain(phrase);
+    }
+  });
+
+  it('nothing recommends trusting docker0 (172.17.0.0/16) any more', () => {
+    for (const file of ['CLAUDE.md', 'docker-compose.yml', 'server.js']) expect(read(file), file).not.toContain('172.17.0.0/16,172.18.0.0/16');
+    expect(read('docker-compose.yml')).not.toMatch(/^\s*-\s*TRUST_PROXY=.*172\.17/m);
+    // history is kept, but every old recommendation is marked as superseded
+    for (const line of read('CHANGELOG.md').split('\n').filter((l) => l.includes('TRUST_PROXY=172.17'))) expect(line).toContain('superseded in 0.46');
+  });
+
+  it('the compose comment and the startup warning say the same thing as CLAUDE.md', () => {
+    const compose = read('docker-compose.yml');
+    expect(compose).toMatch(/# - TRUST_PROXY=172\.18\.0\.5/);
+    expect(compose).toContain('CF-Connecting-IP');
+    const warning = read('server.js').split('\n').find((l) => l.includes('Neither APP_ORIGIN nor TRUST_PROXY'));
+    expect(warning).toContain('CF-Connecting-IP');
+    expect(warning).toContain('proxynet');
+    expect(warning).not.toContain('172.17');
+  });
+});

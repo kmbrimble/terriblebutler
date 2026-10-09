@@ -1,6 +1,6 @@
 // The Woolworths parser used to rebuild and re-split the whole buffered description for every
 // wrapped line (quadratic: 20,000 wrapped lines took ~19 s on the main thread). It is now linear.
-// A frozen copy of the old implementation is the oracle for "output identical".
+// A copy of the pre-rewrite implementation (with the current strict number rules) is the oracle for "output identical".
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -21,23 +21,30 @@ async function fixtureText(name) {
   try { return (await parser.getText()).text; } finally { await parser.destroy(); }
 }
 
-describe('Woolworths parser output is unchanged', () => {
+describe('Woolworths parser output matches the oracle', () => {
   let text;
   beforeAll(async () => { text = await fixtureText('woolworths-example.pdf'); });
 
-  it('matches the frozen reference on the real fixture (32 lines)', () => {
+  it('matches the oracle on the real fixture (32 lines)', () => {
     const now = parseWoolworths(text);
     expect(now.lines).toHaveLength(32);
     expect(now).toEqual(reference(text));
   });
 
-  it('matches the reference on 3,000 random documents of wrapped, broken, header and junk lines', () => {
+  it('matches the oracle on 6,000 random documents of wrapped, broken, malformed-number, header and junk lines', () => {
     let seed = 20261009;
     const rand = (n) => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed % n; };
     const words = ['Cadbury', 'baking', 'chips', '360g', 'Coles', 'milk', '1.25L', '*Bread', 'x\ty', ''];
     const pick = (list) => list[rand(list.length)];
+    let parsedRows = 0;
+    let malformedPieces = 0;
+    const badNumbers = ['1..2', '1,000', '2.', '.', '$.', '$3..00', '$1,5', '2abc', '1e3', '--1', '', 'x', '0.5 kg', '3ea'];
+    const num = () => (rand(4) === 0 ? (malformedPieces += 1, pick(badNumbers)) : String(rand(5)));
+    const money = () => (rand(4) === 0 ? (malformedPieces += 1, pick(badNumbers)) : `$${rand(30)}.${rand(99)}`);
     const piece = () => {
-      switch (rand(9)) {
+      switch (rand(11)) {
+        case 9: return `${1 + rand(40)}\t${pick(words)}\t${num()}\t${num()}\t${money()}\t${money()}`;
+        case 10: return `${pick(words)} ${pick(words)}\t${num()}\t${num()}\t${money()}\t${money()}`;
         case 0: return `${1 + rand(40)}\t${pick(words)} ${pick(words)}\t${rand(5)}\t${rand(5)}\t$${rand(30)}.${rand(99)}\t$${rand(90)}.00`;
         case 1: return `${1 + rand(40)} ${pick(words)} ${pick(words)}`;
         case 2: return `${pick(words)} ${pick(words)}\t${rand(5)}\t${rand(5)}\t$${rand(30)}.50\t$${rand(90)}.00`;
@@ -49,10 +56,15 @@ describe('Woolworths parser output is unchanged', () => {
         default: return pick(['Invoice/Order Number: 99', 'Date: 17 Jul 2026\tx', '', '   ', 'footer text']);
       }
     };
-    for (let doc = 0; doc < 3000; doc++) {
+    for (let doc = 0; doc < 6000; doc++) {
       const body = Array.from({ length: 1 + rand(25) }, piece).join('\n');
-      expect(parseWoolworths(body), body).toEqual(reference(body));
+      const result = parseWoolworths(body);
+      expect(result, body).toEqual(reference(body));
+      parsedRows += result.lines.length;
     }
+    // not vacuous: plenty of rows were read, and plenty of malformed numbers were thrown at both parsers
+    expect(parsedRows).toBeGreaterThan(2000);
+    expect(malformedPieces).toBeGreaterThan(2000);
   });
 });
 

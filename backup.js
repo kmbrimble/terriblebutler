@@ -2,6 +2,7 @@
 // (unlike a raw file copy) — same mechanism CLAUDE.md's manual pre-change backup process uses.
 const fs = require('fs');
 const path = require('path');
+const { ensurePrivateDir, makePrivate } = require('./lib/private-fs');
 
 const MAX_AGE_DAYS = 14;
 
@@ -25,9 +26,10 @@ function uniqueBackupPath(backupDir, date = new Date()) {
 }
 
 async function runBackup(db, backupDir) {
-  fs.mkdirSync(backupDir, { recursive: true });
+  ensurePrivateDir(backupDir);
   const dest = uniqueBackupPath(backupDir);
   await db.backup(dest);
+  makePrivate(dest);
   pruneOldBackups(backupDir);
   return dest;
 }

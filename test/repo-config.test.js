@@ -105,14 +105,15 @@ describe('npm install scripts are an explicit allow-list', () => {
     expect(JSON.parse(read('client/package.json')).allowScripts).toEqual({ fsevents: false });
   });
 
-  it('both projects ask npm to enforce the list (.npmrc), as does every npm ci in the Dockerfile, which also proves the native binding loads', () => {
+  it('both projects ask npm to enforce the list (.npmrc), as does every npm ci in the Dockerfile, which first asserts the policy', () => {
     expect(read('.npmrc')).toMatch(/^strict-allow-scripts=true$/m);
     expect(read('client/.npmrc')).toMatch(/^strict-allow-scripts=true$/m);
     for (const f of ['.npmrc', 'client/.npmrc']) expect(read(f), f).toMatch(/^min-release-age=([7-9]|\d\d+)$/m);
-    const installs = read('Dockerfile').split('\n').filter((l) => /^\s*RUN npm ci\b/.test(l));
+    const installs = read('Dockerfile').split('\n').filter((l) => /^\s*(RUN|&&) npm ci\b/.test(l));
     expect(installs).toHaveLength(2);
     for (const line of installs) expect(line).toContain('--strict-allow-scripts');
-    expect(read('Dockerfile')).toMatch(/npm ci --omit=dev --strict-allow-scripts \\\n\s+&& node -e "require\('better-sqlite3'\)/);
+    // the build asserts the allowScripts policy itself before installing (a require() of the module would pass on a prebuilt binary)
+    expect(read('Dockerfile')).toMatch(/RUN node -e "const a = require\('\.\/package\.json'\)\.allowScripts[^\n]*better-sqlite3'\] !== true \|\| a\.fsevents !== false[^\n]*\\\n\s+&& npm ci --omit=dev --strict-allow-scripts/);
   });
 
   it('every dependency with an install script in the lockfiles is covered by a decision', () => {

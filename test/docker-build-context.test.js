@@ -57,12 +57,13 @@ describe('docker-compose.yml', () => {
     expect(live).toMatch(/^networks:\s*\n\s*proxynet:\s*\n(?:\s*#.*\n)?\s*external: true/m);
   });
 
-  it('keeps the data and uploads mounts and the TRUST_PROXY guidance, including the gateway warning', () => {
+  it('keeps the data and uploads mounts and the TRUST_PROXY guidance, including the gateway warning and the NPM client-IP requirement', () => {
     expect(live).toMatch(/- \.\/data:\/app\/data/);
     expect(live).toMatch(/- \.\/uploads:\/app\/public\/uploads/);
     expect(compose).toMatch(/TRUST_PROXY=/);
     expect(compose).toMatch(/gateway/i);
-    expect(compose).toMatch(/published host port/i);
+    expect(compose).toMatch(/CF-Connecting-IP/);
+    expect(compose).toMatch(/NPM/);
   });
 });
 

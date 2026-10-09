@@ -26,11 +26,14 @@ WORKDIR /app
 
 # Reproducible install from the lockfile (production dependencies only)
 COPY package.json package-lock.json ./
-# Install scripts are an explicit allow-list (allowScripts in package.json: only better-sqlite3's native
-# build; npm 11.19 skips every install script that is not listed, and only warns). The require() fails the
-# build if that list is ever lost and the native binding was therefore not built.
-RUN npm ci --omit=dev --strict-allow-scripts \
-    && node -e "require('better-sqlite3'); console.log('better-sqlite3 native binding loads')"
+# Install scripts are an explicit allow-list (allowScripts in package.json). npm 11.19 skips an unlisted
+# install script with only a warning, and --strict-allow-scripts does not turn that into an error, so the
+# first command asserts the policy itself: better-sqlite3 allowed, fsevents denied. (The CI repo-config test
+# is the real guard; this fails the image build too.) The second only proves the native module loads: a
+# prebuilt binary would load even if the policy were lost, so it does not prove the policy.
+RUN node -e "const a = require('./package.json').allowScripts || {}; if (a['better-sqlite3'] !== true || a.fsevents !== false) { console.error('package.json allowScripts must allow better-sqlite3 and deny fsevents'); process.exit(1); }" \
+    && npm ci --omit=dev --strict-allow-scripts \
+    && node -e "require('better-sqlite3'); console.log('better-sqlite3 loads')"
 
 FROM ${NODE_IMAGE} AS client-builder
 

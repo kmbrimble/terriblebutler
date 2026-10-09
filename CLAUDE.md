@@ -88,7 +88,9 @@ middleware logic. The actual code lives in the top-level modules `logger.js` (ac
 - `lib/llm-client.js` — `callClaudeForJSON` (forced strict tool-use call to the Anthropic
   Messages API), `buildPrompt` (every prompt with untrusted text — PDF text, label context, item/category/
   location names — goes through it: random-id data blocks plus a data-not-instructions notice; the strict
-  schema remains the primary control), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`.
+  schema remains the primary control), `classifyLinesWithLLM` (batched), `matchLinesWithLLM`. Every Anthropic call runs through one
+  process-wide gate (`llmGate`, a `lib/work-gate.js` gate: `LLM_MAX_CONCURRENT` 4 at once, `LLM_QUEUE_MAX` 8 waiting): a full queue is a 503 + `Retry-After`
+  for the label scan (upload discarded), and for invoice classification/matching it degrades to the warnings those already produce, never a 500.
 - `lib/uploads.js` — everything about user-supplied files: multer into a private scratch dir
   (`UPLOAD_TMP_DIR`, verified at startup: a real directory, not a symlink, runtime-owned, mode 0700, else the
   process refuses to start), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
@@ -100,6 +102,9 @@ middleware logic. The actual code lives in the top-level modules `logger.js` (ac
   delivery are the tested base for a future photo feature.
 - `lib/pdf-text.js` / `lib/pdf-worker.js` — page-bounded `pdf-parse` extraction and its worker-thread entry point (run by `lib/uploads.js`).
 - `lib/invoice-dedupe.js` — `invoiceDedupeKey()`: `retailer|no:<invoice number>`, else `retailer|sha256:<normalised text>`.
+- `lib/private-fs.js` — `ensurePrivateDir` / `makePrivate`: everything the app writes to persistent storage (database and WAL/shm, action logs,
+  backups, stored images) is created owner-only (dirs 0700, files 0600) whatever the inherited umask. A directory that already exists is never
+  chmod'd (DB_PATH can sit in /tmp or on a shared mount).
 - `lib/login-backoff.js` — `createLoginBackoff()`: account-level login backstop (delay, never lockout).
 - `lib/invoice-retention.js` — uncommitted invoice imports older than `INVOICE_IMPORT_RETENTION_DAYS`
   (default 30, max 3650) are deleted, lines first, at startup and daily; this also frees their duplicate key.
@@ -148,7 +153,7 @@ from outside this project without checking against this list.
    Passwords over 1024 bytes are simply wrong, at login and at re-auth: same backoff slot, same 401/403 as any wrong password,
    and bcrypt is never called. (bcrypt itself only reads the first 72 bytes of a password, so a longer password's tail is
    ignored; the 1024-byte bound exists to stop oversized input, it is not a statement that longer passwords are stronger.)
-   `Authorization` is read in one place (`parseBearerToken`): exactly `Bearer <token>`, anything else is unauthenticated.
+   `Authorization` is read in one place (`parseBearerToken`), following RFC 7235: the scheme `Bearer` (case-insensitive), one or more spaces, then a single token68 value; anything else is unauthenticated.
    JSON bodies are parsed only under `/api`, after the general/mutation limiters and `requireAuth` (login: after its own limiter), via
    `middleware.jsonBody` (which also restores the `req.body = {}` default); nothing outside `/api` parses a body, and a throttled or
    unauthenticated caller never makes the server buffer one.
@@ -178,10 +183,12 @@ from outside this project without checking against this list.
 7. **Camera must stay allowed.** The `Permissions-Policy` header (`securityHeaders` in
    `lib/middleware.js`) must include `camera=(self)`. Removing it breaks the barcode scanner.
    There is a test guarding this; do not weaken it.
-8. **Never expose the Node port raw to the internet.** Current access path (may change
-   again): [Cloudflare / LAN] → Nginx Proxy Manager (plain reverse proxy — Authentik
-   header/auth settings were removed, so NPM now passes straight through) →
-   `terrible-butler` on its unique port → app's own JWT auth.
+8. **Never expose the Node port raw to the internet.** Current access path (verified on the live host,
+   may change again): `butler.kiztigs.com` is a Cloudflare-proxied DNS record (it does NOT use the cloudflared
+   tunnel) → WAN → router port-forward → Nginx Proxy Manager (plain reverse proxy — Authentik header/auth
+   settings were removed, so NPM passes straight through; on br0 192.168.0.23 and proxynet 172.18.0.5) →
+   `terrible-butler:2626` over the `proxynet` Docker network → app's own JWT auth. LAN clients reach NPM directly.
+   See "Client IP and rate limits" for what that means for client addresses.
 9. **Strict CSP, no third-party runtime assets.** `securityHeaders` (`lib/middleware.js`) sends a
    `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'`, and no
    `unsafe-inline` / `unsafe-eval`. Nothing may load from a third-party origin: fonts are bundled
@@ -225,6 +232,11 @@ The image starts `docker-entrypoint.sh` as root only to `chown` the writable pat
 (default `<dir of DB_PATH>/logs`, i.e. `/app/data/logs`, on the persistent data mount)) to `PUID:PGID`, then `exec setpriv` drops privileges for good (no-new-privs) and
 runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 
+- Persistent data is private to the app user: the entrypoint sets `umask 077` before the privilege drop (and on the already-non-root path),
+  and repairs the existing contents of the validated data, uploads and logs paths to directories 0700 and files 0600 (`repair_modes`: `-xdev`,
+  `-type d` / `-type f`, so links are neither followed nor changed), scoped exactly like the chown. The app creates its own files the same way
+  (`lib/private-fs.js`). Consequence: reading `/mnt/user/appdata/butler/*` on the host needs root (unRAID's root shell and containers running as
+  root are fine); `scripts/docker-smoke.sh` asserts the modes, including repair of seeded world-readable leftovers.
 - `PUID` / `PGID` env vars, defaults `99` / `100` (unRAID nobody:users). Must be numeric and
   non-zero; the entrypoint refuses to run the app as root.
 - Existing root-owned files in the bind mounts (e.g. `inventory.db`) are chowned in place on
@@ -250,9 +262,25 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 - `TRUST_PROXY` (`lib/config.js`, validated at startup, logged at listen): unset = trust no
   forwarded headers (`req.ip` is the socket peer). Accepts a hop count or a comma-separated
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
-  list: a hop count also trusts the direct peer, and port 2626 is published on all interfaces,
-  so a direct caller could spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
-  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). Revoke attempts share the 5/15-minute login limiter (intended: revoking is a fresh login, and a wrong password is a failed login); the client explains a 429 there. `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Every response carries `RateLimit-Policy: <quota>;w=<window seconds>;name="<limiter>"` and a 429 body names the limiter that fired (`limiter`: `api`, `mutation`, `llm`, `login`), so the client words it truthfully. Limits: `GENERAL_API_RATE_LIMIT_MAX` 240, `MUTATION_RATE_LIMIT_MAX` 90, `LLM_RATE_LIMIT_MAX` 10 (per minute), `LOGIN_RATE_LIMIT_MAX` 5 (per 15 minutes), each per client. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is. Recommended value for this deployment (Nginx Proxy Manager on the Docker bridge networks): `172.17.0.0/16,172.18.0.0/16`, set in the unRAID template.
+  list: a hop count also trusts the direct peer, so any caller who can reach the app directly could
+  spoof `X-Forwarded-For`. Rate-limit keys use the resolved IP
+  (IPv4-mapped IPv6 folded; other IPv6 keyed on its /64). Revoke attempts share the 5/15-minute login limiter (intended: revoking is a fresh login, and a wrong password is a failed login); the client explains a 429 there. `RateLimit-Reset` and `Retry-After` are seconds until the window resets. Every response carries `RateLimit-Policy: <quota>;w=<window seconds>;name="<limiter>"` and a 429 body names the limiter that fired (`limiter`: `api`, `mutation`, `llm`, `login`), so the client words it truthfully. Limits: `GENERAL_API_RATE_LIMIT_MAX` 240, `MUTATION_RATE_LIMIT_MAX` 90, `LLM_RATE_LIMIT_MAX` 10 (per minute), `LOGIN_RATE_LIMIT_MAX` 5 (per 15 minutes), each per client. Bucket maps are capped at 50,000 and eviction never drops a bucket that is over its limit unless every bucket is.
+- **Deployment topology and the right `TRUST_PROXY` (verified read-only on the live host, 2026-10-09).** Traffic arrives as Cloudflare-proxied DNS
+  → WAN → router port-forward → Nginx Proxy Manager (br0 192.168.0.23, proxynet 172.18.0.5; proxynet is 172.18.0.0/16 with gateway 172.18.0.1)
+  → `terrible-butler:2626` over proxynet. NPM's `nginx.conf` trusts the private ranges plus its `ip_ranges.conf` (Cloudflare's) with
+  `real_ip_header X-Real-IP`, and the butler proxy host appends `$proxy_add_x_forwarded_for`. Consequences:
+  (a) **As it stands** Cloudflare does not send `X-Real-IP`, so NPM's peer address is a Cloudflare edge address, `X-Forwarded-For` ends in that
+  edge, and `req.ip` (hence every rate-limit bucket, the action log's `ip` and Socket.IO keying) is the edge, not the visitor: visitors behind one
+  edge share a bucket.
+  (b) **The right setup:** NPM restores the visitor from `CF-Connecting-IP` for this proxy host (`real_ip_header CF-Connecting-IP;` with
+  `set_real_ip_from` limited to Cloudflare's published ranges, so nobody else can set it), so the `X-Forwarded-For` it appends ends in the real
+  client; and the app trusts ONLY NPM's proxynet address: `TRUST_PROXY=172.18.0.5` (give NPM a fixed IP on proxynet so this stays true) or, if
+  that cannot be pinned, `172.18.0.0/16` — which also trusts the other containers on proxynet (AdGuardHome, Navidrome, Immich, Grafana), any of
+  which could then present a forged `X-Forwarded-For` to the app. Express reads `X-Forwarded-For` right to left and stops at the first
+  untrusted address, so a client-supplied header is only ever to the left of the address NPM appended.
+  (c) **Remove the host publish of port 2626**, so nothing reaches the app except through NPM over proxynet. Never trust `172.17.0.0/16` (docker0:
+  its gateway also carries traffic for host-published ports), `true`, `*` or a hop count.
+  Until (b) and (c) are done, `TRUST_PROXY` may be left unset (trust nothing): rate limits then key on the peer, which is NPM.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.
@@ -271,6 +299,8 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   (`1e3`, `0x10`, blanks, out of range) falls back to the default. The one deliberate exception is `TRUST_PROXY`: a hop count is also digits-only
   (0-32) but a bad value stops startup instead of falling back, because silently trusting nothing (or something else) would change
   who the rate limiters see.
+- Anthropic calls are bounded process-wide by `LLM_MAX_CONCURRENT` (default 4 in flight) and `LLM_QUEUE_MAX` (default 8 waiting), on top of the per-client LLM rate limit. No per-request
+  upload telemetry (file sizes, base64 lengths) is logged.
 - Anthropic calls use `ANTHROPIC_TIMEOUT_MS` (default 45000, per attempt) and `ANTHROPIC_MAX_RETRIES`
   (default 1); the SDK's own defaults are 10 minutes and 2.
 - Nightly DB backups (`backup.js`) are named `inventory-<UTC timestamp>.db`, kept 14 days; the older
@@ -279,12 +309,11 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 ### Deployment and published ports
 
 `docker-compose.yml` is a reference file: it does not publish 2626 at all (constraint #8) and attaches the service to the reverse
-proxy's external network (`proxynet`). For local development only, publish it on loopback (`127.0.0.1:2626:2626`), never on all
-interfaces. `TRUST_PROXY` must list only the proxy's own network: never a network whose gateway can carry direct client traffic, because
-a published host port can arrive from the Docker gateway (userland proxy, host-local clients), and trusting that range lets such a
-caller choose its own client address. The unRAID template does publish 2626 (the proxy needs it), so keep `TRUST_PROXY` as narrow as the
-proxy's own address where practical, and check after any network change which source address a direct request to the published port
-arrives from.
+proxy's external network (`proxynet`); NPM reaches the app at `terrible-butler:2626` over that network, so no host port is needed. The
+unRAID template should match: remove the host port mapping for 2626 (and remember `butler-proxynet-autoconnect` re-attaches proxynet). For
+local development only, publish it on loopback (`127.0.0.1:2626:2626`), never on all interfaces. `TRUST_PROXY` is NPM's proxynet address only
+(`172.18.0.5`, or `172.18.0.0/16` if NPM's address cannot be pinned), never a network whose gateway can carry direct client traffic, and
+NPM must restore the visitor's address from `CF-Connecting-IP` for the butler proxy host; both are in "Client IP and rate limits" above.
 
 ## Pre-change backup
 
@@ -337,6 +366,7 @@ don't try to route around a permission block via another tool.
 There is no in-app password reset flow — the household login is a single shared
 username/password, and this is intentionally the only recovery path:
 
+0. Pick a password of at most 72 bytes (UTF-8): bcrypt only reads the first 72, and `generate-password-hash.js` refuses anything longer.
 1. Run `node scripts/generate-password-hash.js '<new password>'` (in the repo, or via
    `docker exec terrible-butler node scripts/generate-password-hash.js '<new password>'`
    against the live container) to print a bcrypt hash.

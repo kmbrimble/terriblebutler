@@ -31,7 +31,7 @@ beforeAll(() => {
   const stub = (name, body) => fs.writeFileSync(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   stub('id', '[ "$1" = "-u" ] && echo "${STUB_UID:-0}"');
   stub('find', 'echo "find $*" >> "$STUB_LOG"');
-  stub('setpriv', 'echo "setpriv $*" >> "$STUB_LOG"');
+  stub('setpriv', 'echo "setpriv $*" >> "$STUB_LOG"; umask > "$STUB_LOG.umask"');
   // The only edit to the production script: point APP_ROOT at the sandbox.
   expect(script).toMatch(/^APP_ROOT=\/app$/m);
   fs.writeFileSync(path.join(sandbox, 'entrypoint.sh'), script.replace(/^APP_ROOT=\/app$/m, `APP_ROOT=${root}`));
@@ -93,7 +93,7 @@ describe('privilege drop', () => {
 describe('chown scope', () => {
   it('prepares exactly the data, uploads and log directories by default', () => {
     const res = run();
-    const finds = res.calls.filter((c) => c.startsWith('find'));
+    const finds = res.calls.filter((c) => c.startsWith('find') && c.includes('chown'));
     expect(finds.map((c) => c.split(' ')[1])).toEqual([`${root}/data`, `${root}/public/uploads`, `${root}/data/logs`]);
     for (const f of finds) {
       expect(f).toContain('-xdev');
@@ -105,13 +105,13 @@ describe('chown scope', () => {
   it('keeps the action logs on the persistent data mount, following a custom DB_PATH', () => {
     const res = run({ DB_PATH: `${root}/storage/inv.db` });
     expect(res.status).toBe(0);
-    expect(res.calls.filter((c) => c.startsWith('find')).map((c) => c.split(' ')[1]).at(-1)).toBe(`${root}/storage/logs`);
+    expect(res.calls.filter((c) => c.startsWith('find') && c.includes('chown')).map((c) => c.split(' ')[1]).at(-1)).toBe(`${root}/storage/logs`);
   });
 
   it('honours DB_PATH, UPLOADS_DIR and LOG_DIR inside the app root', () => {
     const res = run({ DB_PATH: `${root}/db/inv.db`, UPLOADS_DIR: `${root}/media`, LOG_DIR: `${root}/var/log` });
     expect(res.status).toBe(0);
-    expect(res.calls.filter((c) => c.startsWith('find')).map((c) => c.split(' ')[1]))
+    expect(res.calls.filter((c) => c.startsWith('find') && c.includes('chown')).map((c) => c.split(' ')[1]))
       .toEqual([`${root}/db`, `${root}/media`, `${root}/var/log`]);
   });
 
@@ -123,6 +123,67 @@ describe('chown scope', () => {
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('resolves outside');
     expect(res.calls.some((c) => c.startsWith('setpriv'))).toBe(false);
+  });
+});
+
+describe('private permissions on persistent data', () => {
+  const umaskOf = () => fs.readFileSync(`${logFile}.umask`, 'utf8').trim();
+
+  it('sets umask 077 before dropping privileges, so the app inherits it', () => {
+    fs.rmSync(`${logFile}.umask`, { force: true });
+    expect(run().status).toBe(0);
+    expect(umaskOf()).toBe('0077');
+  });
+
+  it('sets it on the already-non-root path too', () => {
+    fs.rmSync(`${logFile}.umask`, { force: true });
+    expect(run({ STUB_UID: '1000' }, ['sh', '-c', 'umask > "$STUB_LOG.umask"']).status).toBe(0);
+    expect(umaskOf()).toBe('0077');
+  });
+
+  it('repairs each prepared directory to dirs 0700 and files 0600, within the volume, after the chown', () => {
+    const res = run();
+    for (const dir of [`${root}/data`, `${root}/public/uploads`, `${root}/data/logs`]) {
+      const own = res.calls.filter((c) => c.startsWith(`find ${dir} `));
+      expect(own).toHaveLength(3);
+      expect(own[0]).toContain('chown -h 99:100');
+      expect(own[1]).toBe(`find ${dir} -xdev -type d ! -perm 0700 -exec chmod 0700 {} +`);
+      expect(own[2]).toBe(`find ${dir} -xdev -type f ! -perm 0600 -exec chmod 0600 {} +`);
+    }
+  });
+
+  it('never follows links (no -L / -H) and never repairs before the path checks passed', () => {
+    const res = run({ UPLOADS_DIR: '/etc/uploads' });
+    expect(res.status).toBe(1);
+    expect(res.calls).toEqual([]);
+    for (const call of run().calls.filter((c) => c.startsWith('find'))) expect(call).not.toMatch(/ -[LH] /);
+  });
+
+  // The function itself, run for real (real find and chmod) on a sandbox tree.
+  it('repair_modes really sets 0700/0600, skips symlinks and leaves what a link points at alone', () => {
+    const fn = /^repair_modes\(\) \{\n[\s\S]*?\n\}$/m.exec(script)[0];
+    const tree = path.join(sandbox, 'repair-tree');
+    const outside = path.join(sandbox, 'repair-outside.txt');
+    fs.mkdirSync(path.join(tree, 'sub', 'deeper'), { recursive: true });
+    fs.writeFileSync(path.join(tree, 'inventory.db'), 'x', { mode: 0o644 });
+    fs.writeFileSync(path.join(tree, 'sub', 'deeper', 'a.log'), 'x', { mode: 0o666 });
+    fs.writeFileSync(outside, 'x', { mode: 0o644 });
+    fs.chmodSync(outside, 0o644);
+    fs.symlinkSync(outside, path.join(tree, 'link-to-outside'));
+    const linkedDir = path.join(sandbox, 'repair-linked-dir');
+    fs.mkdirSync(linkedDir, { mode: 0o755 });
+    fs.chmodSync(linkedDir, 0o755);
+    fs.symlinkSync(linkedDir, path.join(tree, 'link-to-dir'));
+    for (const d of [tree, path.join(tree, 'sub'), path.join(tree, 'sub', 'deeper')]) fs.chmodSync(d, 0o755);
+    fs.chmodSync(path.join(tree, 'inventory.db'), 0o644);
+    fs.chmodSync(path.join(tree, 'sub', 'deeper', 'a.log'), 0o666);
+    const res = spawnSync('sh', ['-c', `${fn}\nrepair_modes "$1"`, 'sh', tree], { encoding: 'utf8' });
+    expect(res.status, res.stderr).toBe(0);
+    const mode = (f) => fs.statSync(f).mode & 0o777;
+    expect([tree, path.join(tree, 'sub'), path.join(tree, 'sub', 'deeper')].map(mode)).toEqual([0o700, 0o700, 0o700]);
+    expect([path.join(tree, 'inventory.db'), path.join(tree, 'sub', 'deeper', 'a.log')].map(mode)).toEqual([0o600, 0o600]);
+    expect(mode(outside)).toBe(0o644); // reached only through a symlink: untouched
+    expect(mode(linkedDir)).toBe(0o755); // likewise the directory a link pointed at
   });
 });
 

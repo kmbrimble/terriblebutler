@@ -20,12 +20,14 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - AUTH_USERNAME=${AUTH_USERNAME}
       - AUTH_PASSWORD_HASH=${AUTH_PASSWORD_HASH}
-      # Behind a reverse proxy, list the proxy's own address(es) so rate limits key on the real client
-      # IP (see CLAUDE.md "Client IP and rate limits"). Never true or *. Unset = trust nothing.
-      # List ONLY the network the reverse proxy sits on. Never a network whose gateway can carry
-      # direct client traffic: a published host port (ports:) arrives from the Docker gateway, so
-      # trusting that range lets any caller choose its own client address via X-Forwarded-For.
-      # - TRUST_PROXY=172.18.0.0/16
+      # Behind Nginx Proxy Manager, trust ONLY NPM's address on proxynet, so rate limits key on the real
+      # visitor (see CLAUDE.md "Client IP and rate limits"): NPM's proxynet IP (give it a fixed one), or its
+      # proxynet subnet if that cannot be pinned (which also trusts every other container on proxynet).
+      # NPM must restore the visitor from CF-Connecting-IP (real_ip_header, with set_real_ip_from limited
+      # to Cloudflare's ranges) for X-Forwarded-For to carry the right address; otherwise it carries a
+      # Cloudflare edge. Never trust docker0 (172.17.0.0/16) or a network whose gateway can carry direct
+      # client traffic, and never true or *. Unset = trust nothing.
+      # - TRUST_PROXY=172.18.0.5
     volumes:
       - ./data:/app/data
       # Must match UPLOADS_DIR (set in the Dockerfile to /app/public/uploads).
