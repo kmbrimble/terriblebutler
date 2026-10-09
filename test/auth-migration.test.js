@@ -35,7 +35,7 @@ describe('session-revocation migration', () => {
     const state = createAuthState(db);
     expect(state.getEpoch()).toBe(1);
     // First start after the upgrade records the fingerprint without revoking anything.
-    expect(state.syncCredentialFingerprint('u', 'hash')).toBe('initialised');
+    expect(state.syncCredentialFingerprint('u', 'hash', Buffer.alloc(32, 7))).toBe('initialised');
     expect(db.prepare('SELECT revoked FROM device_tokens').get().revoked).toBe(0);
   });
 

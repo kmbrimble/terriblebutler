@@ -36,7 +36,7 @@ docker run --rm --entrypoint sh -v "$VOL_DATA:/d" -v "$VOL_UPLOADS:/u" "$TAG" -c
   mkdir -p /d/olddir /u/oldsub && echo x > /d/legacy.db && echo x > /d/olddir/old.log && echo x > /u/oldsub/img.webp
   chmod 777 /d/olddir /u/oldsub && chmod 666 /d/legacy.db /d/olddir/old.log /u/oldsub/img.webp' || fail "could not seed legacy modes"
 docker run -d --name "$NAME" \
-  -e AUTH_USERNAME=smoketest -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" \
+  -e AUTH_USERNAME=smoketest -e TRUST_PROXY=none -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" \
   -e ANTHROPIC_API_KEY=sk-ant-smoketest-dummy -e PUID=1234 -e PGID=5678 \
   -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" >/dev/null
 
@@ -83,14 +83,14 @@ done
 echo "ok: private modes (dirs 700, files 600, umask 077, leftovers repaired)"
 
 # A custom path whose parents do not exist yet: the app (after the privilege drop) must still reach it.
-docker run --rm -e LOG_DIR=/app/var/log -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+docker run --rm -e LOG_DIR=/app/var/log -e AUTH_USERNAME=u -e TRUST_PROXY=none -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
   -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
   sh -c 'test -w /app/var/log && [ "$(stat -c %a /app/var)" = 755 ] && [ "$(stat -c %a /app/var/log)" = 700 ]' || fail "custom LOG_DIR with new parents is not reachable/private for the app user"
 echo "ok: new parents of a custom path stay traversable"
 
 # A custom UPLOAD_TMP_DIR inside /app is prepared by the entrypoint (the app user cannot create it under root-owned /app):
 # loading the upload module as the app user must succeed (it refuses to start on a scratch dir it does not own, or that is not 0700).
-docker run --rm -e UPLOAD_TMP_DIR=/app/scratch -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+docker run --rm -e UPLOAD_TMP_DIR=/app/scratch -e AUTH_USERNAME=u -e TRUST_PROXY=none -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
   -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
   node -e "require('./lib/uploads'); console.log('scratch ok')" > /dev/null || fail "custom UPLOAD_TMP_DIR inside /app is not usable by the app user"
 echo "ok: custom UPLOAD_TMP_DIR inside /app is prepared"
@@ -112,7 +112,7 @@ echo "ok: action log and WAL files are private"
 
 # A mistyped DB_PATH must stop the container, not chown the filesystem.
 set +e
-docker run --name "$NAME-bad" -e DB_PATH=/x.db -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" \
+docker run --name "$NAME-bad" -e DB_PATH=/x.db -e TRUST_PROXY=none -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" \
   -e "JWT_SECRET=$JWT" "$TAG" >/dev/null 2>"/tmp/$NAME-bad.err"
 BAD=$?
 set -e
@@ -125,7 +125,7 @@ echo "ok: bad DB_PATH refused"
 # naming the variable but never echoing the value.
 docker rm -f "$NAME-bad" >/dev/null 2>&1 || true
 set +e
-docker run --name "$NAME-bad" -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" \
+docker run --name "$NAME-bad" -e TRUST_PROXY=none -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" \
   -e "JWT_SECRET=smoketest-not-hex-passphrase-smoketest-not-hex-passphrase" "$TAG" >/dev/null 2>"/tmp/$NAME-bad.err"
 BAD=$?
 set -e
@@ -134,6 +134,25 @@ grep -q "JWT_SECRET must be at least 64 hexadecimal characters" "/tmp/$NAME-bad.
 ! grep -q "smoketest-not-hex-passphrase" "/tmp/$NAME-bad.err" || fail "the JWT_SECRET value was echoed"
 rm -f "/tmp/$NAME-bad.err"
 echo "ok: non-hex JWT_SECRET refused"
+
+# TRUST_PROXY is mandatory in production (the image sets NODE_ENV=production): unset must stop the container,
+# naming the variable; `none` and a proxy address must start it.
+docker rm -f "$NAME-bad" >/dev/null 2>&1 || true
+set +e
+docker run --name "$NAME-bad" -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" "$TAG" >/dev/null 2>"/tmp/$NAME-bad.err"
+BAD=$?
+set -e
+[ "$BAD" -ne 0 ] || fail "container started in production without TRUST_PROXY"
+grep -q "TRUST_PROXY must be set" "/tmp/$NAME-bad.err" || { cat "/tmp/$NAME-bad.err" >&2; fail "no clear TRUST_PROXY refusal"; }
+rm -f "/tmp/$NAME-bad.err"
+for value in none 172.18.0.5; do
+  docker run --rm -e "TRUST_PROXY=$value" -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+    -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
+    node -e "console.log(JSON.stringify(require('./lib/config').TRUST_PROXY))" > "/tmp/$NAME-tp.out" || fail "TRUST_PROXY=$value did not start"
+  case "$value" in none) [ "$(cat "/tmp/$NAME-tp.out")" = false ] || fail "none did not mean trust nothing" ;; *) grep -q "$value" "/tmp/$NAME-tp.out" || fail "$value was not parsed as a trusted proxy" ;; esac
+done
+rm -f "/tmp/$NAME-tp.out"
+echo "ok: TRUST_PROXY is mandatory in production (none and an address accepted)"
 
 docker stop -t 15 "$NAME" >/dev/null
 CODE="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"

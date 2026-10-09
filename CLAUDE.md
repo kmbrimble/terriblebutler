@@ -61,7 +61,7 @@ middleware logic. The actual code lives in the top-level modules `logger.js` (ac
   decoded bytes (`JWT_KEY`) are the key for JWT signing and the HKDF input for the media-URL key; the hex string itself is never used as a key.
 - `lib/database.js` — `openDatabase()`: pragmas, schema, migrations, default-location seeding.
 - `lib/auth-state.js` — `createAuthState(db)`: persisted token epoch, `revokeAllSessions()`,
-  startup credential-fingerprint check.
+  startup credential-fingerprint check (login credential AND the JWT signing key: the stored value is `<credential digest>.<HMAC of a fixed label under the key>`, never the hash or the key).
 - `lib/realtime.js` — `createRealtime(server, authenticateToken, …, limits)`: Socket.IO construction, connection limits (handshake
   rate `SOCKET_HANDSHAKE_RATE_LIMIT_MAX` 60/min, open sockets `SOCKET_MAX_PER_CLIENT` 20 and `SOCKET_MAX_TOTAL` 200, keyed exactly as the
   Express limiters key clients — `proxy-addr` over the same compiled `TRUST_PROXY`, IPv6 /64 — and counted at the engine level so a
@@ -95,7 +95,7 @@ middleware logic. The actual code lives in the top-level modules `logger.js` (ac
   (`UPLOAD_TMP_DIR`, verified at startup: a real directory, not a symlink, runtime-owned, mode 0700, else the
   process refuses to start), sharp validation/re-encode (WebP, metadata stripped, 50 MP cap, loaders
   other than jpeg/png/webp blocked; HEIC/HEIF deliberately unsupported), `UPLOADS_DIR` storage, signed `/media/:name` delivery
-  (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound (text extracted in a worker thread, `lib/pdf-worker.js`, with a hard deadline `PDF_PARSE_TIMEOUT_MS` default 20 s and heap ceiling `PDF_WORKER_MEMORY_MB` default 256).
+  (HMAC key HKDF-derived from `JWT_SECRET`, 1-2 h URLs), and the 20-page invoice PDF bound (text extracted in a worker thread, `lib/pdf-worker.js`, with a hard deadline `PDF_PARSE_TIMEOUT_MS` default 20 s and heap ceiling `PDF_WORKER_MEMORY_MB` default 256; the extracted text is capped inside the worker at `PDF_MAX_TEXT_CHARS`, default 500,000 characters, far above a real invoice, else a 422 — the scratch sweep at startup uses `lstat` and removes symbolic links themselves).
   `items.image_path` holds the stored id; API/Socket.IO payloads carry a signed URL instead (via
   `parseItemLocations`). There is no static `/uploads` and, for now, no endpoint that stores
   client images (the label scanner only decodes and discards); `storeUploadedImage` and the signed
@@ -264,7 +264,10 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 
 ## Client IP and rate limits
 
-- `TRUST_PROXY` (`lib/config.js`, validated at startup, logged at listen): unset = trust no
+- `TRUST_PROXY` (`lib/config.js`, validated at startup, logged at listen) is **mandatory when `NODE_ENV=production`** (the Dockerfile sets it): the
+  proxy's address/CIDR list, a hop count, or the literal `none` (trust no forwarded headers: direct access only); unset or blank refuses to start with a
+  message naming the variable, because left unset every client would silently share the proxy's address and so one per-client rate-limit bucket. Outside
+  production unset still means trust nothing (tests, local development). `none` = trust no
   forwarded headers (`req.ip` is the socket peer). Accepts a hop count or a comma-separated
   list of IPs/CIDRs/named ranges; `true`, `*` and `/0` ranges are refused. Prefer the address
   list: a hop count also trusts the direct peer, so any caller who can reach the app directly could
@@ -285,7 +288,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   untrusted address, so a client-supplied header is only ever to the left of the address NPM appended.
   (c) **Remove the host publish of port 2626**, so nothing reaches the app except through NPM over proxynet. Never trust `172.17.0.0/16` (docker0:
   its gateway also carries traffic for host-published ports), `true`, `*` or a hop count.
-  Until (b) and (c) are done, `TRUST_PROXY` may be left unset (trust nothing): rate limits then key on the peer, which is NPM.
+  Until (b) and (c) are done, set `TRUST_PROXY=none` in production (trust nothing): rate limits then key on the peer, which is NPM, and the startup log says so. Unset is not allowed.
 - `POST /api/invoices/import` shares the LLM limiter (10/min). `INVOICE_IMPORT_MAX_LINES`
   (default 250) caps parsed lines per import; classification is batched (25 lines/call, 3 in
   flight) and failures come back as `warnings` in the import response.
@@ -301,7 +304,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   `HEAVY_WORK_QUEUE` (4 waiting), else 503 + `Retry-After: 5`. `INVOICE_MATCH_MAX_ITEMS` (400) caps the existing items offered to the
   LLM matcher per import: an inventory that size or smaller is sent whole, a larger one is narrowed to the items sharing rare words with
   the invoice's lines (`item-matching.js` `selectMatchCandidates`). All integer settings (including `PORT`, 0-65535, where 0 means "any free port") accept plain decimal digits only; anything else
-  (`1e3`, `0x10`, blanks, out of range) falls back to the default. The one deliberate exception is `TRUST_PROXY`: a hop count is also digits-only
+  (`1e3`, `0x10`, blanks, out of range) falls back to the default. The one deliberate exception is `TRUST_PROXY` (also mandatory in production, see above): a hop count is also digits-only
   (0-32) but a bad value stops startup instead of falling back, because silently trusting nothing (or something else) would change
   who the rate limiters see.
 - Anthropic calls are bounded process-wide by `LLM_MAX_CONCURRENT` (default 4 in flight) and `LLM_QUEUE_MAX` (default 8 waiting), on top of the per-client LLM rate limit. No per-request
@@ -316,7 +319,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
 `docker-compose.yml` is a reference file: it does not publish 2626 at all (constraint #8) and attaches the service to the reverse
 proxy's external network (`proxynet`); NPM reaches the app at `terrible-butler:2626` over that network, so no host port is needed. The
 unRAID template should match: remove the host port mapping for 2626 (and remember `butler-proxynet-autoconnect` re-attaches proxynet). For
-local development only, publish it on loopback (`127.0.0.1:2626:2626`), never on all interfaces. `TRUST_PROXY` is NPM's proxynet address only
+local development only, publish it on loopback (`127.0.0.1:2626:2626`), never on all interfaces. `TRUST_PROXY` is required (compose refuses to start without it): NPM's proxynet address only
 (`172.18.0.5`, or `172.18.0.0/16` if NPM's address cannot be pinned), never a network whose gateway can carry direct client traffic, and
 NPM must restore the visitor's address from `CF-Connecting-IP` for the butler proxy host; both are in "Client IP and rate limits" above.
 
@@ -381,6 +384,14 @@ username/password, and this is intentionally the only recovery path:
    the changed credential is detected and every JWT and device token is revoked (everyone
    logs in again). Optional env `APP_ORIGIN` (e.g. `https://butler.kiztigs.com`) pins the
    allowed Socket.IO origin; unset means the request's own origin (scheme+host+port; forwarded headers only from a `TRUST_PROXY` peer), so behind TLS set `APP_ORIGIN` or `TRUST_PROXY`.
+
+## Rotating the JWT signing key (suspected key compromise)
+
+Change `JWT_SECRET` (a new `openssl rand -hex 32`) and restart. Device tokens are opaque and not signed with the key, so on its own a key change would leave
+remembered tablets logged in; instead the server records a keyed digest of the key next to the credential fingerprint and, when it differs at start, treats it
+exactly like a password-hash change: the token epoch is bumped (every JWT stale) and every device token is revoked (`[Auth] JWT signing key changed since last
+start` is logged). Signed `/media` URLs, derived from the same key, change too. The first start after the key digest was introduced (0.47) only records it:
+the deploy itself revokes nothing. Neither the key nor the digest's input is stored or logged.
 
 ## Deploy and verify
 

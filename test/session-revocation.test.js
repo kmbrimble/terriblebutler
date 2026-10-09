@@ -69,13 +69,13 @@ describe('credential fingerprint / password rotation (#49)', () => {
   it('first run stores the fingerprint without bumping the epoch', () => {
     db.prepare('UPDATE auth_state SET credential_fingerprint = NULL').run();
     const epoch = authState.getEpoch();
-    expect(authState.syncCredentialFingerprint('u', hashA)).toBe('initialised');
+    expect(authState.syncCredentialFingerprint('u', hashA, JWT_KEY)).toBe('initialised');
     expect(authState.getEpoch()).toBe(epoch);
   });
 
   it('an unchanged credential leaves the epoch alone', () => {
     const epoch = authState.getEpoch();
-    expect(authState.syncCredentialFingerprint('u', hashA)).toBe('unchanged');
+    expect(authState.syncCredentialFingerprint('u', hashA, JWT_KEY)).toBe('unchanged');
     expect(authState.getEpoch()).toBe(epoch);
   });
 
@@ -84,7 +84,7 @@ describe('credential fingerprint / password rotation (#49)', () => {
     const device = await mintDevice(jwtToken, 'Before rotation');
     const epoch = authState.getEpoch();
 
-    expect(authState.syncCredentialFingerprint('u', hashB)).toBe('rotated');
+    expect(authState.syncCredentialFingerprint('u', hashB, JWT_KEY)).toBe('rotated');
 
     expect(authState.getEpoch()).toBe(epoch + 1);
     expect((await get('/api/items', jwtToken)).status).toBe(401);
@@ -92,7 +92,7 @@ describe('credential fingerprint / password rotation (#49)', () => {
   });
 
   it('a changed username alone also counts as rotation', () => {
-    expect(authState.syncCredentialFingerprint('someone-else', hashB)).toBe('rotated');
+    expect(authState.syncCredentialFingerprint('someone-else', hashB, JWT_KEY)).toBe('rotated');
   });
 
   it('never stores the hash itself', () => {
