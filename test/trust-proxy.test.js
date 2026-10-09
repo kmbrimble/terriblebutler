@@ -44,7 +44,7 @@ describe('TRUST_PROXY parsing', () => {
   });
 
   it('accepts IPs, CIDRs and named ranges', () => {
-    expect(parseTrustProxy('172.17.0.0/16, 172.18.0.5,loopback')).toEqual(['172.17.0.0/16', '172.18.0.5', 'loopback']);
+    expect(parseTrustProxy('172.18.0.0/16, 172.18.0.5,loopback')).toEqual(['172.18.0.0/16', '172.18.0.5', 'loopback']);
   });
 
   it.each(['true', 'TRUE', '*', '10.0.0.1,*', '0.0.0.0/0', '::/0'])('rejects trust-everything value %s', (value) => {
@@ -86,9 +86,9 @@ describe('rate limiter client address', () => {
   });
 
   it('walks past every trusted hop to the first untrusted address', async () => {
-    const app = loadApp('loopback,172.17.0.0/16,172.18.0.0/16');
-    // client, cloudflared hop, NPM hop (peer is loopback under supertest)
-    const { same, other } = await exhaustLogin(app, '203.0.113.7, 172.17.0.7, 172.18.0.5', '203.0.113.8, 172.17.0.7, 172.18.0.5');
+    const app = loadApp('loopback,172.18.0.5');
+    // visitor, then the address NPM appended for it, then NPM itself (the peer is loopback under supertest)
+    const { same, other } = await exhaustLogin(app, '203.0.113.7, 172.18.0.5', '203.0.113.8, 172.18.0.5');
     expect(same).toBe(429);
     expect(other).toBe(401);
   });
@@ -98,5 +98,17 @@ describe('rate limiter client address', () => {
     const { same, other } = await exhaustLogin(app, '203.0.113.7', '::ffff:203.0.113.7');
     expect(same).toBe(429);
     expect(other).toBe(429);
+  });
+});
+
+describe('the Compose file passes TRUST_PROXY and APP_ORIGIN through as empty strings by default', () => {
+  it('and an empty value means unset: trust nothing, no pinned origin', async () => {
+    const { createRequire } = await import('module');
+    loadFreshApp({ TRUST_PROXY: '', APP_ORIGIN: '' });
+    const config = createRequire(import.meta.url)('../lib/config');
+    expect(config.TRUST_PROXY).toBe(false);
+    const { isOriginAllowed } = createRequire(import.meta.url)('../lib/realtime');
+    // with no APP_ORIGIN the request's own origin is what is compared (an empty APP_ORIGIN must not pin ""):
+    expect(isOriginAllowed({ headers: { origin: 'http://h:1', host: 'h:1' }, socket: { encrypted: false, remoteAddress: '1.2.3.4' } }, process.env.APP_ORIGIN || undefined, () => false)).toBe(true);
   });
 });

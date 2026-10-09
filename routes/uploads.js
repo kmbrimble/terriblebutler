@@ -3,6 +3,7 @@ const { resolveNamedMatch } = require('../item-matching');
 const { validateLabelResult } = require('../llm-schema');
 const { callClaudeForJSON, buildPrompt } = require('../lib/llm-client');
 const { openValidatedImage, discardUpload, sendUploadError, heavyWork } = require('../lib/uploads');
+const { GateFullError } = require('../lib/work-gate');
 
 function registerUploadRoutes(app, { db, imageUpload }) {
   app.post('/api/parse-label-llm', imageUpload.single('image'), async (req, res) => {
@@ -11,11 +12,11 @@ function registerUploadRoutes(app, { db, imageUpload }) {
       console.error("[Label Parser] No image file received in upload request.");
       return res.status(400).json({ error: 'No image uploaded' });
     }
-    console.log(`[Label Parser] Received file (${req.file.size} bytes)`);
     try {
       // Validate first: a non-image is a 400, not an LLM call or a silent empty result.
       // Decoding and resizing run through the process-wide gate (503 + Retry-After when full);
-      // the LLM call below does not, it is bounded by the LLM rate limiter.
+      // The LLM call below has its own process-wide gate (lib/llm-client.js, LLM_MAX_CONCURRENT), on top of the
+      // per-client LLM rate limiter; a full gate is a 503 like the one above.
       const resizedBuffer = await heavyWork.run(async () => {
         const image = await openValidatedImage(req.file.path);
         return image
@@ -27,7 +28,6 @@ function registerUploadRoutes(app, { db, imageUpload }) {
       const locs = db.prepare('SELECT id, name FROM locations').all();
       const cats = db.prepare('SELECT id, name FROM categories').all();
       const base64Image = resizedBuffer.toString('base64');
-      console.log(`[Label Parser] Resized image base64 length: ${base64Image.length} characters`);
       const promptText = buildPrompt(`Read the text on this product label. Extract the information into a JSON object.
 "name": Combine the product brand and product name into a single string.
 "container_details": ONLY the strict measurement of weight, volume, or size (e.g., '180g', '2L'). Exclude all other descriptive text.
@@ -35,7 +35,6 @@ function registerUploadRoutes(app, { db, imageUpload }) {
 "location_name": Select the most logical physical storage location for this product strictly from the locations data block (a JSON list of names).`,
         { categories: cats.map((c) => c.name), locations: locs.map((l) => l.name) },
         { image: true });
-      console.log('[Label Parser] Sending request to Anthropic API');
       let parsedData;
       try {
         parsedData = await callClaudeForJSON({
@@ -58,6 +57,7 @@ function registerUploadRoutes(app, { db, imageUpload }) {
           },
         });
       } catch (llmErr) {
+        if (llmErr instanceof GateFullError) throw llmErr;
         console.error('[Label Parser Error] Anthropic API call failed:', llmErr.message);
         parsedData = fallbackObject;
       }

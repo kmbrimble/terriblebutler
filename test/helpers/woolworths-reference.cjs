@@ -1,5 +1,9 @@
-// FROZEN COPY of parsers/woolworths.js as of 0.44, kept only as the oracle for test/woolworths-parser-linear.test.js.
-// It is quadratic on long wrapped rows; do not use it in the app.
+// ORACLE for test/parser-complexity.test.js: the Woolworths parser as it was before the linear rewrite (0.45), i.e. the
+// straightforward version that re-splits the whole buffered description for every wrapped line. It is quadratic on
+// long wrapped rows; never use it in the app. Its number rules are the strict ones the real parser has had since the
+// 0.45 review follow-ups (whole-token decimals; a quantity may carry a trailing unit word), written out here
+// independently of parsers/shared.js, so the comparison also checks the real parser's token handling. The only
+// behaviour deliberately not mirrored is the real parser's cap on a runaway buffer (MAX_PENDING_CHARS).
 // Deterministic parser for Woolworths "Supplied" invoice PDFs (text already extracted via
 // pdf-parse). No LLM involved — see CLAUDE.md / the invoice-import feature plan for why.
 const { parseAuDate } = require('../../parsers/shared');
@@ -16,10 +20,10 @@ function tryResolveRow(str) {
   const suppliedTok = parts[parts.length - 3];
   const descTok = parts.slice(0, parts.length - 4).join(' ');
 
-  const priceMatch = priceTok.match(/^\$?([\d.]+)$/);
-  const amountMatch = amountTok.match(/^\$?([\d.]+)$/);
-  const orderedMatch = orderedTok.match(/^([\d.]+)/);
-  const suppliedMatch = suppliedTok.match(/^([\d.]+)/);
+  const priceMatch = priceTok.match(/^\$?(\d+(?:\.\d+)?|\.\d+)$/);
+  const amountMatch = amountTok.match(/^\$?(\d+(?:\.\d+)?|\.\d+)$/);
+  const orderedMatch = orderedTok.match(/^(\d+(?:\.\d+)?|\.\d+)(?:\s*[A-Za-z][A-Za-z.]*)?$/);
+  const suppliedMatch = suppliedTok.match(/^(\d+(?:\.\d+)?|\.\d+)(?:\s*[A-Za-z][A-Za-z.]*)?$/);
   if (!priceMatch || !amountMatch || !orderedMatch || !suppliedMatch) return null;
 
   let name = descTok;

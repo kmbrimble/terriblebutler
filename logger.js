@@ -14,6 +14,7 @@
 // ACTION_LOG_STDOUT=0 turns the copy off (the test suite does, to keep its output readable).
 const fs = require('fs');
 const path = require('path');
+const { ensurePrivateDir, FILE_MODE } = require('./lib/private-fs');
 
 // Defaults to <database dir>/logs, i.e. /app/data/logs in the container: the persistent data mount,
 // next to the backups, so the 30-day retention survives container recreation.
@@ -141,8 +142,8 @@ function closeStream() {
 }
 
 function openStream(file) {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-  const opened = fs.createWriteStream(file, { flags: 'a' });
+  ensurePrivateDir(LOG_DIR);
+  const opened = fs.createWriteStream(file, { flags: 'a', mode: FILE_MODE });
   opened.on('error', (err) => {
     // A broken file must not take the process down or wedge logging: report once, drop the
     // stream, and let the next entry reopen it.

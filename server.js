@@ -178,7 +178,7 @@ if (require.main === module) {
     // Without either, the Socket.IO origin check expects the Node port's own plain-http origin, so
     // browsers behind a TLS-terminating proxy lose live updates (the page itself still loads).
     if (!process.env.APP_ORIGIN && !config.TRUST_PROXY) {
-      console.warn('[Config] Neither APP_ORIGIN nor TRUST_PROXY is set: behind a TLS proxy, browser Socket.IO connections will be refused. Set APP_ORIGIN=https://<your host> (or TRUST_PROXY).');
+      console.warn('[Config] Neither APP_ORIGIN nor TRUST_PROXY is set: behind a TLS proxy, browser Socket.IO connections will be refused, and every client is keyed on the proxy\'s address. Set APP_ORIGIN=https://<your host>, and TRUST_PROXY to Nginx Proxy Manager\'s proxynet address only (with NPM restoring the visitor from CF-Connecting-IP); see CLAUDE.md "Client IP and rate limits".');
     }
   });
   scheduleNightlyBackup(db, path.join(path.dirname(dbPath), 'backups'));

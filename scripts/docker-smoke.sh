@@ -30,6 +30,11 @@ JWT="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 
 docker volume create "$VOL_DATA" >/dev/null
 docker volume create "$VOL_UPLOADS" >/dev/null
+# Leave some world-readable leftovers in the volumes, as an earlier (umask 022) version would have: the
+# entrypoint must repair them to private modes.
+docker run --rm --entrypoint sh -v "$VOL_DATA:/d" -v "$VOL_UPLOADS:/u" "$TAG" -c '
+  mkdir -p /d/olddir /u/oldsub && echo x > /d/legacy.db && echo x > /d/olddir/old.log && echo x > /u/oldsub/img.webp
+  chmod 777 /d/olddir /u/oldsub && chmod 666 /d/legacy.db /d/olddir/old.log /u/oldsub/img.webp' || fail "could not seed legacy modes"
 docker run -d --name "$NAME" \
   -e AUTH_USERNAME=smoketest -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" \
   -e ANTHROPIC_API_KEY=sk-ant-smoketest-dummy -e PUID=1234 -e PGID=5678 \
@@ -66,6 +71,30 @@ docker exec "$NAME" test ! -e /app/client/src || fail "client source present in 
 docker exec "$NAME" test -f /app/client/dist/index.html || fail "client build output missing"
 echo "ok: ownership and image contents"
 
+# Private permissions: the app runs with umask 077, leftovers were repaired, and what it creates is owner-only.
+[ "$(docker exec "$NAME" sh -c 'awk "/^Umask:/{print \$2}" /proc/1/status')" = 0077 ] || fail "PID 1 umask is not 0077"
+mode_of() { docker exec "$NAME" stat -c '%a' "$1"; }
+for d in /app/data /app/data/olddir /app/public/uploads /app/public/uploads/oldsub /app/data/logs; do
+  [ "$(mode_of "$d")" = 700 ] || fail "$d has mode $(mode_of "$d"), expected 700"
+done
+for f in /app/data/legacy.db /app/data/olddir/old.log /app/public/uploads/oldsub/img.webp /app/data/inventory.db; do
+  [ "$(mode_of "$f")" = 600 ] || fail "$f has mode $(mode_of "$f"), expected 600"
+done
+echo "ok: private modes (dirs 700, files 600, umask 077, leftovers repaired)"
+
+# A custom path whose parents do not exist yet: the app (after the privilege drop) must still reach it.
+docker run --rm -e LOG_DIR=/app/var/log -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+  -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
+  sh -c 'test -w /app/var/log && [ "$(stat -c %a /app/var)" = 755 ] && [ "$(stat -c %a /app/var/log)" = 700 ]' || fail "custom LOG_DIR with new parents is not reachable/private for the app user"
+echo "ok: new parents of a custom path stay traversable"
+
+# A custom UPLOAD_TMP_DIR inside /app is prepared by the entrypoint (the app user cannot create it under root-owned /app):
+# loading the upload module as the app user must succeed (it refuses to start on a scratch dir it does not own, or that is not 0700).
+docker run --rm -e UPLOAD_TMP_DIR=/app/scratch -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+  -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
+  node -e "require('./lib/uploads'); console.log('scratch ok')" > /dev/null || fail "custom UPLOAD_TMP_DIR inside /app is not usable by the app user"
+echo "ok: custom UPLOAD_TMP_DIR inside /app is prepared"
+
 # A mutating call must reach the action log on stdout (what `docker logs` shows).
 LOGIN="$(call POST /api/auth/login '' '{"username":"smoketest","password":"smoketest-password"}' || true)"
 TOKEN="$(printf '%s' "$LOGIN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
@@ -74,6 +103,12 @@ call POST /api/locations "$TOKEN" '{"name":"Smoke location"}' >/dev/null || fail
 sleep 1
 docker logs "$NAME" 2>&1 | grep -q '^\[Action\] .*"path":"/api/locations"' || { docker logs "$NAME" >&2; fail "action log line missing from docker logs"; }
 echo "ok: action log reaches docker logs"
+LOGFILE="$(docker exec "$NAME" sh -c 'ls /app/data/logs/actions-*.log | head -n 1')"
+[ "$(mode_of "$LOGFILE")" = 600 ] || fail "$LOGFILE has mode $(mode_of "$LOGFILE"), expected 600"
+for f in /app/data/inventory.db-wal /app/data/inventory.db-shm; do
+  docker exec "$NAME" test ! -e "$f" || [ "$(mode_of "$f")" = 600 ] || fail "$f has mode $(mode_of "$f"), expected 600"
+done
+echo "ok: action log and WAL files are private"
 
 # A mistyped DB_PATH must stop the container, not chown the filesystem.
 set +e

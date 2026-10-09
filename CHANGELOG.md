@@ -4,6 +4,54 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.46 - 2026-10-09
+
+### Security remediation: final pass
+
+**No migration** (`user_version` stays 6; no schema change). **Deploy notes first, because two of them need action outside the repo:**
+- **Host-side reads of `/mnt/user/appdata/butler/*` now need root.** The container makes the database, WAL, action logs, backups and stored images owner-only
+  (directories 0700, files 0600, owned by `PUID:PGID`), repairing existing contents on start. unRAID's root shell and containers running as root are unaffected;
+  a non-root host user or share that read these files directly will no longer be able to. Take the usual backup first if you want a copy that is readable the old way.
+- **Client IPs and `TRUST_PROXY` (corrects 0.41-0.43, which recommended `172.17.0.0/16,172.18.0.0/16`).** On the live host, `butler.kiztigs.com` is a Cloudflare-proxied DNS
+  record, not the cloudflared tunnel: Cloudflare -> WAN -> router port-forward -> Nginx Proxy Manager (br0 192.168.0.23, proxynet 172.18.0.5) -> `terrible-butler:2626` over
+  proxynet. NPM trusts Cloudflare's ranges but uses `real_ip_header X-Real-IP`, which Cloudflare does not send, so the app currently sees a Cloudflare edge address as the
+  client (visitors behind one edge share a rate-limit bucket, and the action log's `ip` is the edge). The right setup is all three of:
+  1. In NPM, for the butler proxy host, restore the visitor from `CF-Connecting-IP`: `real_ip_header CF-Connecting-IP;` with `set_real_ip_from` limited to Cloudflare's published ranges.
+  2. In the unRAID template set `TRUST_PROXY` to NPM's proxynet address only: `172.18.0.5` (give NPM a fixed IP on proxynet), or `172.18.0.0/16` if it cannot be pinned (that also trusts
+     AdGuardHome, Navidrome, Immich and Grafana on proxynet). Do not use `172.17.0.0/16` (docker0 and its gateway, which also carries host-published port traffic), `true` or `*`.
+  3. Remove the host port mapping for 2626, so nothing reaches the app except through NPM.
+  Until then `TRUST_PROXY` can stay unset (the app then keys on NPM's address). Keep `APP_ORIGIN=https://butler.kiztigs.com`. CLAUDE.md, the compose comment and the startup warning say the same.
+- New optional variables, defaults in brackets: `LLM_MAX_CONCURRENT` (4) and `LLM_QUEUE_MAX` (8).
+
+**Anthropic calls are bounded process-wide.** Every call (label scan, invoice classification, invoice matching) runs through one gate (`lib/work-gate.js`, as for PDF/image work): at most
+`LLM_MAX_CONCURRENT` in flight and `LLM_QUEUE_MAX` waiting. When full, the label scan answers 503 with `Retry-After` and the upload is discarded; invoice classification and matching degrade to
+the warnings they already produce (the import still succeeds, no 500). This sits on top of the per-client LLM rate limit.
+
+**Private permissions on persistent data.** `docker-entrypoint.sh` sets `umask 077` before dropping privileges (also on the already-non-root path) and repairs the existing contents of the
+validated data, uploads and logs paths to directories 0700 / files 0600 (`-xdev`, `-type d` / `-type f`: symbolic links are neither followed nor changed), scoped exactly like the chown.
+The app also creates its database (and WAL/shm), action logs, backups and stored images owner-only itself, regardless of umask (`lib/private-fs.js`); a directory that already exists
+is never chmod'd. `scripts/docker-smoke.sh` seeds world-readable leftovers and asserts PID 1's umask and every mode.
+
+**Smaller fixes**
+- `scripts/generate-password-hash.js` refuses a password over 72 UTF-8 bytes (bcrypt reads only the first 72); the live hash is unaffected, and the 1024-byte request bound at login and
+  re-auth is unchanged.
+- The `[Label Parser]` per-request telemetry (file size, base64 length, "sending request") is gone.
+- The Dockerfile now asserts the `allowScripts` policy in `package.json` before installing; the comment (and the 0.45 sentence, corrected) say only what is guaranteed: the `repo-config`
+  test is the real guard, because npm 11.19 only warns on an unlisted install script and `require('better-sqlite3')` passes on a prebuilt binary.
+- 0.45 said the Woolworths parser's output was identical to the old one; that predated the strict-number follow-up (311 of 6,000 fuzz documents differed, all a single malformed-number row now
+  skipped). The test oracle now uses the strict rules, the generator emits malformed numbers, the oracle's header names the right test file, and the 0.45 sentence is corrected.
+- Found in this release's review (Mythos): with `umask 077` set, the entrypoint's `mkdir -p` would have created the missing *parent* directories of a custom `DB_PATH`, `LOG_DIR` or
+  `UPLOADS_DIR` (for example `/app/var/log`) root-owned 0700, locking the app out of its own directory after the privilege drop. Parents are now created 0755 and only the target is narrowed to 0700;
+  the entrypoint suite and the docker smoke both cover it.
+- Found in this release's counsel review (GPT-5.6): a custom `UPLOAD_TMP_DIR` inside `/app` was accepted by the app's validation but nothing created it, and the app user cannot create
+  directories under root-owned `/app`, so the container would not start. The entrypoint now checks it by the same rules as the other writable paths (inside `/app`, not application code, not
+  overlapping data/uploads/logs; `lib/config.js` applies the same code-directory rule), creates it, chowns it and makes it 0700; outside `/app` (the default is `/tmp`) the app still creates it.
+  `docker-compose.yml` now passes `TRUST_PROXY` and `APP_ORIGIN` through from the environment (empty means unset), so the reference file can express the real deployment.
+  Two other counsel findings were not changed, deliberately: the 1024-byte (not 72-byte) password bound at login stays as the owner decided, because a hash made before the generator limit
+  may come from a longer password whose owner would otherwise be locked out (the only side effect is that a password of exactly 72 bytes also accepts trailing bytes, which helps nobody who
+  does not already know it); and missing `APP_ORIGIN`/`TRUST_PROXY` stays a startup warning, not an error, because direct LAN and development use legitimately has neither.
+- CLAUDE.md said the `Authorization` header must be exactly `Bearer <token>`; the code (deliberately) follows RFC 7235: case-insensitive scheme, one or more spaces. Reworded.
+
 ## 0.45 - 2026-10-09
 
 ### Security remediation: final cleanup
@@ -21,7 +69,7 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
   1 MB string in a JSON body). It is now unambiguous, and numeric text over 64 characters is refused before matching.
 - The Woolworths invoice parser re-split the whole buffered description for every wrapped line (quadratic: 20,000 wrapped lines took about 19 s on the
   main thread). It now extends the buffered fields one line at a time (linear: about 10 ms) and drops a buffer that grows past 4,000 characters
-  without becoming a row. Output is identical (a frozen copy of the old parser is the test oracle, over the real fixture and 3,000 random documents).
+  without becoming a row. Output on well-formed input is identical: the pre-rewrite parser (with the strict number rules added later in this release) is the test oracle, over the real fixture and 6,000 random documents that include malformed numbers.
   The Coles parser and the parser regexes were checked and are linear.
 
 **Rate-limit transparency**
@@ -37,9 +85,10 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
   requests (gate only), so it can be proven before merging.
 - The unused direct dependency `cors` is removed (Socket.IO and engine.io bring their own); a test checks every production dependency is required by the server code.
 - `npm ci` no longer warns that better-sqlite3's install script is unreviewed. npm install scripts are now an explicit allow-list: `allowScripts` in `package.json` (only `better-sqlite3`'s native build; `fsevents` denied), `strict-allow-scripts=true`
-  in `.npmrc` (root and client) and `--strict-allow-scripts` on both `npm ci` in the Dockerfile, so npm is asked to enforce the list. Checked in the pinned image (npm 11.19): without the allow-list npm skips better-sqlite3's native build
-  and only warns, and with it the install is warning-free and the binding loads; the Dockerfile now also `require`s better-sqlite3 right after the install,
-  so a lost allow-list fails the build. A test checks every lockfile package that declares an install script has an explicit decision. `.npmrc` also sets `min-release-age=7`, matching the Dependabot cooldown (lockfile installs are unaffected).
+  in `.npmrc` (root and client) and `--strict-allow-scripts` on both `npm ci` in the Dockerfile, so npm is asked to enforce the list. Checked in the pinned image (npm 11.19): npm skips an unlisted install script with only a warning (and `--strict-allow-scripts` does not make that an error),
+  and with the list the install is warning-free. What is actually guaranteed: the `repo-config` test in CI asserts the `allowScripts` policy and that every lockfile package declaring an install script has an
+  explicit decision, and the Dockerfile asserts the same policy in `package.json` before installing (the `require('better-sqlite3')` after the install only proves the module loads, which a prebuilt binary would do
+  even without the policy). `.npmrc` also sets `min-release-age=7`, matching the Dependabot cooldown (lockfile installs are unaffected).
 
 **Found in the final review (counsel, GPT-5.6; one finding was a false positive)**
 - Socket.IO: a handshake that outlived its 10 s reservation (a stalled id source) could still complete later and be counted on top of the slot it had
@@ -226,7 +275,7 @@ Also in the base schema for fresh installs. Verified against a copy of the pre-0
 
 **Deploy notes**
 - Take the standard pre-change backup first (schema change).
-- Set `APP_ORIGIN=https://butler.kiztigs.com` and `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` in the unRAID template. Without one of them, browsers behind TLS lose live (Socket.IO) updates, silently. `APP_ORIGIN` does not depend on NPM's forwarded headers.
+- Set `APP_ORIGIN=https://butler.kiztigs.com` and `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` in the unRAID template (**superseded in 0.46: that value was based on a wrong assumption; see the 0.46 deploy notes**). Without one of them, browsers behind TLS lose live (Socket.IO) updates, silently. `APP_ORIGIN` does not depend on NPM's forwarded headers.
 - Action logs now appear at `/mnt/user/appdata/butler/data/logs/` (the old `/app/logs` contents are not migrated).
 - `DB_PATH`/`UPLOADS_DIR`/`LOG_DIR` outside `/app`, or containing characters other than letters, digits, `.`, `_`, `-`, now stop the container (the documented mounts are fine). `AUTH_PASSWORD_HASH` below bcrypt cost 10 stops startup (the live hash is cost 10).
 - Anything reading the version from `/healthz` or an unauthenticated `/api/health` now gets none. Anything reading `RateLimit-Reset` as an epoch timestamp must read seconds.
@@ -325,7 +374,7 @@ directory), `TRUST_PROXY`, `INVOICE_IMPORT_MAX_LINES`, `APP_ORIGIN` (optional), 
 - Check the template before updating: `JWT_SECRET` must be at least 32 characters and
   `AUTH_PASSWORD_HASH` a bcrypt hash, or the container refuses to start (deliberately). A short
   secret is fixed with `openssl rand -hex 32`, which logs JWT sessions out once.
-- Set `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` in the unRAID template, then log in once from the
+- Set `TRUST_PROXY=172.17.0.0/16,172.18.0.0/16` in the unRAID template (**superseded in 0.46, see its deploy notes**), then log in once from the
   LAN and once through `butler.kiztigs.com` and check the `"event":"login"` log lines show each
   device's real address. If sockets fail to connect, set `APP_ORIGIN=https://butler.kiztigs.com`.
 
