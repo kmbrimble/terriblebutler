@@ -91,6 +91,20 @@ check_path "the DB_PATH directory" "$DATA_DIR"
 check_path UPLOADS_DIR "$UPLOADS"
 check_path LOG_DIR "$LOGS"
 check_disjoint "the DB_PATH directory" "$DATA_DIR" UPLOADS_DIR "$UPLOADS"
+# A custom UPLOAD_TMP_DIR inside /app is the app's private scratch space (swept at start, never served). /app is
+# root-owned, so the app user could not create it itself: it is prepared here like the others (created, owned by
+# PUID:PGID, 0700) after the same checks. Outside /app (the default is under /tmp) the app creates it itself.
+SCRATCH=""
+case "${UPLOAD_TMP_DIR:-}" in
+  "$APP_ROOT"/*)
+    SCRATCH="$UPLOAD_TMP_DIR"
+    check_path UPLOAD_TMP_DIR "$SCRATCH"
+    check_disjoint UPLOAD_TMP_DIR "$SCRATCH" "the DB_PATH directory" "$DATA_DIR"
+    check_disjoint UPLOAD_TMP_DIR "$SCRATCH" UPLOADS_DIR "$UPLOADS"
+    check_disjoint UPLOAD_TMP_DIR "$SCRATCH" LOG_DIR "$LOGS"
+    ;;
+esac
+
 # The logs live on the persistent data mount by default, so LOG_DIR may sit inside the data
 # directory; it may not be, or contain, the data directory itself.
 if is_within "$DATA_DIR" "$LOGS"; then
@@ -110,7 +124,7 @@ repair_modes() {
 }
 
 REAL_ROOT="$(realpath "$APP_ROOT")"
-for dir in "$DATA_DIR" "$UPLOADS" "$LOGS"; do
+for dir in "$DATA_DIR" "$UPLOADS" "$LOGS" ${SCRATCH:+"$SCRATCH"}; do
   # Any missing parents (a custom DB_PATH/LOG_DIR/UPLOADS_DIR such as /app/var/log) stay traversable: under the
   # umask 077 above they would be 0700 root-owned and the app could not reach its own directory. repair_modes
   # below narrows the target itself to 0700.

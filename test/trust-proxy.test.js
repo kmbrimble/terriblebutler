@@ -100,3 +100,15 @@ describe('rate limiter client address', () => {
     expect(other).toBe(429);
   });
 });
+
+describe('the Compose file passes TRUST_PROXY and APP_ORIGIN through as empty strings by default', () => {
+  it('and an empty value means unset: trust nothing, no pinned origin', async () => {
+    const { createRequire } = await import('module');
+    loadFreshApp({ TRUST_PROXY: '', APP_ORIGIN: '' });
+    const config = createRequire(import.meta.url)('../lib/config');
+    expect(config.TRUST_PROXY).toBe(false);
+    const { isOriginAllowed } = createRequire(import.meta.url)('../lib/realtime');
+    // with no APP_ORIGIN the request's own origin is what is compared (an empty APP_ORIGIN must not pin ""):
+    expect(isOriginAllowed({ headers: { origin: 'http://h:1', host: 'h:1' }, socket: { encrypted: false, remoteAddress: '1.2.3.4' } }, process.env.APP_ORIGIN || undefined, () => false)).toBe(true);
+  });
+});

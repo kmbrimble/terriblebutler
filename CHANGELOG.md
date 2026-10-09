@@ -43,6 +43,13 @@ is never chmod'd. `scripts/docker-smoke.sh` seeds world-readable leftovers and a
 - Found in this release's review (Mythos): with `umask 077` set, the entrypoint's `mkdir -p` would have created the missing *parent* directories of a custom `DB_PATH`, `LOG_DIR` or
   `UPLOADS_DIR` (for example `/app/var/log`) root-owned 0700, locking the app out of its own directory after the privilege drop. Parents are now created 0755 and only the target is narrowed to 0700;
   the entrypoint suite and the docker smoke both cover it.
+- Found in this release's counsel review (GPT-5.6): a custom `UPLOAD_TMP_DIR` inside `/app` was accepted by the app's validation but nothing created it, and the app user cannot create
+  directories under root-owned `/app`, so the container would not start. The entrypoint now checks it by the same rules as the other writable paths (inside `/app`, not application code, not
+  overlapping data/uploads/logs; `lib/config.js` applies the same code-directory rule), creates it, chowns it and makes it 0700; outside `/app` (the default is `/tmp`) the app still creates it.
+  `docker-compose.yml` now passes `TRUST_PROXY` and `APP_ORIGIN` through from the environment (empty means unset), so the reference file can express the real deployment.
+  Two other counsel findings were not changed, deliberately: the 1024-byte (not 72-byte) password bound at login stays as the owner decided, because a hash made before the generator limit
+  may come from a longer password whose owner would otherwise be locked out (the only side effect is that a password of exactly 72 bytes also accepts trailing bytes, which helps nobody who
+  does not already know it); and missing `APP_ORIGIN`/`TRUST_PROXY` stays a startup warning, not an error, because direct LAN and development use legitimately has neither.
 - CLAUDE.md said the `Authorization` header must be exactly `Bearer <token>`; the code (deliberately) follows RFC 7235: case-insensitive scheme, one or more spaces. Reworded.
 
 ## 0.45 - 2026-10-09

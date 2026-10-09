@@ -152,7 +152,10 @@ from outside this project without checking against this list.
    minting needs a household JWT. The client prompts via `PasswordConfirmDialog`.
    Passwords over 1024 bytes are simply wrong, at login and at re-auth: same backoff slot, same 401/403 as any wrong password,
    and bcrypt is never called. (bcrypt itself only reads the first 72 bytes of a password, so a longer password's tail is
-   ignored; the 1024-byte bound exists to stop oversized input, it is not a statement that longer passwords are stronger.)
+   ignored; the 1024-byte bound exists to stop oversized input, it is not a statement that longer passwords are stronger. It is
+   deliberately not 72: a hash made before `generate-password-hash.js` refused long passwords may have been made from a longer one, whose
+   owner types the whole thing, and rejecting it would lock them out. Only a password of exactly 72 bytes, whose hash cannot tell a suffix
+   from nothing, accepts trailing bytes, which gives nobody who does not already know all 72 bytes anything.)
    `Authorization` is read in one place (`parseBearerToken`), following RFC 7235: the scheme `Bearer` (case-insensitive), one or more spaces, then a single token68 value; anything else is unauthenticated.
    JSON bodies are parsed only under `/api`, after the general/mutation limiters and `requireAuth` (login: after its own limiter), via
    `middleware.jsonBody` (which also restores the `req.body = {}` default); nothing outside `/api` parses a body, and a throttled or
@@ -246,7 +249,9 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   (`node_modules`, `lib`, `routes`, `parsers`, `scripts`, `client`, and `/app/public` itself — its `uploads/` child is fine), and mutually disjoint (`LOG_DIR` may sit
   inside the data directory, as the default does, but not be or contain it) — otherwise
   it exits non-zero with a message. `UPLOAD_TMP_DIR`, if set, is validated by the app (well-formed, and
-  not overlapping those directories inside the container, since it is swept at startup). `lib/config.js` `validateStoragePaths` applies the same rules
+  not overlapping those directories inside the container, since it is swept at startup); when it is inside `/app` the entrypoint also checks it
+  by the same rules, creates it, chowns it and makes it 0700 (the app user cannot create anything under root-owned `/app`), and outside `/app`
+  (the default is under `/tmp`) the app creates it itself. `lib/config.js` `validateStoragePaths` applies the same rules
   (containment when `WRITABLE_ROOT` is set; the Dockerfile sets `/app`). `test/entrypoint.test.js`
   runs the script with stubs and checks both agree; `scripts/docker-smoke.sh` is the manual
   end-to-end image check (uses only `smoketest-` names and named volumes).

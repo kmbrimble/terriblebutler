@@ -160,6 +160,41 @@ describe('private permissions on persistent data', () => {
     for (const parent of ['storage', 'storage/db', 'var', 'media']) expect(mode(path.join(base, parent)), parent).toBe(0o755);
   });
 
+  describe('a custom UPLOAD_TMP_DIR inside the app root', () => {
+    const firstArgs = (res) => res.calls.filter((c) => c.startsWith('find') && c.includes('chown')).map((c) => c.split(' ')[1]);
+
+    it('is created, chowned and repaired like the other writable directories (the app user cannot create it under root-owned /app)', () => {
+      const res = run({ UPLOAD_TMP_DIR: `${root}/scratch` });
+      expect(res.status, res.stderr).toBe(0);
+      expect(firstArgs(res)).toEqual([`${root}/data`, `${root}/public/uploads`, `${root}/data/logs`, `${root}/scratch`]);
+      expect(fs.statSync(`${root}/scratch`).isDirectory()).toBe(true);
+      expect(res.calls).toContain(`find ${root}/scratch -xdev -type d ! -perm 0700 -exec chmod 0700 {} +`);
+    });
+
+    it.each([
+      ['inside the data directory', 'data/tmp'], ['inside the uploads directory', 'public/uploads/tmp'], ['the logs directory', 'data/logs'],
+      ['application code', 'lib/scratch'], ['/app/public itself', 'public'],
+    ])('is refused before anything is chowned when it is %s', (label, rel) => {
+      const res = run({ UPLOAD_TMP_DIR: `${root}/${rel}` });
+      expect(res.status, label).toBe(1);
+      expect(res.stderr).toContain('UPLOAD_TMP_DIR');
+      expect(res.calls).toEqual([]);
+    });
+
+    it('is left to the app when it is outside the app root (the default is under /tmp)', () => {
+      const res = run({ UPLOAD_TMP_DIR: '/tmp/butler-elsewhere-scratch' });
+      expect(res.status, res.stderr).toBe(0);
+      expect(firstArgs(res)).toEqual([`${root}/data`, `${root}/public/uploads`, `${root}/data/logs`]);
+    });
+
+    it('the app-side validation agrees (script and lib/config.js share one rule set)', () => {
+      expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/app/lib/scratch' }, '/app')).toHaveLength(1);
+      expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/app/public' }, '/app')).toHaveLength(1);
+      expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/app/scratch' }, '/app')).toEqual([]);
+      expect(validateStoragePaths({ UPLOAD_TMP_DIR: '/tmp/butler-upload-tmp' }, '/app')).toEqual([]);
+    });
+  });
+
   it('never follows links (no -L / -H) and never repairs before the path checks passed', () => {
     const res = run({ UPLOADS_DIR: '/etc/uploads' });
     expect(res.status).toBe(1);

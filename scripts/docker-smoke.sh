@@ -88,6 +88,13 @@ docker run --rm -e LOG_DIR=/app/var/log -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HAS
   sh -c 'test -w /app/var/log && [ "$(stat -c %a /app/var)" = 755 ] && [ "$(stat -c %a /app/var/log)" = 700 ]' || fail "custom LOG_DIR with new parents is not reachable/private for the app user"
 echo "ok: new parents of a custom path stay traversable"
 
+# A custom UPLOAD_TMP_DIR inside /app is prepared by the entrypoint (the app user cannot create it under root-owned /app):
+# loading the upload module as the app user must succeed (it refuses to start on a scratch dir it does not own, or that is not 0700).
+docker run --rm -e UPLOAD_TMP_DIR=/app/scratch -e AUTH_USERNAME=u -e "AUTH_PASSWORD_HASH=$HASH" -e "JWT_SECRET=$JWT" -e PUID=1234 -e PGID=5678 \
+  -v "$VOL_DATA:/app/data" -v "$VOL_UPLOADS:/app/public/uploads" "$TAG" \
+  node -e "require('./lib/uploads'); console.log('scratch ok')" > /dev/null || fail "custom UPLOAD_TMP_DIR inside /app is not usable by the app user"
+echo "ok: custom UPLOAD_TMP_DIR inside /app is prepared"
+
 # A mutating call must reach the action log on stdout (what `docker logs` shows).
 LOGIN="$(call POST /api/auth/login '' '{"username":"smoketest","password":"smoketest-password"}' || true)"
 TOKEN="$(printf '%s' "$LOGIN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"

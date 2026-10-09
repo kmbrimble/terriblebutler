@@ -27,7 +27,10 @@ services:
       # to Cloudflare's ranges) for X-Forwarded-For to carry the right address; otherwise it carries a
       # Cloudflare edge. Never trust docker0 (172.17.0.0/16) or a network whose gateway can carry direct
       # client traffic, and never true or *. Unset = trust nothing.
-      # - TRUST_PROXY=172.18.0.5
+      # e.g. TRUST_PROXY=172.18.0.5 (set in the environment or an .env file; empty = trust nothing)
+      - TRUST_PROXY=${TRUST_PROXY:-}
+      # The public origin browsers use (Socket.IO checks it): https://butler.kiztigs.com
+      - APP_ORIGIN=${APP_ORIGIN:-}
     volumes:
       - ./data:/app/data
       # Must match UPLOADS_DIR (set in the Dockerfile to /app/public/uploads).

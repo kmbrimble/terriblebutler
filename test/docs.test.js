@@ -81,7 +81,7 @@ describe('client-IP / proxy guidance matches the verified topology', () => {
 
   it('the compose comment and the startup warning say the same thing as CLAUDE.md', () => {
     const compose = read('docker-compose.yml');
-    expect(compose).toMatch(/# - TRUST_PROXY=172\.18\.0\.5/);
+    expect(compose).toMatch(/e\.g\. TRUST_PROXY=172\.18\.0\.5/);
     expect(compose).toContain('CF-Connecting-IP');
     const warning = read('server.js').split('\n').find((l) => l.includes('Neither APP_ORIGIN nor TRUST_PROXY'));
     expect(warning).toContain('CF-Connecting-IP');
