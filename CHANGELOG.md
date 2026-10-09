@@ -4,6 +4,22 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
 
 ## [Unreleased]
 
+## 0.44 - 2026-10-09
+
+### Security remediation: Socket.IO connection-cap race
+
+**No migration, no new environment variables, no deploy-time action beyond the usual force update.**
+- The per-client and overall Socket.IO connection caps (0.43) counted a session only when engine.io announced it, which happens after `allowRequest`
+  passes and after an awaited step (`generateId`), so a burst of simultaneous handshakes from one client could all clear the cap before any was counted.
+  A slot is now reserved atomically in `allowRequest`, in the same synchronous step that checks the caps, and is "pending" until that request becomes a
+  session ("open", until the engine session closes). A pending slot that never becomes a session is released on engine.io's `connection_error` for that
+  request, or after 10 s at the latest, so counts cannot leak. With the stock engine.io id source the window is only a microtask wide; the fix closes it
+  for any slower id source and for future engine.io changes.
+- A connection refused by the Socket.IO token check is now closed by the server a quarter-second after the refusal is sent, instead of being left open
+  until the client leaves, so failed-auth clients do not hold slots.
+- Tests: N simultaneous handshakes (polling and WebSocket, one client and across clients) against a cap of M < N let exactly M through; slots are fully
+  released after normal closes, failed-auth handshakes, a handshake that never completes, and one that fails after `allowRequest`.
+
 ## 0.43 - 2026-10-09
 
 ### Security remediation round 3: the remaining audit items

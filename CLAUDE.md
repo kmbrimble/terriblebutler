@@ -59,7 +59,8 @@ middleware logic. The actual code lives in:
 - `lib/realtime.js` — `createRealtime(server, authenticateToken, …, limits)`: Socket.IO construction, connection limits (handshake
   rate `SOCKET_HANDSHAKE_RATE_LIMIT_MAX` 60/min, open sockets `SOCKET_MAX_PER_CLIENT` 20 and `SOCKET_MAX_TOTAL` 200, keyed exactly as the
   Express limiters key clients — `proxy-addr` over the same compiled `TRUST_PROXY`, IPv6 /64 — and counted at the engine level so a
-  socket that never authenticates still counts),
+  socket that never authenticates still counts; a slot is reserved atomically in `allowRequest` and released on connection error, after a 10 s TTL, or
+  when the engine session closes, so a burst cannot overshoot the cap and nothing leaks; a token-refused session is closed by the server),
   handshake auth, Origin enforcement (`allowRequest`; `APP_ORIGIN`, or the full scheme+host+port of the request, taking `X-Forwarded-Proto/Host` only from a `TRUST_PROXY` peer; a missing Origin is allowed, the token is still required), per-socket
   credential, `disconnectSockets`, `watchExpiry` (a socket never outlives its credential), `broadcastUpdate`. Takes the HTTP server and `authenticateToken` as
   parameters specifically to break the `broadcastUpdate` → `io` → `server` → `app` → routes
