@@ -1,6 +1,6 @@
 // Deterministic parser for Woolworths "Supplied" invoice PDFs (text already extracted via
 // pdf-parse). No LLM involved — see CLAUDE.md / the invoice-import feature plan for why.
-const { parseAuDate } = require('./shared');
+const { parseAuDate, parseMoney, parseQuantity } = require('./shared');
 
 // A resolved product row's tab-separated tail is always [description, ordered, supplied,
 // price, amount] once any line-number prefix has been stripped and any wrapped description
@@ -17,11 +17,11 @@ function resolveTokens(parts) {
   const orderedTok = parts[parts.length - 4];
   const suppliedTok = parts[parts.length - 3];
 
-  const priceMatch = priceTok.match(/^\$?([\d.]+)$/);
-  const amountMatch = amountTok.match(/^\$?([\d.]+)$/);
-  const orderedMatch = orderedTok.match(/^([\d.]+)/);
-  const suppliedMatch = suppliedTok.match(/^([\d.]+)/);
-  if (!priceMatch || !amountMatch || !orderedMatch || !suppliedMatch) return null;
+  const price = parseMoney(priceTok);
+  const amount = parseMoney(amountTok);
+  const ordered = parseQuantity(orderedTok);
+  const supplied = parseQuantity(suppliedTok);
+  if (price === null || amount === null || ordered === null || supplied === null) return null;
 
   let name = parts.slice(0, parts.length - 4).join(' ');
   let gstApplicable = false;
@@ -31,10 +31,10 @@ function resolveTokens(parts) {
   }
   return {
     raw_name: name,
-    qty_ordered: parseFloat(orderedMatch[1]),
-    qty_supplied: parseFloat(suppliedMatch[1]),
-    unit_price: parseFloat(priceMatch[1]),
-    line_total: parseFloat(amountMatch[1]),
+    qty_ordered: ordered,
+    qty_supplied: supplied,
+    unit_price: price,
+    line_total: amount,
     gst_applicable: gstApplicable,
   };
 }

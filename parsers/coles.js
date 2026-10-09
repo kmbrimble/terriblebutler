@@ -1,6 +1,6 @@
 // Deterministic parser for Coles Online invoice PDFs (text already extracted via pdf-parse).
 // No LLM involved — see CLAUDE.md / the invoice-import feature plan for why.
-const { parseAuDate } = require('./shared');
+const { parseAuDate, parseMoney, parseQuantity } = require('./shared');
 
 function tryResolveRow(line) {
   const parts = line.split('\t').map((s) => s.trim()).filter(Boolean);
@@ -8,11 +8,12 @@ function tryResolveRow(line) {
   const [nameTok, orderedTok, pickedTok, priceTok, totalTok] = parts;
   if (/out of stock/i.test(nameTok)) return null;
 
-  const ordered = parseFloat(orderedTok);
-  const picked = parseFloat(pickedTok);
-  const priceMatch = priceTok.match(/^\$([\d.]+)$/);
-  const totalMatch = totalTok.match(/^\$([\d.]+)$/);
-  if (!Number.isFinite(ordered) || !Number.isFinite(picked) || !priceMatch || !totalMatch) return null;
+  const ordered = parseQuantity(orderedTok);
+  const picked = parseQuantity(pickedTok);
+  // Coles prices always carry the dollar sign; a bare number is some other column.
+  const price = priceTok.startsWith('$') ? parseMoney(priceTok) : null;
+  const total = totalTok.startsWith('$') ? parseMoney(totalTok) : null;
+  if (ordered === null || picked === null || price === null || total === null) return null;
   // "Picked quantity is 0 or absent" -> out of stock, excluded even if it slipped past the
   // two-line Out of Stock shape below for some reason.
   if (!picked) return null;
@@ -27,8 +28,8 @@ function tryResolveRow(line) {
     raw_name: name,
     qty_ordered: ordered,
     qty_supplied: picked,
-    unit_price: parseFloat(priceMatch[1]),
-    line_total: parseFloat(totalMatch[1]),
+    unit_price: price,
+    line_total: total,
     gst_applicable: gstApplicable,
   };
 }

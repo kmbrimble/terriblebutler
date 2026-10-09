@@ -41,6 +41,20 @@ The minor version (after the dot) is an integer counter that increments by 1 eac
   and only warns, and with it the install is warning-free and the binding loads; the Dockerfile now also `require`s better-sqlite3 right after the install,
   so a lost allow-list fails the build. A test checks every lockfile package that declares an install script has an explicit decision. `.npmrc` also sets `min-release-age=7`, matching the Dependabot cooldown (lockfile installs are unaffected).
 
+**Found in the final review (counsel, GPT-5.6; one finding was a false positive)**
+- Socket.IO: a handshake that outlived its 10 s reservation (a stalled id source) could still complete later and be counted on top of the slot it had
+  given back, exceeding a cap. Such a session is now closed on arrival instead of being counted.
+- Invoice matching: when several items share a barcode or a normalised name (legacy data can), the importer no longer merges the line into whichever
+  came first. `findMatch` returns every candidate and no auto-applicable `item`; the line is staged as a suggestion (category/location from the
+  first candidate) and the reviewer chooses. A unique match behaves as before, and an explicit `matched_item_id` in the review is honoured.
+- Parsers: `parseAuDate` returns null for impossible dates (31 Feb, day 0) instead of storing them as the invoice date; quantities and prices are read
+  as whole plain decimals (`parseQuantity` allows a trailing unit word such as `0.526 kg`; `parseMoney` allows a leading `$`), so `1..2`, `1,000` or
+  `$3..00` make the row unreadable (it is skipped, as other malformed rows already were) instead of becoming a different valid-looking number.
+- Deleting a location whose stock cannot be folded into the item's unassigned row without passing the quantity ceiling is now a clear 409 (it was a
+  generic 500); nothing is changed.
+- Not a defect: the report that step-up passwords are written to the action log. `logger.js` redacts `password` recursively (the reviewer was not shown
+  that file); a test now pins it for both step-up endpoints, right password and wrong.
+
 **Tests, docs and code**
 - New guards: the server closes a connection it refused (a raw WebSocket that never closes itself); `openDatabase()` creates only the `DB_PATH` directory
   (checked on the `mkdir` calls, so it holds whether or not `<repo>/data` exists); `docs.test.js` keeps CLAUDE.md in step with the modules, tables and environment variables.

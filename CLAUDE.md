@@ -49,7 +49,7 @@ write the live database or uploads directory.
 re-exports `{ app, server, db }`. It does not itself contain route handlers, DB setup, or
 middleware logic. The actual code lives in the top-level modules `logger.js` (action log, below),
 `backup.js` (nightly backups), `db-migrations.js` (migrations and the idempotent startup SQL),
-`item-matching.js` (duplicate hierarchy, LLM-candidate selection, fuzzy-query clipping) and `llm-schema.js`
+`item-matching.js` (duplicate hierarchy — a barcode/name shared by several items is never auto-applied —, LLM-candidate selection, fuzzy-query clipping) and `llm-schema.js`
 (validation of LLM output), `parsers/` (`router.js` picks Coles or Woolworths by ABN; `coles.js`,
 `woolworths.js`, `shared.js` — deterministic and linear in the input, guarded by `test/parser-complexity.test.js`),
 `scripts/` (`generate-password-hash.js`, `docker-smoke.sh`, `ensure-shellcheck.js`, `apply-stocktake.js`), and `lib/`:

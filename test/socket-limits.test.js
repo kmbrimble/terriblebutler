@@ -224,3 +224,27 @@ describe('the server ends a session whose token it refused', () => {
     expect(realtime.connectionStats().open).toBe(1);
   });
 });
+
+describe('a handshake that outlives its reservation cannot overshoot the cap', () => {
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('its session is closed on arrival; the slot it gave up is not double-counted', async () => {
+    const server = http.createServer();
+    // The id source takes 400 ms; the reservation lasts 100 ms.
+    const realtime = createRealtime(server, () => ({ type: 'jwt', jti: 'x', expiresAt: Date.now() + 60_000 }), undefined, () => false,
+      { ...BIG, perClientMax: 1, pendingTtlMs: 100, generateId: async () => { await pause(400); return Math.random().toString(36).slice(2); } });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    servers.push(server);
+    const url = `http://127.0.0.1:${server.address().port}`;
+
+    const slow = handshake(url).catch(() => 'closed'); // reserves the only slot, then times out before its session exists
+    await pause(150);
+    expect(realtime.connectionStats().pending).toBe(0); // the TTL gave the slot back
+    const second = handshake(url).catch(() => 'closed'); // admitted into the freed slot (it, too, is slow)
+    await Promise.all([slow, second]);
+    await pause(300);
+    // two handshakes were admitted for a cap of one; only one session may survive, and the stats agree with the engine
+    expect(realtime.io.engine.clientsCount).toBeLessThanOrEqual(1);
+    expect(realtime.connectionStats().open).toBe(realtime.io.engine.clientsCount);
+  });
+});
