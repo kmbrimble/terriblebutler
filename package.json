@@ -17,10 +17,10 @@
     "fsevents": false
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.1",
+    "@anthropic-ai/sdk": "^0.134.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "fuse.js": "^7.5.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
@@ -30,11 +30,11 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.64.1",
     "playwright": "^1.64.0",
     "socket.io-client": "^4.8.4",
     "supertest": "^7.3.1",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=24"
