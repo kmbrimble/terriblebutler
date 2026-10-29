@@ -20,21 +20,21 @@
     "@anthropic-ai/sdk": "^0.132.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "fuse.js": "^7.5.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.4.0",
+    "multer": "^2.5.0",
     "pdf-parse": "^2.4.5",
     "proxy-addr": "^2.0.8",
     "sharp": "^0.35.5",
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.64.1",
     "playwright": "^1.64.0",
     "socket.io-client": "^4.8.4",
     "supertest": "^7.3.1",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=24"
