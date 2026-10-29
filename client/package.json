@@ -22,10 +22,10 @@
     "@fontsource/roboto": "^5.3.0",
     "@fontsource/varela-round": "^5.3.0",
     "@fontsource/vt323": "^5.3.0",
-    "cropperjs": "^2.3.0",
+    "cropperjs": "^2.3.1",
     "html5-qrcode": "^2.3.8",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
@@ -36,8 +36,8 @@
     "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
-    "vitest": "^5.0.3"
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=24"
