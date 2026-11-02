@@ -9,6 +9,10 @@ on:
   schedule:
     - cron: '0 20 * * 0'   # Sunday 20:00 UTC = Monday 06:00 AEST
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: log what Renovate would do, open no PRs (true/false)"
+        default: "false"
 
 jobs:
   renovate:
@@ -24,4 +28,5 @@ jobs:
           RENOVATE_REPOSITORIES: kmbrimble/terriblebutler
           RENOVATE_GIT_AUTHOR: 'Butler Bot <butler-bot@kiztigs.com>'
           LOG_LEVEL: info
+          RENOVATE_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && 'full' || 'false' }}
         run: renovate
