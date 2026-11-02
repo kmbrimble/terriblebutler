@@ -1,5 +1,5 @@
-// Guards for repository and CI configuration that has no other test: Dependabot, the @claude
-// workflow gate, and the documented Dockerfile exceptions.
+// Guards for repository and CI configuration that has no other test: Renovate (which replaced Dependabot when the
+// repo moved to Gitea), the CI/publish workflow split, and the documented Dockerfile exceptions.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
@@ -7,41 +7,33 @@ import path from 'path';
 const repo = path.resolve(import.meta.dirname, '..');
 const read = (f) => fs.readFileSync(path.join(repo, f), 'utf8');
 
-describe('.github/dependabot.yml', () => {
-  const blocks = read('.github/dependabot.yml').split(/^ {2}- package-ecosystem: /m).slice(1);
+describe('renovate.json (replaces .github/dependabot.yml)', () => {
+  const config = JSON.parse(read('renovate.json'));
 
-  it('covers npm (server and client), docker and github-actions', () => {
-    expect(blocks.map((b) => b.split('\n')[0])).toEqual(['npm', 'npm', 'docker', 'github-actions']);
+  it('covers npm (server and client), the Dockerfile and GitHub/Gitea Actions', () => {
+    expect(config.enabledManagers).toEqual(['npm', 'dockerfile', 'github-actions']);
+    const files = config.packageRules.flatMap((r) => r.matchFileNames ?? []);
+    expect(files).toContain('package.json');
+    expect(files).toContain('client/package.json');
   });
 
-  it.each([0, 1, 2, 3])('update block %i has a cooldown on version updates', (index) => {
-    expect(blocks[index]).toMatch(/^ {4}cooldown:\n {6}default-days: ([1-9]\d*)$/m);
-  });
-});
-
-describe('.github/workflows/claude.yml', () => {
-  const workflow = read('.github/workflows/claude.yml');
-  const condition = workflow.slice(workflow.indexOf('    if: |'), workflow.indexOf('    runs-on'));
-  const branches = condition.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith('(github.event_name =='));
-
-  it('has a branch per trigger, and every branch checks the author association', () => {
-    expect(branches).toHaveLength(4);
-    for (const branch of branches) {
-      expect(branch).toContain('@claude');
-      expect(branch).toMatch(/fromJSON\('\["OWNER","MEMBER","COLLABORATOR"\]'\), github\.event\.(comment|review|issue)\.author_association\)/);
-    }
+  it('keeps the release-age cooldown on version updates (at least a week)', () => {
+    expect(config.minimumReleaseAge).toMatch(/^([7-9]|\d\d+) days$/);
+    // Semgrep (p/default) also wants it inside the packageRules, so every rule carries it
+    for (const rule of config.packageRules) expect(rule.minimumReleaseAge, rule.description).toMatch(/^([7-9]|\d\d+) days$/);
   });
 
-  it('reads the association from the same payload object as the text it matched', () => {
-    const pairs = [['issue_comment', 'comment'], ['pull_request_review_comment', 'comment'], ['pull_request_review', 'review'], ['issues', 'issue']];
-    for (const [event, object] of pairs) {
-      const branch = branches.find((b) => b.includes(`'${event}'`));
-      expect(branch, event).toContain(`github.event.${object}.author_association`);
-    }
+  it('is run by a scheduled Gitea workflow that uses a Gitea token and no GitHub token', () => {
+    const wf = read('.gitea/workflows/renovate.yml');
+    expect(wf).toMatch(/^\s+- cron: /m);
+    expect(wf).toMatch(/RENOVATE_PLATFORM: gitea/);
+    expect(wf).toMatch(/RENOVATE_TOKEN: \$\{\{ secrets\.RENOVATE_TOKEN \}\}/);
+    expect(wf).not.toMatch(/GITHUB_COM_TOKEN|GH_TOKEN|GITHUB_TOKEN/);
   });
 
-  it('does not admit the weaker associations', () => {
-    expect(condition).not.toMatch(/CONTRIBUTOR|FIRST_TIME|NONE|MANNEQUIN/);
+  it('the Claude Code GitHub action and Dependabot are gone', () => {
+    expect(fs.existsSync(path.join(repo, '.github/workflows/claude.yml'))).toBe(false);
+    expect(fs.existsSync(path.join(repo, '.github/dependabot.yml'))).toBe(false);
   });
 });
 
@@ -126,25 +118,30 @@ describe('npm install scripts are an explicit allow-list', () => {
   });
 });
 
-describe('.github/workflows/build.yml', () => {
-  const workflow = read('.github/workflows/build.yml');
-  const jobs = workflow.slice(workflow.indexOf('\njobs:'));
-  const gate = jobs.slice(jobs.indexOf('\n  gate:'), jobs.indexOf('\n  build-and-push:'));
-  const build = jobs.slice(jobs.indexOf('\n  build-and-push:'));
+describe('CI and publishing workflows (Gitea CI gates; the GitHub mirror only publishes the image)', () => {
+  const ci = read('.gitea/workflows/ci.yml');
+  const build = read('.github/workflows/build.yml');
+  const gate = ci.slice(ci.indexOf('\n  gate:'));
 
-  it('every action is pinned to a full commit SHA (with its version in a comment)', () => {
-    const uses = [...workflow.matchAll(/^\s*uses:\s*(\S+)(.*)$/gm)];
-    expect(uses.length).toBeGreaterThanOrEqual(5);
-    for (const [, ref, rest] of uses) {
-      expect(ref, ref).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
-      expect(rest, ref).toMatch(/# v\d/);
+  it('every action in every workflow is pinned to a full commit SHA (with its version in a comment)', () => {
+    for (const workflow of [ci, build]) {
+      const uses = [...workflow.matchAll(/^\s*uses:\s*(\S+)(.*)$/gm)];
+      expect(uses.length).toBeGreaterThanOrEqual(3);
+      for (const [, ref, rest] of uses) {
+        expect(ref, ref).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
+        expect(rest, ref).toMatch(/# v\d/);
+      }
     }
   });
 
-  it('the image is built only after the gate, and only for a push to main', () => {
-    expect(build).toMatch(/^\s+needs: gate$/m);
-    expect(build).toMatch(/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+  it('the image is built and pushed only by the GitHub workflow, only for a push to main, and the gate cannot publish', () => {
+    expect(build).toMatch(/^    branches:\n      - main$/m);
+    expect(build).toMatch(/if: github\.ref == 'refs\/heads\/main'/);
     expect(gate).not.toMatch(/packages: write|docker\/login-action|push: true/);
+  });
+
+  it('the GitHub workflow can never write back to the repository (it is a mirror target)', () => {
+    expect(build).not.toMatch(/contents: write|git push|git commit|git tag|gh release|gh pr/);
   });
 
   it('the gate runs everything the owner requires, on Node 24', () => {
@@ -158,23 +155,23 @@ describe('.github/workflows/build.yml', () => {
   });
 
   it('downloaded tools are version-pinned and checksum-verified, and semgrep is pinned', () => {
-    expect(workflow).toMatch(/SEMGREP_VERSION: '\d+\.\d+\.\d+'/);
+    expect(ci).toMatch(/SEMGREP_VERSION: '\d+\.\d+\.\d+'/);
     for (const tool of ['HADOLINT', 'OSV_SCANNER']) {
-      expect(workflow).toMatch(new RegExp(`${tool}_VERSION: 'v\\d+\\.\\d+\\.\\d+'`));
-      expect(workflow).toMatch(new RegExp(`${tool}_SHA256: '[0-9a-f]{64}'`));
+      expect(ci).toMatch(new RegExp(`${tool}_VERSION: 'v\\d+\\.\\d+\\.\\d+'`));
+      expect(ci).toMatch(new RegExp(`${tool}_SHA256: '[0-9a-f]{64}'`));
     }
     expect((gate.match(/sha256sum --check --strict/g) || []).length).toBe(2);
     expect(gate).not.toMatch(/curl[^\n]*\|\s*(ba)?sh/);
   });
 
-  it('token permissions are read-only at the top; only the publishing job may write packages', () => {
-    expect(workflow).toMatch(/^permissions:\n  contents: read$/m);
+  it('GitHub token permissions are read-only at the top; only the publishing job may write packages', () => {
+    expect(build).toMatch(/^permissions:\n  contents: read$/m);
     expect(build).toMatch(/permissions:\n\s+contents: read\n\s+packages: write/);
   });
 
-  it('runs on branch pushes and pull requests so it can be proven before merging', () => {
-    expect(workflow).toMatch(/^\s+- 'security\/\*\*'$/m);
-    expect(workflow).toMatch(/^  pull_request:$/m);
-    expect(workflow).toMatch(/^  workflow_dispatch:$/m);
+  it('the gate runs on pushes and pull requests so it can be proven before merging (it is the required check on main)', () => {
+    expect(ci).toMatch(/^  push:$/m);
+    expect(ci).toMatch(/^  pull_request:$/m);
+    expect(ci).toMatch(/^  workflow_dispatch:$/m);
   });
 });

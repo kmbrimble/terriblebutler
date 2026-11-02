@@ -1,0 +1,93 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigestsToSemver"
+  ],
+  "enabledManagers": [
+    "npm",
+    "dockerfile",
+    "github-actions"
+  ],
+  "minimumReleaseAge": "7 days",
+  "prConcurrentLimit": 10,
+  "dependencyDashboard": false,
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "Server (root package.json): minor and patch updates in one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "package.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "server-minor-patch",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Server dev tooling in one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "package.json"
+      ],
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "groupName": "server-dev-tooling",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Client (client/package.json): minor and patch updates in one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "client/package.json"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "client-minor-patch",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Client dev tooling in one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "client/package.json"
+      ],
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "groupName": "client-dev-tooling",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "All GitHub/Gitea Actions updates in one PR",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "actions",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Everything else: same 7-day cooldown as the top-level default (also what the Semgrep rule asks for in packageRules)",
+      "matchPackageNames": [
+        "*"
+      ],
+      "minimumReleaseAge": "7 days"
+    }
+  ]
+}

@@ -20,7 +20,11 @@ milestone itself.
 ## Layout
 
 - Repo (in container): `/projects/butler`
-- GitHub: `kmbrimble/terriblebutler`
+- Forge: **Gitea is primary** (`https://git.kiztigs.com/kmbrimble/terriblebutler`, public to signed-in users); `github.com/kmbrimble/terriblebutler`
+  is a push mirror (synced on every push and every 10 minutes) that exists only to publish the GHCR image. Use `gt`, not `gh`, for issues and PRs.
+  **Never push to GitHub directly** (the mirror force-syncs and prunes). `main` is protected: PR + the green `CI / gate (pull_request)` check;
+  butler-bot merges its own green PRs. GitHub has Issues, Wiki, Projects, Discussions and PRs switched off; the Claude Code GitHub action
+  (`claude.yml`) and Dependabot were removed in the move, Renovate replaces Dependabot (see "Dependency updates").
 - Live container: `terrible-butler`, port 2626, `https://butler.kiztigs.com`
 - Live data: `/mnt/user/appdata/butler/data/inventory.db` (host) — **never touched by tests**
 - Live uploads: `/mnt/user/appdata/butler/uploads` (host) → `/app/public/uploads` in the container = `UPLOADS_DIR`
@@ -259,7 +263,7 @@ runs `node server.js` as PID 1, so SIGTERM reaches `lib/shutdown.js` directly.
   `scripts`, built `client/dist`); a new top-level server module must be added to the Dockerfile
   (`test/docker-build-context.test.js` fails otherwise).
 - The base image is pinned by digest (`ARG NODE_IMAGE` in the Dockerfile, tag `node:24-slim`);
-  Dependabot bumps it. Debian apt packages are deliberately not version-pinned (builder stage
+  Renovate bumps it (`dockerfile` manager). Debian apt packages are deliberately not version-pinned (builder stage
   only, discarded; pinned apt versions disappear from mirrors and break builds).
 
 ## Client IP and rate limits
@@ -395,9 +399,12 @@ the deploy itself revokes nothing. Neither the key nor the digest's input is sto
 
 ## Deploy and verify
 
-1. Push to `main`.
-2. Watch GitHub Actions: the `gate` job (full test suite, e2e, scanners; `.github/workflows/build.yml`) must pass before `build-and-push` runs
-   and publishes `:latest`. `gh run list --workflow build.yml --limit 1`, then `gh run watch <id> --exit-status`.
+1. Open a PR on Gitea and merge it when green. The `gate` job (full test suite, e2e, scanners; `.gitea/workflows/ci.yml`) is the required check, so
+   nothing reaches `main` without it. (Direct pushes to `main` are rejected.)
+2. The mirror pushes `main` to GitHub within about a minute; `.github/workflows/build.yml` there then builds and publishes
+   `ghcr.io/kmbrimble/terriblebutler:latest` (no gate on GitHub: the gate already ran on Gitea). Watch it with
+   `gh run list -R kmbrimble/terriblebutler --workflow build.yml --limit 1`, then `gh run watch <id> -R kmbrimble/terriblebutler --exit-status`
+   (a read on GitHub; the forge guard warns about `gh` for mirror repos, that is expected). CI runs: `gt run list -R kmbrimble/terriblebutler`.
 3. On success, tell the user: **force update the `terrible-butler` container in unRAID's Docker
    tab.** The `butler-proxynet-autoconnect` User Script re-attaches `proxynet` automatically, so
    no 502 is expected.
@@ -420,7 +427,14 @@ Reviewed and decided by the owner; a scanner or reviewer flagging these has foun
 - **The JWT lives in `localStorage`** (client). The XSS control is the strict CSP (constraint #9), not cookie flags; there are no cookies
   for the API, which is also why no CSRF middleware is needed.
 
+## Dependency updates (Renovate)
+
+`.gitea/workflows/renovate.yml` runs Renovate (`renovate.json`) weekly (Monday 06:00 AEST, or `workflow_dispatch`) on the Gitea runner, platform `gitea`,
+with butler-bot's token as the repo Actions secret `RENOVATE_TOKEN` (no GitHub token; GitHub-API lookups are unauthenticated and may be rate limited).
+It opens PRs that need the same `CI / gate` check; the Dependabot groups and 7-day release-age cooldown were carried over. The four Dependabot PRs that
+were open at migration time (#67-#70) were left as they were; Renovate does not take them over.
+
 ## Scope notes
 
-- Do not modify `.github/workflows/` unless the request is explicitly about CI.
+- Do not modify `.gitea/workflows/` or `.github/workflows/` unless the request is explicitly about CI.
 - Do not modify the live container, live database, or live uploads directory.

@@ -1,0 +1,27 @@
+name: Renovate
+
+# Replaces Dependabot (GitHub-only). Runs weekly on the Gitea runner against this repository only, opening update PRs
+# that go through the normal required check ("CI / gate"); butler-bot merges the green ones. Configuration is in
+# renovate.json. RENOVATE_TOKEN is a repository Actions secret holding butler-bot's Gitea token; there is deliberately
+# no GitHub token, so lookups that hit the GitHub API (action release notes) run unauthenticated and may be rate limited.
+
+on:
+  schedule:
+    - cron: '0 20 * * 0'   # Sunday 20:00 UTC = Monday 06:00 AEST
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    container:
+      image: renovate/renovate:44.200.0
+    steps:
+      - name: Run Renovate
+        env:
+          RENOVATE_PLATFORM: gitea
+          RENOVATE_ENDPOINT: https://git.kiztigs.com/api/v1/
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          RENOVATE_REPOSITORIES: kmbrimble/terriblebutler
+          RENOVATE_GIT_AUTHOR: 'Butler Bot <butler-bot@kiztigs.com>'
+          LOG_LEVEL: info
+        run: renovate
