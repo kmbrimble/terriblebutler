@@ -430,7 +430,7 @@ Reviewed and decided by the owner; a scanner or reviewer flagging these has foun
 ## Dependency updates (Renovate)
 
 `.gitea/workflows/renovate.yml` runs Renovate (`renovate.json`) weekly (Monday 06:00 AEST, or `workflow_dispatch`) on the Gitea runner, platform `gitea`,
-with butler-bot's token as the repo Actions secret `RENOVATE_TOKEN` (no GitHub token; GitHub-API lookups are unauthenticated and may be rate limited).
+with butler-bot's token as the repo Actions secret `RENOVATE_TOKEN` (no write-capable GitHub token). GitHub-API lookups use a read-only, no-permission token passed as `RENOVATE_GITHUB_COM_TOKEN` from an org-level Actions secret of that name; if the secret is unset it is an empty string and Renovate falls back to unauthenticated (rate-limited) lookups.
 It opens PRs that need the same `CI / gate` check; the Dependabot groups and 7-day release-age cooldown were carried over. The four Dependabot PRs that
 were open at migration time (#67-#70) were left as they were; Renovate does not take them over.
 

@@ -3,7 +3,8 @@ name: Renovate
 # Replaces Dependabot (GitHub-only). Runs weekly on the Gitea runner against this repository only, opening update PRs
 # that go through the normal required check ("CI / gate"); butler-bot merges the green ones. Configuration is in
 # renovate.json. RENOVATE_TOKEN is a repository Actions secret holding butler-bot's Gitea token; there is deliberately
-# no GitHub token, so lookups that hit the GitHub API (action release notes) run unauthenticated and may be rate limited.
+# no write-capable GitHub token; RENOVATE_GITHUB_COM_TOKEN is a read-only token with no permissions, used only to avoid the
+# unauthenticated GitHub API rate limit on release lookups.
 
 on:
   schedule:
@@ -25,6 +26,9 @@ jobs:
           RENOVATE_PLATFORM: gitea
           RENOVATE_ENDPOINT: https://git.kiztigs.com/api/v1/
           RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          # Read-only GitHub token (public repos, no permissions) so GitHub-API lookups are not rate limited. Org-level Actions secret;
+          # while it is unset this is an empty string, which Renovate ignores (it only acts on a non-empty value).
+          RENOVATE_GITHUB_COM_TOKEN: ${{ secrets.RENOVATE_GITHUB_COM_TOKEN }}
           RENOVATE_REPOSITORIES: kmbrimble/terriblebutler
           RENOVATE_GIT_AUTHOR: 'Butler Bot <butler-bot@kiztigs.com>'
           LOG_LEVEL: info

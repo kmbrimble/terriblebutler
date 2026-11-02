@@ -23,12 +23,14 @@ describe('renovate.json (replaces .github/dependabot.yml)', () => {
     for (const rule of config.packageRules) expect(rule.minimumReleaseAge, rule.description).toMatch(/^([7-9]|\d\d+) days$/);
   });
 
-  it('is run by a scheduled Gitea workflow that uses a Gitea token and no GitHub token', () => {
+  it('is run by a scheduled Gitea workflow that uses a Gitea token and only a read-only GitHub lookup token', () => {
     const wf = read('.gitea/workflows/renovate.yml');
     expect(wf).toMatch(/^\s+- cron: /m);
     expect(wf).toMatch(/RENOVATE_PLATFORM: gitea/);
     expect(wf).toMatch(/RENOVATE_TOKEN: \$\{\{ secrets\.RENOVATE_TOKEN \}\}/);
-    expect(wf).not.toMatch(/GITHUB_COM_TOKEN|GH_TOKEN|GITHUB_TOKEN/);
+    // the one GitHub credential allowed is the read-only lookup token (org secret), passed as Renovate's own env name
+    expect(wf).toMatch(/RENOVATE_GITHUB_COM_TOKEN: \$\{\{ secrets\.RENOVATE_GITHUB_COM_TOKEN \}\}/);
+    expect(wf.replace(/RENOVATE_GITHUB_COM_TOKEN/g, '')).not.toMatch(/GITHUB_COM_TOKEN|GH_TOKEN|GITHUB_TOKEN/);
   });
 
   it('the Claude Code GitHub action and Dependabot are gone', () => {
