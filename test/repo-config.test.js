@@ -120,15 +120,15 @@ describe('npm install scripts are an explicit allow-list', () => {
   });
 });
 
-describe('CI and publishing workflows (Gitea CI gates; the GitHub mirror only publishes the image)', () => {
+describe('CI and publishing workflows (the Gitea gate gates merges; a separate Gitea workflow publishes the image to the Gitea registry)', () => {
   const ci = read('.gitea/workflows/ci.yml');
-  const build = read('.github/workflows/build.yml');
+  const build = read('.gitea/workflows/image.yml');
   const gate = ci.slice(ci.indexOf('\n  gate:'));
 
   it('every action in every workflow is pinned to a full commit SHA (with its version in a comment)', () => {
     for (const workflow of [ci, build]) {
       const uses = [...workflow.matchAll(/^\s*uses:\s*(\S+)(.*)$/gm)];
-      expect(uses.length).toBeGreaterThanOrEqual(3);
+      expect(uses.length).toBeGreaterThanOrEqual(workflow === build ? 1 : 3);
       for (const [, ref, rest] of uses) {
         expect(ref, ref).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
         expect(rest, ref).toMatch(/# v\d/);
@@ -136,13 +136,14 @@ describe('CI and publishing workflows (Gitea CI gates; the GitHub mirror only pu
     }
   });
 
-  it('the image is built and pushed only by the GitHub workflow, only for a push to main, and the gate cannot publish', () => {
-    expect(build).toMatch(/^    branches:\n      - main$/m);
-    expect(build).toMatch(/if: github\.ref == 'refs\/heads\/main'/);
-    expect(gate).not.toMatch(/packages: write|docker\/login-action|push: true/);
+  it('the image is built and pushed only by the image workflow, only for a push to main, and the gate cannot publish', () => {
+    expect(build).toMatch(/^    branches: \[main\]$/m);
+    expect(build).toMatch(/IMAGE: git\.kiztigs\.com\/kmbrimble\/terriblebutler/);
+    expect(gate).not.toMatch(/docker login|docker push|git\.kiztigs\.com\/kmbrimble\/terriblebutler/);
+    expect(fs.existsSync(path.join(repo, '.github/workflows/build.yml'))).toBe(false);
   });
 
-  it('the GitHub workflow can never write back to the repository (it is a mirror target)', () => {
+  it('the image workflow can never write back to the repository', () => {
     expect(build).not.toMatch(/contents: write|git push|git commit|git tag|gh release|gh pr/);
   });
 
@@ -166,9 +167,10 @@ describe('CI and publishing workflows (Gitea CI gates; the GitHub mirror only pu
     expect(gate).not.toMatch(/curl[^\n]*\|\s*(ba)?sh/);
   });
 
-  it('GitHub token permissions are read-only at the top; only the publishing job may write packages', () => {
-    expect(build).toMatch(/^permissions:\n  contents: read$/m);
-    expect(build).toMatch(/permissions:\n\s+contents: read\n\s+packages: write/);
+  it('the image workflow publishes only to the Gitea registry with the job token (no GHCR, no stored secret)', () => {
+    expect(build).not.toMatch(/ghcr\.io/);
+    expect(build).toMatch(/TOKEN: \$\{\{ secrets\.GITEA_TOKEN \}\}/);
+    expect(build).toMatch(/docker login "\$REGISTRY"/);
   });
 
   it('the gate runs on pushes and pull requests so it can be proven before merging (it is the required check on main)', () => {
