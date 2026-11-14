@@ -21,7 +21,7 @@ milestone itself.
 
 - Repo (in container): `/projects/butler`
 - Forge: **Gitea is primary** (`https://git.kiztigs.com/kmbrimble/terriblebutler`, public to signed-in users); `github.com/kmbrimble/terriblebutler`
-  is a push mirror (synced on every push and every 10 minutes) that exists only to publish the GHCR image. Use `gt`, not `gh`, for issues and PRs.
+  is a leftover push mirror and publishes nothing (the image is built on Gitea, 15 Nov 2026). Use `gt`, not `gh`, for issues and PRs.
   **Never push to GitHub directly** (the mirror force-syncs and prunes). `main` is protected: PR + the green `CI / gate (pull_request)` check;
   butler-bot merges its own green PRs. GitHub has Issues, Wiki, Projects, Discussions and PRs switched off; the Claude Code GitHub action
   (`claude.yml`) and Dependabot were removed in the move, Renovate replaces Dependabot (see "Dependency updates").
@@ -401,10 +401,9 @@ the deploy itself revokes nothing. Neither the key nor the digest's input is sto
 
 1. Open a PR on Gitea and merge it when green. The `gate` job (full test suite, e2e, scanners; `.gitea/workflows/ci.yml`) is the required check, so
    nothing reaches `main` without it. (Direct pushes to `main` are rejected.)
-2. The mirror pushes `main` to GitHub within about a minute; `.github/workflows/build.yml` there then builds and publishes
-   `ghcr.io/kmbrimble/terriblebutler:latest` (no gate on GitHub: the gate already ran on Gitea). Watch it with
-   `gh run list -R kmbrimble/terriblebutler --workflow build.yml --limit 1`, then `gh run watch <id> -R kmbrimble/terriblebutler --exit-status`
-   (a read on GitHub; the forge guard warns about `gh` for mirror repos, that is expected). CI runs: `gt run list -R kmbrimble/terriblebutler`.
+2. A push to `main` runs `.gitea/workflows/image.yml`, which builds and pushes `git.kiztigs.com/kmbrimble/terriblebutler:latest` to Gitea's container
+   registry (no second gate: the gate already ran on the PR; login uses the org Actions secret `REGISTRY_TOKEN`). Watch it with
+   `gt run list -R kmbrimble/terriblebutler` (the `Image` workflow), then `gt run logs <id> -R kmbrimble/terriblebutler`.
 3. On success, tell the user: **force update the `terrible-butler` container in unRAID's Docker
    tab.** The `butler-proxynet-autoconnect` User Script re-attaches `proxynet` automatically, so
    no 502 is expected.

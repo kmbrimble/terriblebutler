@@ -4,4 +4,4 @@
 
 Household inventory tracking system backend
 
-The container image is published to `ghcr.io/kmbrimble/terriblebutler` from this mirror.
+The container image is published to `git.kiztigs.com/kmbrimble/terriblebutler` (Gitea's container registry).
