@@ -167,10 +167,10 @@ describe('CI and publishing workflows (the Gitea gate gates merges; a separate G
     expect(gate).not.toMatch(/curl[^\n]*\|\s*(ba)?sh/);
   });
 
-  it('the image workflow publishes only to the Gitea registry with the job token (no GHCR, no stored secret)', () => {
+  it('the image workflow publishes only to the Gitea registry with the org REGISTRY_TOKEN secret (no GHCR)', () => {
     expect(build).not.toMatch(/ghcr\.io/);
-    expect(build).toMatch(/TOKEN: \$\{\{ secrets\.GITEA_TOKEN \}\}/);
-    expect(build).toMatch(/docker login "\$REGISTRY"/);
+    expect(build).toMatch(/TOKEN: \$\{\{ secrets\.REGISTRY_TOKEN \}\}/);
+    expect(build).toMatch(/docker login "\$REGISTRY" -u butler-bot/);
   });
 
   it('the gate runs on pushes and pull requests so it can be proven before merging (it is the required check on main)', () => {
