@@ -25,7 +25,8 @@ jobs:
       REGISTRY: git.kiztigs.com
       IMAGE: git.kiztigs.com/kmbrimble/terriblebutler
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Log in to the Gitea registry
         env:
