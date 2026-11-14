@@ -1,0 +1,39 @@
+name: Image
+
+# Builds the container image and pushes it to Gitea's container registry (git.kiztigs.com/kmbrimble/terriblebutler).
+# GHCR is no longer used for this image. Runs on a push to main (the "CI / gate" check already gated the merge) and on demand.
+# Auth: org Actions secret REGISTRY_TOKEN (butler-bot's token; Gitea's registry token endpoint rejects job tokens), user butler-bot.
+# The job container gets the runner VM's own docker socket (runner config valid_volumes).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.gitea.com/runner-images:ubuntu-latest
+      options: --init
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    env:
+      REGISTRY: git.kiztigs.com
+      IMAGE: git.kiztigs.com/kmbrimble/terriblebutler
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Log in to the Gitea registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: echo "$TOKEN" | docker login "$REGISTRY" -u butler-bot --password-stdin
+
+      - name: Build and push
+        run: |
+          docker build -t "$IMAGE:latest" .
+          docker push "$IMAGE:latest"
